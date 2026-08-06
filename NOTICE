@@ -1,0 +1,15 @@
+VayuCell
+Copyright the VayuCell contributors
+
+This product includes software developed by the VayuCell contributors,
+licensed under the Apache License, Version 2.0 (see LICENSE).
+
+The VayuCell Charter (CHARTER.md), the specifications under docs/, the
+governance document (GOVERNANCE.md) and the hardware compatibility database
+under hardware/ are dedicated to the public domain under CC0-1.0
+(see LICENSE-CHARTER).
+
+Documentation is licensed CC-BY-4.0 unless a file states otherwise.
+
+"VayuCell" and its logo are trademarks. The trademark policy is separate from
+the code licence and does not restrict forking; see TRADEMARK.md.

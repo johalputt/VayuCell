@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vayucell.org/schema/device-1.json",
+  "title": "VayuCell device compatibility record",
+  "description": "One verified device profile. CC0-1.0. Records what was OBSERVED on real hardware, never what a spec sheet claims. Contributed voluntarily; contains no identifiers, no location, no account.",
+  "type": "object",
+  "required": ["schema_version", "model", "verified", "tiers", "battery", "reported_at"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": 1 },
+    "model": {
+      "type": "object",
+      "required": ["vendor", "codename", "soc", "ram_mb", "storage_gb"],
+      "additionalProperties": false,
+      "properties": {
+        "vendor":       { "type": "string" },
+        "marketing":    { "type": "string" },
+        "codename":     { "type": "string", "description": "Build codename — the stable identity" },
+        "soc":          { "type": "string" },
+        "ram_mb":       { "type": "integer", "minimum": 256 },
+        "storage_gb":   { "type": "integer", "minimum": 4 },
+        "storage_class":{ "enum": ["emmc", "ufs2", "ufs3", "ufs4", "unknown"] },
+        "release_year": { "type": "integer", "minimum": 2010 }
+      }
+    },
+    "verified": {
+      "type": "boolean",
+      "description": "True only if produced by the profiler on real hardware. Hand-written records are false and are advisory only."
+    },
+    "firmware": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "os":                { "type": "string", "examples": ["android-14", "postmarketos-edge"] },
+        "kernel_version":    { "type": "string" },
+        "kernel_build_date": { "type": "string", "format": "date",
+          "description": "The single best proxy for how long this device has run unpatched code. Drives the permanent security row." },
+        "security_patch":    { "type": "string", "format": "date" }
+      }
+    },
+    "tiers": {
+      "type": "object",
+      "description": "Per ADR-0001. Each tier records whether it was ACHIEVED on this hardware, not whether it is theoretically possible.",
+      "required": ["highest_achieved"],
+      "additionalProperties": false,
+      "properties": {
+        "highest_achieved": { "enum": ["T0", "T1", "T2", "T3"] },
+        "t1_root":            { "$ref": "#/$defs/probe" },
+        "t2_virtualisation":  { "$ref": "#/$defs/probe" },
+        "t3_mainline":        { "$ref": "#/$defs/probe" },
+        "bootloader_unlockable": { "enum": ["yes", "no", "carrier-locked", "unknown"] }
+      }
+    },
+    "battery": {
+      "type": "object",
+      "description": "Per ADR-0002. The safety-critical section.",
+      "required": ["charge_control"],
+      "additionalProperties": false,
+      "properties": {
+        "charge_control": {
+          "type": "object",
+          "required": ["available", "mechanism"],
+          "additionalProperties": false,
+          "properties": {
+            "available": { "type": "boolean" },
+            "mechanism": {
+              "enum": ["none", "end_threshold", "input_suspend", "current_limit", "voltage_max", "device_tree", "host_mediated"]
+            },
+            "node_path":     { "type": "string", "description": "The node that ANSWERED, verbatim" },
+            "verified_hold": { "type": "boolean", "description": "Ceiling was set, read back, and still held after 24h" },
+            "reverted_by":   { "type": "string", "description": "What was observed resetting it, if anything" }
+          }
+        },
+        "design_capacity_mah": { "type": "integer" },
+        "boots_without_battery": {
+          "enum": ["yes", "no", "unknown"],
+          "description": "Empirical only. 'yes' is the safest operating configuration for this model."
+        },
+        "thermal_sensors": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "storage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "flush_honest": {
+          "enum": ["pass", "fail", "untested"],
+          "description": "Power-cut test per ADR-0004. 'fail' means the controller acknowledged a flush it did not perform — device demoted from primary storage."
+        },
+        "wear_indicator_available": { "type": "boolean" }
+      }
+    },
+    "network": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "reachability": { "enum": ["direct", "nat", "carrier-nat", "unknown"] },
+        "modem_present": { "type": "boolean" },
+        "wifi_standard": { "type": "string" }
+      }
+    },
+    "power": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "idle_watts":     { "type": "number" },
+        "loaded_watts":   { "type": "number" },
+        "sustained_load_throttles_after_min": { "type": "number" }
+      }
+    },
+    "notes":       { "type": "string", "maxLength": 2000 },
+    "reported_at": { "type": "string", "format": "date" }
+  },
+  "$defs": {
+    "probe": {
+      "type": "object",
+      "required": ["result"],
+      "additionalProperties": false,
+      "properties": {
+        "result": {
+          "enum": ["present", "absent", "unverified"],
+          "description": "'unverified' is NEVER treated as 'absent' — charter Article IV."
+        },
+        "detail": { "type": "string" }
+      }
+    }
+  }
+}

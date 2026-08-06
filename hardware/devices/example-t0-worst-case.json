@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "model": { "vendor": "ExampleCo", "marketing": "Budget 5", "codename": "budget5",
+    "soc": "BudgetSoC 450", "ram_mb": 3072, "storage_gb": 32, "storage_class": "emmc", "release_year": 2019 },
+  "verified": true,
+  "firmware": { "os": "android-10", "kernel_version": "4.9.190", "kernel_build_date": "2020-11-02", "security_patch": "2021-01-05" },
+  "tiers": { "highest_achieved": "T0",
+    "t1_root": { "result": "absent", "detail": "carrier-locked bootloader; unlock permanently refused" },
+    "t2_virtualisation": { "result": "absent", "detail": "no AVF on this platform" },
+    "t3_mainline": { "result": "absent", "detail": "no mainline port exists" },
+    "bootloader_unlockable": "carrier-locked" },
+  "battery": { "charge_control": { "available": false, "mechanism": "none" },
+    "design_capacity_mah": 4000, "boots_without_battery": "no" },
+  "storage": { "flush_honest": "fail", "wear_indicator_available": false },
+  "network": { "reachability": "nat", "modem_present": true, "wifi_standard": "wifi5" },
+  "power": { "idle_watts": 1.1, "loaded_watts": 3.8, "sustained_load_throttles_after_min": 7 },
+  "notes": "WORST CASE, and the most common device in the world. Permanently T0. No charge control -> safety row permanently red; smart-plug cycling is the only mitigation. Kernel unpatched since 2021 -> permanent security row. Flush test FAILED: demoted from primary storage, replica/cache role only. Still useful; the panel must say all of this on the first screen.",
+  "reported_at": "2026-08-06"
+}
