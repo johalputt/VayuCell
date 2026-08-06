@@ -1,6 +1,11 @@
 # ADR-0002 — The Battery Safety Governor
 
-- **Status:** Proposed
+- **Status:** Accepted — the governor core is implemented in
+  `core/src/governor.rs` and `core/src/battery.rs`. The state machine, the
+  verification loop, the thresholds and the recovery path exist and are
+  mutation-tested. **Not yet built:** the sysfs mechanism implementations
+  themselves, the sampling loop, the UPS shed ladder (§8) and the panel. Nothing
+  here has run on a phone.
 - **Date:** 2026-08-06
 - **Relates to:** CHARTER Article III (safety of persons); ADR-0001 (tiers)
 - **Priority:** P1 — **nothing that serves traffic ships before this**

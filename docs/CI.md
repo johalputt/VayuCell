@@ -212,8 +212,7 @@ the code compiles there.
 
 ### `mutation`
 
-Runs [`scripts/mutation-gate.sh`](../scripts/mutation-gate.sh). **Twenty-nine
-guards**, each re-broken in turn, each required to turn its matching test red:
+Runs [`scripts/mutation-gate.sh`](../scripts/mutation-gate.sh). **Forty guards**, each re-broken in turn, each required to turn its matching test red:
 
 | Mutation | Test that must fail |
 | --- | --- |
@@ -246,6 +245,28 @@ guards**, each re-broken in turn, each required to turn its matching test red:
 | The browsing context stops being isolated | `the_browsing_context_is_isolated` |
 | Development pins HTTPS it cannot honour | `development_sends_no_hsts_because_it_cannot_honour_it` |
 | **`Referrer` gains a leaking variant** | its `compile_fail` doctest |
+| The kernel's decidegrees read as degrees | `the_decidegree_reading_is_not_mistaken_for_degrees` |
+| An unmeasurable state of health collapsing to a number | `an_unmeasurable_state_of_health_is_unknown_not_zero` |
+| The governor ladder becoming two-way | `a_cooling_cell_does_not_walk_back_down_on_its_own` |
+| A reverted charge ceiling accepted as held | `a_ceiling_that_was_quietly_reverted_is_detected` |
+| A stricter hardware ceiling misread as a revert | `a_hardware_ceiling_below_what_was_asked_for_is_satisfying_it` |
+| An unreadable ceiling treated as working | `a_ceiling_that_cannot_be_read_back_is_unverified_never_working` |
+| The hard stop firing above its threshold | `each_temperature_threshold_fires_at_its_own_level` |
+| The hard stop configurable upward | `the_hard_stop_may_be_lowered_but_never_raised` |
+| An unreachable rung accepted | `an_unordered_ladder_is_refused_rather_than_silently_unreachable` |
+| A cell seen deforming allowed to resume | `a_deformed_cell_does_not_recover_whatever_the_sensors_say_next` |
+| A spent cell still serving | `a_degraded_cell_derates_and_a_spent_one_stops_serving` |
+
+Two of these survived on their first run, and both were defects in the **tests**
+rather than the code:
+
+- `a_hardware_ceiling_below_what_was_asked_for_is_satisfying_it` used a fixture
+  whose `apply()` overwrote its own held value, so `verify()` always returned
+  exactly what was asked for. The test asserted the right property against a
+  mechanism that could not exhibit it.
+- `a_cooling_cell_does_not_walk_back_down_on_its_own` only observed readings that
+  cross no threshold, so nothing ever *attempted* to lower the level and the
+  guard against lowering was never reached.
 
 ### The security posture snapshot
 

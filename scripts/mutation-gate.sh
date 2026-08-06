@@ -89,6 +89,8 @@ T=core/src/tier.rs
 H=core/src/host.rs
 C=core/src/csp.rs
 HD=core/src/headers.rs
+B=core/src/battery.rs
+G=core/src/governor.rs
 
 mutate "$T" a_guest_that_cannot_see_the_phone_reports_unverified_rather_than_guessing \
   "a bare VM is promoted to T2 without the shell's assertion" \
@@ -283,6 +285,85 @@ mutate "$HD" --doc \
   '            Referrer::StrictOriginWhenCrossOrigin => "strict-origin-when-cross-origin",' \
   '            Referrer::StrictOriginWhenCrossOrigin => "strict-origin-when-cross-origin",
             Referrer::UnsafeUrl => "unsafe-url",'
+
+# -- The Battery Safety Governor (ADR-0002) ------------------------------------
+#
+# The most consequential mutations in this repository. Every one of these, left
+# broken, is a device that keeps serving in somebody's home when it should have
+# stopped.
+
+mutate "$B" the_decidegree_reading_is_not_mistaken_for_degrees \
+  "the kernel's decidegrees are read as degrees, so 60.1 C looks like 6 C" \
+  "        Celsius(self.0 / 10)" \
+  "        Celsius(self.0)"
+
+mutate "$B" an_unmeasurable_state_of_health_is_unknown_not_zero \
+  "an unmeasurable state of health collapses into a number" \
+  "            return StateOfHealth::Unknown;" \
+  "            return StateOfHealth::Measured(Percent::clamped(100));"
+
+mutate "$G" a_cooling_cell_does_not_walk_back_down_on_its_own \
+  "the ladder becomes two-way, so cooling clears a hard stop" \
+  "        if to <= self.level {
+            return None;
+        }" \
+  "        if to == self.level {
+            return None;
+        }"
+
+mutate "$G" a_ceiling_that_was_quietly_reverted_is_detected \
+  "a reverted ceiling is accepted as held" \
+  "        if got > ceiling {" \
+  "        if false {"
+
+mutate "$G" a_hardware_ceiling_below_what_was_asked_for_is_satisfying_it \
+  "a stricter hardware ceiling is misread as a revert" \
+  "        if got > ceiling {" \
+  "        if got != ceiling {"
+
+mutate "$G" a_ceiling_that_cannot_be_read_back_is_unverified_never_working \
+  "an unreadable ceiling is treated as a working one" \
+  "            Err(e) => {
+                return self.escalate(Level::Derated, Reason::Unverifiable(e), evidence);
+            }" \
+  "            Err(_e) => {
+                return None;
+            }"
+
+mutate "$G" each_temperature_threshold_fires_at_its_own_level \
+  "the hard stop fires above the threshold instead of at it" \
+  "        if temp >= self.thresholds.hard_stop_temp {" \
+  "        if temp > self.thresholds.hard_stop_temp {"
+
+mutate "$G" the_hard_stop_may_be_lowered_but_never_raised \
+  "the hard stop can be configured upward" \
+  "        if hard_stop_temp > Self::MAX_HARD_STOP {" \
+  "        if false {"
+
+mutate "$G" an_unordered_ladder_is_refused_rather_than_silently_unreachable \
+  "an unreachable rung is accepted" \
+  "        if !(warn_temp < critical_temp && critical_temp < hard_stop_temp) {" \
+  "        if false {"
+
+mutate "$G" a_deformed_cell_does_not_recover_whatever_the_sensors_say_next \
+  "a cell somebody saw deforming is allowed to resume serving" \
+  "            Inspection::Deformed => {
+                self.level = Level::Halt;
+                Err(self)
+            }" \
+  "            Inspection::Deformed => {
+                self.level = Level::Normal;
+                Ok(self)
+            }"
+
+mutate "$G" a_degraded_cell_derates_and_a_spent_one_stops_serving \
+  "a spent cell keeps serving" \
+  "    pub fn may_serve(&self) -> bool {
+        self.level <= Level::Derated
+    }" \
+  "    pub fn may_serve(&self) -> bool {
+        self.level <= Level::Protect
+    }"
 
 echo
 # The suite was green before the first mutation and every mutation was undone,

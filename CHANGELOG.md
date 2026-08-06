@@ -13,6 +13,20 @@ traffic before it.
 
 ## [Unreleased]
 
+### Added
+
+- **The Battery Safety Governor** (ADR-0002) — the subsystem Charter Article
+  III.1 required before anything may serve traffic. State machine, verification
+  loop, thresholds, and a recovery path that requires a person who looked at the
+  phone.
+- Response security headers as a set (ADR-0006 §3), with the posture committed
+  to `docs/security-posture.txt` so weakening it is a visible diff.
+
+### Changed
+
+- Charter Article III.1 is now **satisfied**: the governor exists, so serving
+  capabilities are permitted. The gate stays live in the other direction.
+
 ## [0.0.1] — 2026-08-06
 
 The founding release. **Nothing here serves traffic**, and by charter nothing

@@ -204,10 +204,14 @@ The heart of the document. Charter Article III.
 No capability of class `Serving` may be registered while `core/src/governor.rs`
 does not exist. Enforced by the charter gate.
 
-This is deliberately inconvenient. It means the demo everybody wants — *look, it
-serves a website* — cannot be built first. Charter III.1 puts that constraint
-above every release schedule, and the gate is what makes it survive the week
-somebody really wants the demo.
+This was deliberately inconvenient, and it worked as intended: the demo
+everybody wants — *look, it serves a website* — could not be built first.
+**The governor now exists, so the constraint is satisfied and the gate permits
+serving capabilities.** The rule stays live in the other direction: delete the
+governor and the build stops.
+
+What the gate cannot check, and nobody should read it as claiming, is that the
+governor is any *good*. It has never run on a phone.
 
 **Enforced by:** `scripts/charter-gate.sh`
 
@@ -719,10 +723,14 @@ fix is competing with the release.
 
 **Enforced by:** `scripts/release-gate.sh`
 
-### 10A.2 Nothing is stranded under Unreleased **[CI]**
+### 10A.2 Nothing is stranded under Unreleased, at tag time **[CI]**
 
 Notes written and never moved under the version that shipped them are notes the
 operator never receives.
+
+**At tag time**, and not before. Notes accumulating under `[Unreleased]` between
+releases is what the section is for; a gate forbidding that would be stricter and
+wrong.
 
 **Enforced by:** `scripts/release-gate.sh`
 

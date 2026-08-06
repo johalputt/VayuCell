@@ -35,8 +35,9 @@ disappearing would not stop your device working**.
 
 | | |
 | --- | --- |
-| Written | The capability registry, tier detection, the CSP and the response security headers |
-| Not written | The battery governor — and until it exists, **nothing may serve traffic**. [Charter III.1](CHARTER.md), enforced by a gate |
+| Written | The capability registry, tier detection, the CSP and response security headers, and **the battery safety governor** — state machine, verification loop, thresholds, recovery |
+| Not written | The sysfs mechanisms the governor drives, the sampling loop, the outage shed ladder, the panel |
+| Unblocked | [Charter III.1](CHARTER.md) forbade anything serving traffic before the governor. The governor exists, so that constraint is now satisfied — and the gate still fails the build if it is ever removed |
 | Never tested on hardware | Everything. Every device-facing behaviour is exercised through a fake host describing handsets nobody here is holding |
 
 That last row is a permanent one. It stops being true the day somebody puts a
@@ -111,7 +112,7 @@ and has no other symptom.
 | **Charter** | A serving capability before the governor. A control with no read-back. `Absent` collapsing into `Unverified`. Telemetry, a treasury, a kill switch, a dependency on a host this project runs. An edit to Article III or V that was not recorded as an amendment |
 | **Security** | A CSP that permits `'unsafe-inline'` — the type has no variant for it, so weakening it is an addition to a public enum rather than a one-word edit to a string. A reusable nonce. A referrer policy that leaks cross-origin. A report-only header on a release. An HSTS max-age too short to mean anything |
 | **Provenance** | A version that disagrees with itself, a tag that does not match the tree, a release with no signature, an SBOM containing a dependency the charter says does not exist, or a workflow referencing an action tag that was never published |
-| **Mutation** | Twenty-nine safety and honesty guards, each re-broken, each required to turn its test red. A green suite proves the code passes its tests; this proves the tests would notice if the code were wrong |
+| **Mutation** | Forty safety and honesty guards, each re-broken, each required to turn its test red. A green suite proves the code passes its tests; this proves the tests would notice if the code were wrong |
 | **Gate self-test** | Forty-two planted violations that the gates above must each catch, citing the right rule |
 | **Constitution** | A rule claiming `[CI]` while naming no enforcer, or naming one that has been deleted. The document may not claim enforcement it does not have |
 | **Rust** | `cargo fmt`, `clippy` pedantic at `-D warnings`, build, test, and an assertion that the `compile_fail` doctests actually ran — on a private item they run zero tests and still report success |

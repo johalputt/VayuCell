@@ -9,8 +9,17 @@
 # same class of defect as an unverifiable safety claim, applied to distribution.
 #
 # Usage:
-#   scripts/release-gate.sh            check the current version is consistent
-#   scripts/release-gate.sh --next     print the next patch version and stop
+#   scripts/release-gate.sh              check the current version is consistent
+#   scripts/release-gate.sh --releasing  additionally require [Unreleased] to be
+#                                        empty; only true at tag time
+#   scripts/release-gate.sh --next       print the next patch version and stop
+#
+# On --releasing: the first version of this gate required [Unreleased] to be
+# empty on EVERY push, which is not a stricter rule — it is a wrong one. Keep a
+# Changelog exists so notes accumulate there between releases, and a gate that
+# forbids the accumulating makes the section pointless. The requirement is real
+# at the moment a tag is cut and meaningless before it, so it is now asked for
+# only then, and release.yml is what asks.
 set -uo pipefail
 
 cd "$(dirname "$0")/.." || exit 1
@@ -27,6 +36,11 @@ read_release_version() {
 crate_version() {
   grep -m1 '^version = ' core/Cargo.toml | cut -d'"' -f2
 }
+
+RELEASING=0
+for arg in "$@"; do
+  [ "$arg" = "--releasing" ] && RELEASING=1
+done
 
 if [ "${1:-}" = "--next" ]; then
   cur="$(read_release_version || echo v0.0.0)"
@@ -74,12 +88,20 @@ else
   pass "CHANGELOG.md documents ${rv#v}"
 fi
 
-# An unreleased section that still has content at tag time means somebody wrote
-# notes and forgot to move them under the version being shipped.
-if [ -f CHANGELOG.md ] && awk '/^## \[Unreleased\]/{f=1;next} /^## \[/{f=0} f && NF && !/^$/' CHANGELOG.md | grep -q .; then
-  fail "CHANGELOG.md still has content under [Unreleased]"
+# An unreleased section with content in it is normal between releases and is a
+# defect at tag time, when it means somebody wrote notes and forgot to move them
+# under the version being shipped.
+unreleased_lines="$(awk '/^## \[Unreleased\]/{f=1;next} /^## \[/{f=0} f && NF' CHANGELOG.md 2>/dev/null | wc -l)"
+if [ "${RELEASING:-0}" = "1" ]; then
+  if [ "$unreleased_lines" -gt 0 ]; then
+    fail "CHANGELOG.md still has content under [Unreleased] at tag time"
+  else
+    pass "nothing is stranded under [Unreleased]"
+  fi
+elif [ "$unreleased_lines" -gt 0 ]; then
+  printf '  --    %s\n' "[Unreleased] holds $unreleased_lines line(s); that is expected between releases"
 else
-  pass "nothing is stranded under [Unreleased]"
+  pass "[Unreleased] is empty"
 fi
 
 if [ -n "$rv" ] && git rev-parse -q --verify "refs/tags/$rv" >/dev/null; then

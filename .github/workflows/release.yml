@@ -34,7 +34,10 @@ jobs:
         with:
           fetch-depth: 0
       - name: Version consistency and release notes
-        run: bash scripts/release-gate.sh
+        # --releasing additionally requires [Unreleased] to be empty. That is a
+        # tag-time requirement, not a push-time one: notes accumulate there
+        # between releases, and a gate forbidding that makes the section useless.
+        run: bash scripts/release-gate.sh --releasing
       - name: The tag must match .release-version
         # A tag that does not match the tree is a release whose artefacts cannot
         # be matched back to their source.

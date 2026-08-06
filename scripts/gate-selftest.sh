@@ -32,6 +32,7 @@ CHARTER=scripts/charter-gate.sh
 HARDWARE=scripts/hardware-gate.sh
 DOCS=scripts/docs-gate.sh
 RELEASE=scripts/release-gate.sh
+RELEASING="scripts/release-gate.sh --releasing"
 ACTIONS=scripts/actions-gate.sh
 CONST=scripts/constitution-gate.sh
 ATTRIB=scripts/attribution-gate.sh
@@ -70,8 +71,13 @@ violation() {
     return
   fi
 
+  # Split on whitespace so a case can name a gate with arguments — the release
+  # gate has a --releasing form whose rules differ, and it needs testing too.
+  local -a gate_cmd
+  read -ra gate_cmd <<< "$gate"
+
   local out
-  out="$(cd "$sandbox" && bash "$gate" 2>&1)"
+  out="$(cd "$sandbox" && bash "${gate_cmd[@]}" 2>&1)"
   local rc=$?
 
   if [ "$rc" -eq 0 ]; then
@@ -112,9 +118,13 @@ if ! python3 -c "import jsonschema" 2>/dev/null; then
 fi
 export VAYUCELL_REQUIRE_SCHEMA_VALIDATOR=1
 
-violation "$CHARTER" "III.1 a serving capability registered before the governor exists" \
+# Article III.1 is now SATISFIED: core/src/governor.rs exists, so a serving
+# capability is permitted and the gate is right to pass. Planting one alone no
+# longer violates anything. The rule still has a live direction — a serving
+# capability with the governor removed — and that is what this now plants.
+violation "$CHARTER" "III.1 the governor is deleted while a serving capability exists" \
   "III.1" \
-  "printf 'const _PLANTED: \&str = \"class: Class::Serving\";\n' >> core/src/capability.rs"
+  "printf 'const _PLANTED: \&str = \"class: Class::Serving\";\n' >> core/src/capability.rs && rm -f core/src/governor.rs"
 
 violation "$CHARTER" "III.3 verify becomes optional, so a control with no read-back compiles" \
   "III.3" \
@@ -245,8 +255,10 @@ violation "$RELEASE" "a release has no changelog section" \
   "no '## \[" \
   "sed -i 's/^## \[0.0.1\].*/## [0.0.9] - later/' CHANGELOG.md"
 
-violation "$RELEASE" "notes are left stranded under Unreleased at release time" \
-  "content under \[Unreleased\]" \
+# The tag-time form. Between releases this content is expected and the gate says
+# so; only --releasing makes it a defect, and both directions need proving.
+violation "$RELEASING" "notes are left stranded under Unreleased at tag time" \
+  "content under \[Unreleased\] at tag time" \
   "sed -i 's/^## \[Unreleased\]/## [Unreleased]\n\n- forgot to move this/' CHANGELOG.md"
 
 violation "$RELEASE" "an editor adds a trailing newline to .release-version" \
