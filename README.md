@@ -70,6 +70,7 @@ trust — the SBOM ships with every release.
 | [`ADR-0004`](docs/adr/ADR-0004-storage-durability.md) | Storage durability: assume the flash lies |
 | [`ADR-0005`](docs/adr/ADR-0005-implementation-language.md) | Rust for the core, Kotlin for the shell |
 | [`ADR-0006`](docs/adr/ADR-0006-content-security-policy.md) | Content Security Policy: the unsafe keywords made unrepresentable |
+| [`ADR-0007`](docs/adr/ADR-0007-the-safety-panel.md) | The safety panel: what a person is allowed to be told |
 | [`docs/CI.md`](docs/CI.md) | Every gate, and every parameter it checks with |
 | [`docs/BRAND.md`](docs/BRAND.md) | The mark: how it is constructed, and the rules for using it |
 | [`CHANGELOG.md`](CHANGELOG.md) | What changed, and what it means for someone running this |

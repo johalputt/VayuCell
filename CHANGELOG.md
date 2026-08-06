@@ -70,6 +70,11 @@ traffic before it.
   are rendered there, so softening the alarming one — the way status displays
   actually drift — produces a plain-text diff rather than an innocuous-looking
   edit to a Rust file.
+- **ADR-0007** records the panel's design decisions and, more usefully, the
+  alternatives that were rejected: a numeric risk score, a stored headline, a
+  conditional inspection prompt, and dropping the charge-mechanism row on
+  devices that have no charge mechanism. Each of those is the obvious design,
+  and each fails in the reassuring direction.
 
 ### Changed
 
