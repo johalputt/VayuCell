@@ -48,7 +48,12 @@ wildcards = "deny"
 # A build script runs arbitrary code on every contributor's machine and on every
 # CI runner. For a project whose whole claim is that you can verify what you are
 # running, that deserves to be a deliberate exception rather than a default.
-build-script = "deny"
+#
+# The key is `allow-build-scripts`, and an EMPTY list is what denies them. Written
+# as `build-script = "deny"` cargo-deny rejects the whole file, which is at least
+# loud; a key it merely did not recognise would have been silently ignored, and
+# the policy would have read strict while enforcing nothing.
+allow-build-scripts = []
 deny = [
   # Nothing in a phone's power-management path should be pulling in a TLS stack,
   # an HTTP client, or a telemetry SDK by accident. Article V.2 and V.5.

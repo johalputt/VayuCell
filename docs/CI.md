@@ -26,8 +26,8 @@ other symptom. Both failure directions were hit while these gates were written:
   the schema does not have. It printed `ok` on every run while checking nothing.
 
 The second kind is the dangerous one. [`scripts/gate-selftest.sh`](../scripts/gate-selftest.sh)
-is how it gets caught: it plants each violation in a scratch copy of the
-repository and requires the matching gate to fail, citing the right rule.
+is how it gets caught: it plants thirty-four violations in a scratch copy of
+the repository and requires the matching gate to fail, citing the right rule.
 
 ## Where the logic lives
 
@@ -106,8 +106,8 @@ history cannot fail somebody else's change.
 
 ### `docs` — required set, ADR integrity, links
 
-- The twelve required documents exist **and are non-empty** — an emptied file is
-  as broken as a deleted one, and easier to miss.
+- The required documents exist **and are non-empty** — an emptied file is as
+  broken as a deleted one, and easier to miss.
 - Every ADR filename matches `ADR-NNNN-kebab-slug.md`, and its title names the
   **same number** as its filename. A mismatch sends a reader following a
   cross-reference to the wrong decision.
@@ -117,6 +117,14 @@ history cannot fail somebody else's change.
   followed: a gate that reaches the network makes the build depend on somebody
   else's uptime.
 - No orphan ADRs — every ADR is referenced from outside itself.
+- **The constitution's enforcement table is checked against the document.**
+  `GOVERNANCE-CONSTITUTION.md` classifies every rule as `[CI]`, `[REVIEW]` or
+  `[NORM]`, and Appendix A totals them. Those totals were wrong in the first
+  draft — off by six — and nothing would ever have noticed. A governance document
+  that overstates how much of itself a machine actually enforces commits the
+  error Article 4 forbids in a device report, against the reader of the
+  governance instead. Adding a rule without updating the table now fails the
+  build.
 
 Then `markdownlint-cli2` with the rules in
 [`.markdownlint-cli2.jsonc`](../.markdownlint-cli2.jsonc).
@@ -171,8 +179,8 @@ the code compiles there.
 
 ### `mutation`
 
-Runs [`scripts/mutation-gate.sh`](../scripts/mutation-gate.sh). Ten guards, each
-re-broken in turn, each required to turn its matching test red:
+Runs [`scripts/mutation-gate.sh`](../scripts/mutation-gate.sh). Twenty guards,
+each re-broken in turn, each required to turn its matching test red:
 
 | Mutation | Test that must fail |
 |---|---|
@@ -186,9 +194,19 @@ re-broken in turn, each required to turn its matching test red:
 | A silent `/proc/self/status` reading as root | `a_status_file_that_will_not_say_who_we_are_is_never_root` |
 | The not-root sentinel becoming `0` | as above |
 | The real uid read instead of the effective one | `the_effective_uid_is_read_not_the_real_one` |
+| `data:`/`https:` accepted on `script-src` | `a_passive_source_cannot_be_smuggled_onto_an_executable_directive` |
+| The CSP report endpoint allowed off-device | `violation_reports_never_leave_the_device` |
+| A guessable nonce accepted | `a_weak_nonce_is_refused_rather_than_rendered` |
+| A nonce carrying a quote that rewrites the policy | `a_nonce_cannot_carry_a_character_that_escapes_the_directive` |
+| The CSP baseline defaulting to `'self'` | `the_baseline_denies_everything_it_was_not_asked_about` |
+| `'none'` surviving beside a real source | `allowing_a_source_clears_the_none_that_was_there` |
+| Any origin admitted into the policy | `an_origin_outside_the_closed_allowlist_is_refused` |
+| `script-src` falling back to `'self'` | `script_may_run_only_with_the_per_response_nonce` |
+| The page made framable | `a_page_cannot_be_framed_or_have_its_base_rewritten` |
+| **`Source` gains an unsafe variant** | the `compile_fail` doctest. The mutation adds the variant *and* its match arm, so the proof compiles and the doctest must go red |
 
-Two harness defects were found while building this, both the same class as the
-bug the harness exists to catch, and both are now guarded:
+Three defects were found while building this, all the same class as the bug the
+gates exist to catch, and all are now guarded:
 
 - Mutations are applied by exact-string replacement with the **match count
   asserted**. A mutation that silently fails to apply is otherwise reported as
@@ -197,6 +215,10 @@ bug the harness exists to catch, and both are now guarded:
   timestamps, cargo fingerprints on mtime, and it was skipping the rebuild and
   re-running the mutant against restored source. The gate now also verifies the
   suite is green both before the first mutation and after the last.
+- **A CSP test asserted a property that was true for the wrong reason.**
+  `allowing_a_source_clears_the_none_that_was_there` passed a single source, so
+  it never reached the branch that strips a stale `'none'`, and would have gone
+  on passing with the guard deleted. The mutation gate found it; review had not.
 
 ### `coverage`
 
@@ -204,17 +226,18 @@ bug the harness exists to catch, and both are now guarded:
 measurement via `--ignore-filename-regex '_test\.rs$'`.
 
 Counting the test files inflates the figure with the coverage of the tests
-themselves — here it is the difference between 87.10% and the **81.77%** that
+themselves — here it is the difference between 87% and the **82.83%** that
 describes the actual code. A number that flatters itself is not worth having.
 
 | File | Lines covered |
 |---|---|
 | `tier.rs` | 91.89% |
+| `csp.rs` | 85.12% |
 | `host.rs` | 84.81% |
 | `capability.rs` | 68.89% |
-| **Production total** | **81.77%** |
+| **Production total** | **82.83%** |
 
-The floor is 80 against that measured 81.77%. The headroom is deliberately small:
+The floor is 80 against that measured 82.83%. The headroom is deliberately small:
 a floor set far below the real figure accepts a large regression in silence.
 
 Treated as a floor that catches whole modules landing untested, not a target to

@@ -79,7 +79,7 @@ sentence is worth more to the user than any feature.
 Detection probes these in order and records **which one answered** — the path is
 part of the device profile and the hardware database:
 
-```
+```text
 # Mainline / standard (preferred where present)
 /sys/class/power_supply/battery/charge_control_end_threshold      # percent
 /sys/class/power_supply/battery/charge_control_start_threshold    # percent
@@ -103,7 +103,7 @@ adopts it rather than inventing an alternative.
 
 ### 3. Telemetry: what is read, and how often
 
-```
+```text
 capacity            %          reported state of charge
 voltage_now         µV         cell voltage — the honest SoC signal
 current_now         µA         sign indicates charge/discharge
@@ -131,7 +131,7 @@ Two derived values do most of the work:
 States are explicit, and every transition is logged with the reading that caused
 it.
 
-```
+```text
                  ┌──────────┐
                  │  NORMAL  │  ceiling held & verified; temp nominal
                  └────┬─────┘
@@ -236,7 +236,7 @@ advantage over every competing option.
 A governed phone is **a server with an integrated uninterruptible power supply**.
 On mains loss the cell carries the node, and the governor runs a defined ladder:
 
-```
+```text
 mains lost      → notify fleet; stop accepting new work
  -60s           → shed non-essential services (media, indexing, inference)
  -180s          → checkpoint state; flush and fsync; quiesce the database

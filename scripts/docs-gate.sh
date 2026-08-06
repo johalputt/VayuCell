@@ -25,7 +25,8 @@ echo
 
 # ── Required documents ────────────────────────────────────────────────────────
 REQUIRED=(
-  README.md CHARTER.md PLAN.md GOVERNANCE.md CONTRIBUTING.md
+  README.md CHARTER.md GOVERNANCE-CONSTITUTION.md PLAN.md
+  GOVERNANCE.md CONTRIBUTING.md
   SECURITY.md TRADEMARK.md NOTICE LICENSE LICENSE-CHARTER
   docs/CI.md
   hardware/schema.json
@@ -157,6 +158,58 @@ if truly:
     sys.exit(1)
 print(f"  ok    every ADR is referenced from outside itself")
 PY
+[ $? -ne 0 ] && FAILED=1
+
+# ── The constitution may not lie about how much of itself is enforced ─────────
+# GOVERNANCE-CONSTITUTION.md classifies every rule as [CI], [REVIEW] or [NORM],
+# and Appendix A totals them. Those totals were wrong in the document's first
+# draft — off by six — and nothing would ever have noticed. A governance document
+# that overstates how much of itself a machine actually enforces is committing
+# the error Article 4 forbids in a device report, against the reader of the
+# governance instead. So the table is a gate.
+python3 - <<'INNER'
+import pathlib, re, sys
+from collections import Counter
+
+p = pathlib.Path("GOVERNANCE-CONSTITUTION.md")
+if not p.exists():
+    print("  FAIL  GOVERNANCE-CONSTITUTION.md is missing")
+    sys.exit(1)
+s = p.read_text()
+
+# A rule is a heading that ends in its enforcement marker. Markers inside tables
+# and prose are explanation, not classification, and must not be counted.
+actual = Counter(re.findall(r"^#{2,3} .*?\*\*\[(CI|REVIEW|NORM)\]\*\*\s*$", s, re.M))
+
+claimed = {}
+for tag in ("CI", "REVIEW", "NORM"):
+    m = re.search(rf"\|\s*\*\*\[{tag}\]\*\*\s*\|\s*(\d+)\s*\|", s)
+    if not m:
+        print(f"  FAIL  Appendix A has no row for [{tag}]")
+        sys.exit(1)
+    claimed[tag] = int(m.group(1))
+
+m = re.search(r"\|\s*\*\*Total\*\*\s*\|\s*(\d+)\s*\|", s)
+if not m:
+    print("  FAIL  Appendix A has no total row")
+    sys.exit(1)
+claimed_total = int(m.group(1))
+
+bad = 0
+for tag in ("CI", "REVIEW", "NORM"):
+    if actual[tag] != claimed[tag]:
+        print(f"  FAIL  Appendix A claims {claimed[tag]} [{tag}] rules; the document has {actual[tag]}")
+        bad = 1
+if claimed_total != sum(actual.values()):
+    print(f"  FAIL  Appendix A totals {claimed_total}; the document has {sum(actual.values())}")
+    bad = 1
+
+if not bad:
+    total = sum(actual.values())
+    print(f"  ok    the constitution's {total} rules match Appendix A "
+          f"({actual['CI']} CI, {actual['REVIEW']} review, {actual['NORM']} norm)")
+sys.exit(bad)
+INNER
 [ $? -ne 0 ] && FAILED=1
 
 echo

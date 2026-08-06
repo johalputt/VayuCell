@@ -49,7 +49,7 @@ assumed from a device name, a model number, or a tier alone.
 
 ### 1. The four tiers
 
-```
+```text
 T0  Stock Android, unprivileged userspace runtime
 T1  Stock Android, root available
 T2  Virtualised Linux guest (protected KVM VM on the Android host)
@@ -153,7 +153,7 @@ Three properties, each enforced by test rather than by review:
 Every capability follows the same three-step lifecycle, and the third step is
 not optional:
 
-```
+```text
 Detect  →  is the mechanism present on THIS device?
 Apply   →  set it
 Verify  →  READ IT BACK. Does the hardware agree?

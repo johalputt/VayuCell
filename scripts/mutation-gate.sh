@@ -47,20 +47,29 @@ fi
 
 FAILED=0
 
-# mutate <file> <expect-red-test> <description> <from> <to>
+# mutate <file> <expect-red-test> <description> <from> <to> [<from> <to> ...]
+#
+# Some guards need more than one edit to break coherently: adding an enum
+# variant also needs its match arm, or the crate simply fails to compile and
+# the "red" result would prove nothing about the guard. Extra from/to pairs
+# are applied to the same file, each with its match count asserted separately.
 mutate() {
-  local file="$1" test_name="$2" desc="$3" from="$4" to="$5"
+  local file="$1" test_name="$2" desc="$3"; shift 3
 
-  python3 - "$file" "$from" "$to" <<'PY'
+  python3 - "$file" "$@" <<'PY'
 import sys
-path, frm, to = sys.argv[1], sys.argv[2], sys.argv[3]
+path, pairs = sys.argv[1], sys.argv[2:]
+if len(pairs) % 2 != 0:
+    sys.exit("MUTATION MALFORMED: from/to pairs must come in twos")
 with open(path) as f:
     src = f.read()
-n = src.count(frm)
-if n != 1:
-    sys.exit(f"MUTATION DID NOT APPLY: {n} matches for {frm!r} in {path}")
+for frm, to in zip(pairs[0::2], pairs[1::2]):
+    n = src.count(frm)
+    if n != 1:
+        sys.exit(f"MUTATION DID NOT APPLY: {n} matches for {frm!r} in {path}")
+    src = src.replace(frm, to)
 with open(path, "w") as f:
-    f.write(src.replace(frm, to))
+    f.write(src)
 PY
 
   if cargo test --offline --quiet "$test_name" >/dev/null 2>&1; then
@@ -78,6 +87,7 @@ echo
 
 T=core/src/tier.rs
 H=core/src/host.rs
+C=core/src/csp.rs
 
 mutate "$T" a_guest_that_cannot_see_the_phone_reports_unverified_rather_than_guessing \
   "a bare VM is promoted to T2 without the shell's assertion" \
@@ -143,6 +153,70 @@ mutate "$H" the_effective_uid_is_read_not_the_real_one \
   "the real uid is read instead of the effective one" \
   '.and_then(|l| l.split_whitespace().nth(2))' \
   '.and_then(|l| l.split_whitespace().nth(1))'
+
+# -- Content Security Policy (ADR-0006) ----------------------------------------
+
+mutate "$C" a_passive_source_cannot_be_smuggled_onto_an_executable_directive \
+  "data: and https: are accepted on script-src" \
+  "matches!(self, Source::Data | Source::Https)" \
+  "false"
+
+mutate "$C" violation_reports_never_leave_the_device \
+  "the report endpoint may point off the device" \
+  "            return Err(PolicyError::ReportEndpointNotLocal(endpoint.to_owned()));" \
+  "            let _unused = PolicyError::ReportEndpointNotLocal(endpoint.to_owned());"
+
+mutate "$C" a_weak_nonce_is_refused_rather_than_rendered \
+  "a guessable nonce is accepted" \
+  "pub const MIN_LEN: usize = 22;" \
+  "pub const MIN_LEN: usize = 1;"
+
+mutate "$C" a_nonce_cannot_carry_a_character_that_escapes_the_directive \
+  "a nonce may carry a quote and rewrite the rest of the policy" \
+  "            return Err(NonceError::IllegalCharacter);" \
+  "            let _unused = NonceError::IllegalCharacter;"
+
+mutate "$C" the_baseline_denies_everything_it_was_not_asked_about \
+  "the baseline defaults to self instead of none" \
+  '                    name: "default-src",
+                    sources: vec![Source::Nothing],' \
+  '                    name: "default-src",
+                    sources: vec![Source::Own],'
+
+mutate "$C" allowing_a_source_clears_the_none_that_was_there \
+  "none survives beside a real source, so the browser drops the whole directive" \
+  "sources.retain(|s| *s != Source::Nothing);" \
+  "sources.retain(|_s| true);"
+
+mutate "$C" an_origin_outside_the_closed_allowlist_is_refused \
+  "any origin is admitted into the policy" \
+  "ALLOWED.contains(&origin)" \
+  "ALLOWED.contains(&origin) || !origin.is_empty()"
+
+mutate "$C" script_may_run_only_with_the_per_response_nonce \
+  "script-src falls back to self, so any same-origin file executes" \
+  '.allow("script-src", &[Source::Nonce])' \
+  '.allow("script-src", &[Source::Own])'
+
+mutate "$C" a_page_cannot_be_framed_or_have_its_base_rewritten \
+  "the page may be framed, enabling clickjacking" \
+  '                    name: "frame-ancestors",' \
+  '                    name: "frame-ancestors-disabled",'
+
+# The compile_fail proofs are this module's strongest claim: the unsafe keywords
+# cannot be written down at all. Putting the variant back must make the proof
+# COMPILE, which turns the compile_fail doctest red. Its match arm is added in
+# the same mutation, or the crate fails to build for an unrelated reason and the
+# red result would prove nothing about the guard.
+mutate "$C" --doc \
+  "Source gains an unsafe variant and the compile_fail proof still passes" \
+  "    Https," \
+  "    Https,
+    /// Planted by the mutation gate.
+    UnsafeInline," \
+  '            Source::Https => "https:",' \
+  '            Source::Https => "https:",
+            Source::UnsafeInline => "unsafe",'
 
 echo
 # The suite was green before the first mutation and every mutation was undone,

@@ -95,7 +95,7 @@ export VAYUCELL_REQUIRE_SCHEMA_VALIDATOR=1
 
 violation "$CHARTER" "III.1 a serving capability registered before the governor exists" \
   "III.1" \
-  "printf 'const _X: () = ();\n// class: Class::Serving\n' >> core/src/capability.rs"
+  "printf 'const _PLANTED: \&str = \"class: Class::Serving\";\n' >> core/src/capability.rs"
 
 violation "$CHARTER" "III.3 verify becomes optional, so a control with no read-back compiles" \
   "III.3" \
@@ -119,7 +119,7 @@ violation "$CHARTER" "IV.3 tier detection gains a default tier instead of Unknow
 
 violation "$CHARTER" "V.2 telemetry appears in production source" \
   "V.2" \
-  "printf 'const TELEMETRY_ENABLED: bool = true; // telemetry\n' >> core/src/lib.rs"
+  "printf 'fn send_telemetry() {}\n' >> core/src/lib.rs"
 
 violation "$CHARTER" "V.3 a remote control path appears in production source" \
   "V.3" \
@@ -208,6 +208,14 @@ violation "$DOCS" "an ADR title and its filename name different decisions" \
 violation "$DOCS" "an ADR is deleted, leaving a gap in the decision log" \
   "not contiguous" \
   "rm -f docs/adr/ADR-0003-sovereign-ingress.md README.md PLAN.md docs/CI.md"
+
+violation "$DOCS" "the constitution understates how many rules a machine enforces" \
+  "Appendix A claims" \
+  "sed -i 's/^| \\*\\*\\[CI\\]\\*\\* | 39 |/| **[CI]** | 12 |/' GOVERNANCE-CONSTITUTION.md"
+
+violation "$DOCS" "a rule is added without updating the enforcement table" \
+  "Appendix A" \
+  "printf '\\n### 99.1 A new rule **[CI]**\\n\\nPlanted by the gate self-test.\\n' >> GOVERNANCE-CONSTITUTION.md"
 
 # ── Attribution gate ──────────────────────────────────────────────────────────
 # These need a repository with history, so the sandbox gets its own.

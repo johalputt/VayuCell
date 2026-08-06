@@ -37,9 +37,19 @@ echo "Attribution gate"
 echo
 
 # ── Tracked file contents ─────────────────────────────────────────────────────
-# scripts/ is excluded from the word scan because this gate must name the strings
-# it looks for. It is not excluded from the trailer or generated-by scan.
-hits="$(git grep -InE "$BANNED_WORDS" -- ':!scripts/attribution-gate.sh' 2>/dev/null || true)"
+# Two files are excluded, and only two, each for a reason that would otherwise
+# make every run a false positive:
+#
+#   attribution-gate.sh  must name the strings it bans in order to look for them.
+#   gate-selftest.sh     plants those exact strings as violations, on purpose, to
+#                        prove this gate catches them.
+#
+# Nothing else is exempt. The exclusion is spelled out per file rather than as a
+# blanket ':!scripts/*', because a directory-wide exemption would quietly cover
+# every script written afterwards.
+EXCLUDE=(':!scripts/attribution-gate.sh' ':!scripts/gate-selftest.sh')
+
+hits="$(git grep -InE "$BANNED_WORDS" -- "${EXCLUDE[@]}" 2>/dev/null || true)"
 if [ -n "$hits" ]; then
   fail "assistant names appear in tracked files:"
   printf '        %s\n' "$hits"
@@ -47,7 +57,7 @@ else
   pass "no assistant name appears in any tracked file"
 fi
 
-hits="$(git grep -InE "$GENERATED_BY" -- ':!scripts/attribution-gate.sh' 2>/dev/null || true)"
+hits="$(git grep -InE "$GENERATED_BY" -- "${EXCLUDE[@]}" 2>/dev/null || true)"
 if [ -n "$hits" ]; then
   fail "a generated-by attribution appears in tracked files:"
   printf '        %s\n' "$hits"
@@ -80,8 +90,15 @@ fi
 # ── Author identity ───────────────────────────────────────────────────────────
 # Every commit must carry a real person's address. A noreply or bot address in
 # the author field is the same defect as a trailer: nobody to ask.
+#
+# Dependabot is the one exemption, and it is narrow. The rule exists so that every
+# DECISION has an accountable person; a dependency bump carries no decision until
+# somebody reviews and merges it, and that human act is the accountability. The
+# exemption covers authorship only — a Dependabot commit is still scanned for
+# assistant attribution like any other.
 bot_authors="$(git log ${RANGE:+"$RANGE"} --format='%H %an <%ae>' 2>/dev/null \
-  | grep -iE '<[^>]*(noreply|no-reply|bot@|\[bot\])' || true)"
+  | grep -iE '<[^>]*(noreply|no-reply|bot@|\[bot\])' \
+  | grep -v 'dependabot\[bot\]' || true)"
 if [ -n "$bot_authors" ]; then
   fail "commits authored by a bot or noreply address:"
   printf '%s\n' "$bot_authors" | sed 's/^/        /'

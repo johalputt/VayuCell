@@ -124,11 +124,33 @@ declare -a FORBIDDEN=(
   'remote_wipe:V.3 no remote control path'
   'kill_switch:V.3 no remote control path'
 )
+#
+# Comment lines are stripped before the scan. This is not a loophole, it is the
+# rule stated above being made true: ADR-0006's module documentation explains
+# that a violation-report collector "would be exactly the telemetry Article V.2
+# forbids", and flagging that sentence as telemetry is the gate misreading prose
+# that FORBIDS the thing as the thing itself. A gate that punishes documenting a
+# constraint teaches contributors to stop documenting constraints.
+#
+# ONLY whole-line comments are stripped, and the anchor matters. Cutting at any
+# '//' also truncates 'https://…' — which silently erased the very URL the V.5
+# home-call check exists to find, and the gate went green with the violation
+# present. The gate self-test is what caught it.
+#
+# A trailing comment on a line of code is therefore still scanned. That is the
+# right side to err on: a line with code on it is where a real identifier hides.
+strip_comments() { sed -E 's:^[[:space:]]*//.*$::' "$1"; }
+
 v_clean=1
 for entry in "${FORBIDDEN[@]}"; do
   pattern="${entry%%:*}"
   why="${entry#*:}"
-  hits="$(prod_sources | xargs grep -ln "$pattern" 2>/dev/null || true)"
+  hits=""
+  while IFS= read -r f; do
+    if strip_comments "$f" | grep -q "$pattern"; then
+      hits="$hits $f"
+    fi
+  done < <(prod_sources)
   if [ -n "$hits" ]; then
     fail "$why — '$pattern' appears in:"
     printf '        %s\n' $hits
@@ -152,7 +174,12 @@ fi
 # V.5 again: nothing in production source may reach out to a host this project
 # operates. An installed cell whose owner never contacts the project again must
 # keep working.
-homecall="$(prod_sources | xargs grep -lnE 'https?://[a-z0-9.-]*(vayucell|johal\.in|vayupress)' 2>/dev/null || true)"
+homecall=""
+while IFS= read -r f; do
+  if strip_comments "$f" | grep -qE 'https?://[a-z0-9.-]*(vayucell|johal\.in|vayupress)'; then
+    homecall="$homecall $f"
+  fi
+done < <(prod_sources)
 if [ -n "$homecall" ]; then
   fail "V.5 production source references a project-operated host:"
   printf '        %s\n' $homecall
