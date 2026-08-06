@@ -1,0 +1,68 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# cargo-deny configuration.
+#
+# ADR-0005 §5.1 and CHARTER.md Article V.5 together mean the core carries no
+# third-party runtime dependencies at all. This file is therefore not a filter
+# over a large dependency tree — it is the thing that stays strict while the tree
+# is empty, so the first crate anyone proposes has to argue for itself against
+# rules written before there was any pressure to relax them.
+
+[graph]
+all-features = true
+
+[advisories]
+# A dependency with a published advisory fails the build. There are no
+# exceptions recorded here, and adding one should be uncomfortable enough to
+# prompt a conversation about removing the dependency instead.
+ignore = []
+unmaintained = "all"
+yanked = "deny"
+
+# cargo-deny spells this table "licenses". The prose in this repository uses
+# "licence"; the key has to match the tool, and getting it wrong means the whole
+# table is ignored rather than rejected.
+[licenses]
+# Article VI: the code is Apache-2.0, and the patent grant is the reason. A
+# dependency under a licence without one would quietly undo that choice for the
+# part of the binary it occupies.
+confidence-threshold = 0.93
+allow = [
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "MIT",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Unicode-3.0",
+  "CC0-1.0",
+  "Zlib",
+]
+# Copyleft is not listed. This is not hostility to it: VayuCell ships to phones
+# as a binary, and a strong-copyleft dependency changes what an operator is
+# obliged to distribute. That is a decision for an ADR, not for a lockfile bump.
+
+[bans]
+multiple-versions = "deny"
+wildcards = "deny"
+# A build script runs arbitrary code on every contributor's machine and on every
+# CI runner. For a project whose whole claim is that you can verify what you are
+# running, that deserves to be a deliberate exception rather than a default.
+build-script = "deny"
+deny = [
+  # Nothing in a phone's power-management path should be pulling in a TLS stack,
+  # an HTTP client, or a telemetry SDK by accident. Article V.2 and V.5.
+  { crate = "openssl-sys", reason = "system TLS pulls in a C dependency chain; an ADR must admit it" },
+  { crate = "reqwest", reason = "no component may acquire a network client implicitly" },
+  { crate = "hyper", reason = "no component may acquire a network server implicitly" },
+]
+skip = []
+skip-tree = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+# crates.io only. A git dependency is a moving target that no lockfile audit and
+# no reproducible-build check can pin the provenance of.
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

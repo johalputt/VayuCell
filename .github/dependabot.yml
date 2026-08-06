@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# The core has no third-party runtime dependencies by charter (Article V.5) and
+# by ADR-0005 §5.1, so the cargo ecosystem below is watching an empty tree on
+# purpose: it is what notices the day that stops being true.
+#
+# The GitHub Actions ecosystem is the one that actually matters today. Every job
+# in ci.yml runs third-party actions with access to the build, and an unreviewed
+# action version is the shortest path into this repository.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:30"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps"
+    labels: ["dependencies"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:30"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+    labels: ["dependencies", "ci"]

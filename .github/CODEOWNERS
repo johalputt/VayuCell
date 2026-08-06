@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# The charter and the safety-critical paths always get a maintainer's eyes.
+# Everything else can be reviewed by anyone with review rights.
+
+*                       @johalputt
+
+# Article IX places Articles III and V beyond ordinary amendment. The charter
+# gate refuses an unrecorded edit; this makes sure a recorded one is still read
+# by a person.
+/CHARTER.md             @johalputt
+/.charter-digests       @johalputt
+
+# ADR-0002 is the battery governor. Nothing in this project can hurt anyone
+# except through this path.
+/docs/adr/              @johalputt
+/scripts/               @johalputt
+/.github/workflows/     @johalputt

@@ -1,0 +1,437 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# The required gate. Nothing merges to main without every job here green.
+#
+# The organising idea: CHARTER.md is not a statement of intent, it is a set of
+# constraints, and a constraint only a reviewer checks is a constraint that
+# erodes on a busy week. Every article that can be enforced by a machine is
+# enforced by a machine here, and the gates themselves are self-tested — because
+# a check whose pattern matches nothing reports success forever and has no other
+# symptom.
+#
+# Each gate's logic lives in scripts/, never inline in this file, so a
+# contributor can run the identical check locally before pushing. See docs/CI.md
+# for what every job and parameter does.
+
+name: CI
+
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Redundant runs on a feature branch are cancelled; runs on main are never
+# cancelled, so the default branch always carries a completed verdict rather than
+# a cancelled one that reads as "unknown".
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # A warning that is allowed to accumulate is a warning nobody reads.
+  RUSTFLAGS: "-D warnings"
+  RUSTDOCFLAGS: "-D warnings"
+  # Fail fast on a network hiccup rather than hanging a job for its full timeout.
+  CARGO_NET_RETRY: 3
+  CARGO_INCREMENTAL: 0
+
+jobs:
+
+  # ── The charter, enforced ───────────────────────────────────────────────────
+  charter:
+    name: "Charter · Articles III–IX enforced"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Charter gate
+        run: bash scripts/charter-gate.sh
+      # The gate's own verification. Each article's check is re-broken in a
+      # scratch copy and must be caught. Without this, a pattern that silently
+      # stops matching would report the charter as upheld forever.
+      - name: Gate self-test — every check must actually fire
+        run: |
+          python3 -m pip install --quiet --disable-pip-version-check jsonschema
+          bash scripts/gate-selftest.sh
+
+  # ── Attribution ─────────────────────────────────────────────────────────────
+  attribution:
+    name: "Record · Attribution"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The gate inspects commit messages, so it needs them. Shallow clones
+          # would silently check nothing.
+          fetch-depth: 0
+      - name: Attribution gate
+        run: |
+          # On a pull request only the branch's own commits are judged, so a
+          # pre-existing history cannot fail somebody else's change.
+          if [ -n "${{ github.event.pull_request.base.sha }}" ]; then
+            bash scripts/attribution-gate.sh "${{ github.event.pull_request.base.sha }}"
+          else
+            bash scripts/attribution-gate.sh
+          fi
+
+  # ── Documentation ───────────────────────────────────────────────────────────
+  docs:
+    name: "Docs · Required set, ADR integrity, links"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Documentation gate
+        run: bash scripts/docs-gate.sh
+      - name: Markdown lint
+        uses: DavidAnson/markdownlint-cli2-action@v16
+        with:
+          globs: "**/*.md"
+
+  # ── Shell ───────────────────────────────────────────────────────────────────
+  shell:
+    name: "Lint · Shell (shellcheck + bashate style)"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install shellcheck
+        run: sudo apt-get update -qq && sudo apt-get install -y shellcheck
+      - name: Lint every script
+        run: |
+          # -S warning: style suggestions are advice; warnings are defects. The
+          # gates are the things that decide whether a release ships, so a quoting
+          # bug in one of them is a correctness bug in the release process.
+          shellcheck --severity=warning --shell=bash scripts/*.sh
+      - name: Every script must be executable and carry a shebang
+        run: |
+          bad=0
+          for f in scripts/*.sh; do
+            [ -x "$f" ] || { echo "not executable: $f"; bad=1; }
+            head -n 1 "$f" | grep -q '^#!/usr/bin/env bash' || { echo "no bash shebang: $f"; bad=1; }
+          done
+          [ "$bad" -eq 0 ] || exit 1
+          echo "every script is executable and declares its interpreter"
+
+  # ── Hardware compatibility database ─────────────────────────────────────────
+  hardware:
+    name: "Hardware · Device database schema & honesty"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the schema validator
+        run: python3 -m pip install --quiet --disable-pip-version-check jsonschema
+      - name: Hardware gate
+        # The gate reports UNVERIFIED rather than failing when the validator is
+        # absent, which is right for a laptop and wrong for the authoritative
+        # run. This makes a missing validator a hard failure here.
+        env:
+          VAYUCELL_REQUIRE_SCHEMA_VALIDATOR: "1"
+        run: bash scripts/hardware-gate.sh
+
+  # ── Rust: format, lint, build, test, document ───────────────────────────────
+  rust:
+    name: "Rust · fmt, clippy, build, test, doc"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Formatting must be clean
+        run: cargo fmt --all -- --check
+
+      - name: Clippy (pedantic, warnings are errors, tests included)
+        # --all-targets covers tests and examples: a lint that only runs on the
+        # library lets test code drift into habits the library forbids.
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+      - name: Build
+        run: cargo build --workspace --all-features --verbose
+
+      - name: Test
+        run: cargo test --workspace --all-features --verbose
+
+      - name: Doctests must actually run
+        # The registry's strongest guarantees are compile_fail doctests. Rustdoc
+        # collects those only from public items, so a proof moved onto a private
+        # one runs zero tests and still prints "test result: ok". This asserts a
+        # non-zero count rather than trusting the exit code.
+        run: |
+          out="$(cargo test --workspace --doc 2>&1)"
+          printf '%s\n' "$out"
+          count="$(printf '%s' "$out" | grep -oE 'running [0-9]+ tests?' | grep -oE '[0-9]+' | head -1)"
+          [ -n "$count" ] && [ "$count" -gt 0 ] || {
+            echo "no doctests ran — the compile_fail proofs are not being collected"
+            exit 1
+          }
+          echo "$count doctests ran"
+
+      - name: Documentation builds with no broken intra-doc links
+        run: cargo doc --workspace --all-features --no-deps
+
+      - name: The crate forbids unsafe code
+        # Both the crate attribute and the manifest lint. Either alone can be
+        # removed in a diff that looks unrelated.
+        run: |
+          grep -q '#!\[forbid(unsafe_code)\]' core/src/lib.rs \
+            || { echo "core/src/lib.rs no longer forbids unsafe code"; exit 1; }
+          grep -q 'unsafe_code = "deny"' core/Cargo.toml \
+            || { echo "core/Cargo.toml no longer denies unsafe code"; exit 1; }
+          echo "unsafe code is forbidden at the crate and manifest level"
+
+  # ── Minimum supported Rust version ──────────────────────────────────────────
+  msrv:
+    name: "Rust · MSRV builds"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read the MSRV from the manifest
+        id: msrv
+        # Declaring a rust-version and never building against it is a claim
+        # nobody verified — the exact thing Article IV forbids elsewhere.
+        run: |
+          v="$(grep -m1 '^rust-version' core/Cargo.toml | cut -d'"' -f2)"
+          [ -n "$v" ] || { echo "core/Cargo.toml declares no rust-version"; exit 1; }
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "MSRV is $v"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Build and test on the declared minimum
+        # RUSTFLAGS is cleared: an older toolchain emits lints the current one
+        # does not, and failing the MSRV job on a future lint tells us nothing
+        # about whether the code compiles there.
+        env:
+          RUSTFLAGS: ""
+          RUSTDOCFLAGS: ""
+        run: |
+          cargo build --workspace --all-features
+          cargo test --workspace --all-features
+
+  # ── Mutation testing ────────────────────────────────────────────────────────
+  mutation:
+    name: "Tests · Mutation gate (guards must be load-bearing)"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Re-break every safety and honesty guard
+        # A green suite proves the code passes its tests. It does not prove the
+        # tests would notice if the code were wrong. This breaks each guard in
+        # turn and requires the matching test to go red.
+        env:
+          RUSTFLAGS: ""
+        run: bash scripts/mutation-gate.sh
+
+  # ── Coverage ────────────────────────────────────────────────────────────────
+  coverage:
+    name: "Tests · Coverage"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Measure and enforce the floor
+        # A percentage is a weak signal and is treated as one: this is a floor
+        # that catches whole modules landing untested, not a target to optimise.
+        # The mutation gate above is the check that actually says the tests work.
+        #
+        # Test files are excluded from the measurement. Counting them inflates
+        # the figure with the coverage of the tests themselves — here it is the
+        # difference between 87% and the 82% that describes the actual code — and
+        # a number that flatters itself is not worth having.
+        #
+        # The floor is 80 against a measured 81.77% at the time of writing. The
+        # headroom is deliberately small: a floor far below the real figure
+        # accepts a large regression in silence.
+        run: |
+          cargo llvm-cov --workspace --all-features \
+            --ignore-filename-regex '_test\.rs$' \
+            --fail-under-lines 80 --summary-only
+      - name: Report
+        if: always()
+        run: |
+          {
+            echo '```'
+            cargo llvm-cov report --summary-only --ignore-filename-regex '_test\.rs$'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY" || true
+
+  # ── Dependencies and supply chain ───────────────────────────────────────────
+  deps:
+    name: "Supply chain · deny, audit, unused"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@cargo-deny
+      - name: cargo-deny — advisories, licences, bans, sources
+        run: cargo deny --all-features check advisories bans licenses sources
+      - uses: taiki-e/install-action@cargo-machete
+      - name: No declared dependency is unused
+        run: cargo machete
+      - name: The lockfile is current
+        # --locked fails if building would change Cargo.lock. A lockfile that
+        # drifts means CI and a contributor's machine resolved different code.
+        run: cargo metadata --locked --format-version 1 > /dev/null
+
+  # ── Cross-compilation for the devices this actually runs on ─────────────────
+  targets:
+    name: "Target · ${{ matrix.target }}"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The tier the whole project exists for: 64-bit Android userspace.
+          - target: aarch64-linux-android
+            why: "T0/T1 — stock and rooted 64-bit handsets"
+          # Older and cheaper handsets are still 32-bit, and they are exactly the
+          # drawer phones this project is aimed at.
+          - target: armv7-linux-androideabi
+            why: "T0/T1 — 32-bit handsets"
+          # The Android 16 Terminal guest, and mainline ports.
+          - target: aarch64-unknown-linux-gnu
+            why: "T2/T3 — Linux guest and mainline"
+          - target: armv7-unknown-linux-gnueabihf
+            why: "T3 — 32-bit mainline"
+          # Not a device. It is where contributors work, and a core that stops
+          # building there stops being contributable to.
+          - target: x86_64-unknown-linux-gnu
+            why: "development hosts"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: Why this target is in the matrix
+        run: echo "${{ matrix.target }} — ${{ matrix.why }}"
+      - name: Check
+        # `check`, not `build`: the core has no dependencies and no linked
+        # runtime yet, so type-checking is what there is to verify. When the
+        # governor lands with real syscalls this becomes a cross-linked build.
+        run: cargo check --workspace --all-features --target ${{ matrix.target }}
+
+  # ── Secrets ─────────────────────────────────────────────────────────────────
+  secrets:
+    name: "Supply chain · Secret scan"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Scan the working tree and the history
+        run: |
+          # Only the pull/install is retried. The scan itself runs exactly once
+          # and its exit code is authoritative, so a retry can never mask a real
+          # detection by re-running until it passes.
+          IMAGE="ghcr.io/trufflesecurity/trufflehog:latest"
+          pulled=0
+          for i in 1 2 3; do
+            if docker pull -q "$IMAGE"; then pulled=1; break; fi
+            echo "pull attempt $i failed; retrying in 5s"; sleep 5
+          done
+          [ "$pulled" = "1" ] || { echo "could not obtain the scanner"; exit 1; }
+          docker run --rm -v "$PWD:/repo" -w /repo "$IMAGE" \
+            filesystem /repo --only-verified --fail
+          echo "no verified secrets detected"
+
+  # ── Reproducibility ─────────────────────────────────────────────────────────
+  reproducible:
+    name: "Build · Byte-identical rebuild"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build twice from a clean tree and compare
+        # A binary that differs between two builds of the same source cannot be
+        # independently verified by the person installing it — and this project
+        # asks people to run it unattended on hardware in their home. Determinism
+        # is what makes "you can check for yourself" a real offer.
+        env:
+          # Absolute paths otherwise leak into debug info and differ by build dir.
+          RUSTFLAGS: "-D warnings --remap-path-prefix=${{ github.workspace }}=/build"
+        run: |
+          cargo build --workspace --release --locked
+          find target/release -maxdepth 1 -type f -name '*.rlib' -o -maxdepth 1 -type f -name 'libvayucell*' \
+            | sort | xargs sha256sum > /tmp/first.txt
+          cat /tmp/first.txt
+
+          cargo clean
+          cargo build --workspace --release --locked
+          find target/release -maxdepth 1 -type f -name '*.rlib' -o -maxdepth 1 -type f -name 'libvayucell*' \
+            | sort | xargs sha256sum > /tmp/second.txt
+
+          if diff -u /tmp/first.txt /tmp/second.txt; then
+            echo "the rebuild is byte-identical"
+          else
+            echo "the rebuild differs — the build is not reproducible"
+            exit 1
+          fi
+
+  # ── The single required check ───────────────────────────────────────────────
+  ci-pass:
+    name: "CI Pass — all required checks"
+    needs:
+      - charter
+      - attribution
+      - docs
+      - shell
+      - hardware
+      - rust
+      - msrv
+      - mutation
+      - coverage
+      - deps
+      - targets
+      - secrets
+      - reproducible
+    runs-on: ubuntu-24.04
+    if: always()
+    steps:
+      - name: Every required job must have succeeded
+        # Written against the whole needs context rather than a hand-maintained
+        # list: a job added above but forgotten here would otherwise be required
+        # in name and unenforced in fact.
+        run: |
+          echo '${{ toJSON(needs) }}' > results.json
+          python3 - <<'PY'
+          import json, sys
+          needs = json.load(open("results.json"))
+          failed = [n for n, v in sorted(needs.items()) if v.get("result") != "success"]
+          for n, v in sorted(needs.items()):
+              mark = "ok  " if v.get("result") == "success" else "FAIL"
+              print(f"  {mark}  {n} ({v.get('result')})")
+          if failed:
+              print("\nCI FAILED: " + ", ".join(failed))
+              sys.exit(1)
+          print(f"\nAll {len(needs)} required checks passed.")
+          PY

@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: Apache-2.0
+name: Bug report
+description: Something behaved differently from what it reported.
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What it reported, or what you expected instead
+      description: >
+        If a status read green while the underlying thing was not working, say so
+        explicitly — that is the most serious class of bug this project has.
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device and tier
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce

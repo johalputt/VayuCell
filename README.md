@@ -1,5 +1,11 @@
 # VayuCell
 
+[![CI](https://github.com/johalputt/VayuCell/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/johalputt/VayuCell/actions/workflows/ci.yml)
+[![Scheduled](https://github.com/johalputt/VayuCell/actions/workflows/scheduled.yml/badge.svg)](https://github.com/johalputt/VayuCell/actions/workflows/scheduled.yml)
+[![Code licence: Apache-2.0](https://img.shields.io/badge/code-Apache--2.0-blue.svg)](LICENSE)
+[![Charter: CC0-1.0](https://img.shields.io/badge/charter-CC0--1.0-lightgrey.svg)](LICENSE-CHARTER)
+[![unsafe: forbidden](https://img.shields.io/badge/unsafe-forbidden-success.svg)](core/src/lib.rs)
+
 **Turn a retired phone into a server you own.**
 
 A five-year-old flagship has eight 64-bit cores, several gigabytes of RAM, fast
@@ -13,7 +19,8 @@ disappearing would not stop your device working.
 
 ## Status
 
-**Founding documents.** No code yet. Start with:
+**Early. The capability registry and tier detection are written; nothing serves
+traffic yet, and by charter nothing will until the battery governor ships.**
 
 | Document | What it is |
 |---|---|
@@ -21,6 +28,10 @@ disappearing would not stop your device working.
 | [`PLAN.md`](PLAN.md) | The full project plan |
 | [`ADR-0001`](docs/adr/ADR-0001-tier-model-and-capability-registry.md) | Tier model and capability registry |
 | [`ADR-0002`](docs/adr/ADR-0002-battery-safety-governor.md) | The Battery Safety Governor |
+| [`ADR-0003`](docs/adr/ADR-0003-sovereign-ingress.md) | Reaching a server that has no address |
+| [`ADR-0004`](docs/adr/ADR-0004-storage-durability.md) | Storage durability: assume the flash lies |
+| [`ADR-0005`](docs/adr/ADR-0005-implementation-language.md) | Rust for the core, Kotlin for the shell |
+| [`docs/CI.md`](docs/CI.md) | Every gate, and every parameter it checks with |
 | [`hardware/`](hardware/) | Device compatibility database (CC0) |
 
 ## Read this before you plug anything in
@@ -45,6 +56,39 @@ hazardous-waste handling. Software cannot see that. You can.
 3. That an abandoned vendor kernel is secure.
 4. That one phone is datacentre reliability.
 5. That a rented relay is independence.
+
+## How this is checked
+
+The charter is not a statement of intent — it is a set of constraints, and a
+constraint that only a reviewer checks is one that erodes on a busy week. So the
+constraints are enforced by a machine, and **the machines are themselves tested**:
+every gate is re-broken in a scratch copy of the repository and required to
+notice, because a check whose pattern silently stops matching prints `ok` forever
+and has no other symptom.
+
+| Gate | What it refuses to let through |
+|---|---|
+| **Charter** | A serving capability before the governor. A control with no read-back. `Absent` collapsing into `Unverified`. Telemetry, a treasury, a kill switch, a dependency on a host this project runs. An edit to Article III or V that was not recorded as an amendment |
+| **Mutation** | Ten safety and honesty guards, each re-broken, each required to turn its test red. A green suite proves the code passes its tests; this proves the tests would notice if the code were wrong |
+| **Gate self-test** | Twenty-three planted violations that the gates above must each catch, citing the right rule |
+| **Rust** | `cargo fmt`, `clippy` pedantic at `-D warnings`, build, test, and an assertion that the `compile_fail` doctests actually ran — on a private item they run zero tests and still report success |
+| **Hardware** | A device profile that fails its schema, or claims a verified charge ceiling without naming the sysfs node it was read back from |
+| **Targets** | The core failing to compile for 64- and 32-bit Android, mainline ARM, or a contributor's laptop |
+| **Reproducible** | A release binary that is not byte-identical when rebuilt. You are asked to run this unattended in the building where you sleep; "check for yourself" has to be a real offer |
+| **Supply chain** | An advisory, a wildcard version, a build script, a git dependency, an unused dependency, a drifting lockfile, a verified secret anywhere in history |
+| **Docs** | A dead link into the founding documents, an ADR whose title and filename name different decisions, a gap in the decision log |
+
+Every gate is a script in [`scripts/`](scripts/), never inline YAML, so the
+identical check runs on your laptop before you push. [`docs/CI.md`](docs/CI.md)
+documents each job, each parameter, and the four charter articles that **cannot**
+be checked mechanically — printed on every run rather than quietly dropped.
+
+```bash
+bash scripts/charter-gate.sh      # the constitution, enforced
+bash scripts/gate-selftest.sh     # ...and proof it is actually enforcing it
+bash scripts/mutation-gate.sh     # proof the tests would catch a regression
+cargo test --workspace
+```
 
 ## Licence
 

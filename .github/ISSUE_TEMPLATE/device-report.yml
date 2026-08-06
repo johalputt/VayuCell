@@ -1,0 +1,39 @@
+# SPDX-License-Identifier: Apache-2.0
+name: Device report
+description: Report what a specific phone actually did. Observations only.
+labels: ["hardware"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The hardware database records what was **observed**, never what a
+        specification sheet claims. A field you did not test is left empty — an
+        empty field is honest, and a guessed one is worse than nothing because
+        somebody will trust it with their mail.
+  - type: input
+    id: model
+    attributes:
+      label: Model and build codename
+      placeholder: "vendor, marketing name, codename"
+    validations:
+      required: true
+  - type: dropdown
+    id: tier
+    attributes:
+      label: Highest tier you actually reached
+      options: ["T0", "T1", "T2", "T3", "could not tell"]
+    validations:
+      required: true
+  - type: textarea
+    id: charge
+    attributes:
+      label: Charge limiting
+      description: >
+        Which node did you write, what did reading it back say, and did it still
+        hold after a day? If it reverted, what reverted it?
+    validations:
+      required: true
+  - type: textarea
+    id: anything-else
+    attributes:
+      label: Anything that surprised you

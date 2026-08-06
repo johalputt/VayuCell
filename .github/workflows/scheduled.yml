@@ -1,0 +1,144 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# The checks that answer questions whose answer changes without the code
+# changing.
+#
+# A vulnerability advisory published on Tuesday makes Monday's green build wrong
+# retroactively, and nothing in the repository moved. These jobs run on a
+# schedule for that reason. They are deliberately NOT part of the required gate:
+# a newly-published advisory in a dependency should page a maintainer, not block
+# an unrelated documentation fix at two in the morning.
+
+name: Scheduled
+
+on:
+  schedule:
+    # Monday 05:00 UTC — a working morning, not a weekend, so a red result is
+    # seen by somebody the same day.
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+    inputs:
+      fuzz_seconds:
+        description: "Seconds to fuzz each target"
+        default: "120"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+
+  # ── Advisories move; the code did not ───────────────────────────────────────
+  advisories:
+    name: "Advisories · RustSec against the current lockfile"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@cargo-deny
+      - name: cargo-deny advisories
+        run: cargo deny --all-features check advisories
+      - uses: taiki-e/install-action@cargo-audit
+      - name: cargo-audit
+        run: cargo audit --deny warnings
+
+  # ── Dependency freshness ────────────────────────────────────────────────────
+  freshness:
+    name: "Dependencies · Freshness (red = something is behind)"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@cargo-outdated
+      - name: Report anything behind its latest release
+        run: |
+          # The core is required to have no third-party runtime dependencies
+          # (ADR-0005 §5.1, enforced by the charter gate), so this should stay
+          # empty. It exists to go red the week that stops being true.
+          cargo outdated --workspace --root-deps-only --exit-code 1
+
+  # ── Toolchain drift ─────────────────────────────────────────────────────────
+  beta-and-nightly:
+    name: "Toolchain · ${{ matrix.toolchain }} (advisory)"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: [beta, nightly]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.toolchain }}
+          components: clippy
+      - name: Build and lint against a future compiler
+        # Advisory by design. A lint added to nightly is information about work
+        # coming, not a defect in code that is correct today. It runs so the
+        # migration is a scheduled afternoon rather than a surprise.
+        run: |
+          cargo build --workspace --all-features
+          cargo test --workspace --all-features
+          cargo clippy --workspace --all-targets --all-features
+
+  # ── Undefined behaviour ─────────────────────────────────────────────────────
+  miri:
+    name: "Miri · Undefined behaviour"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri
+      - name: Run the suite under Miri
+        # The crate forbids unsafe code, so this should find nothing — which is
+        # the point. It is the check that says the forbid is real rather than a
+        # comment, and it would catch UB reached through a future dependency.
+        run: |
+          cargo miri setup
+          cargo miri test --workspace
+
+  # ── Fuzzing ─────────────────────────────────────────────────────────────────
+  fuzz:
+    name: "Fuzz · Detection parsers"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - name: Fuzz, if targets exist yet
+        run: |
+          if [ ! -d fuzz ]; then
+            echo "No fuzz/ directory yet."
+            echo "Targets are due with the governor: the sysfs and /proc parsers"
+            echo "read attacker-adjacent text from a vendor kernel, and that is the"
+            echo "first input in this project not written by us."
+            exit 0
+          fi
+          cargo install cargo-fuzz --locked
+          SECONDS_PER="${{ github.event.inputs.fuzz_seconds || '120' }}"
+          for t in $(cargo fuzz list); do
+            echo "fuzzing $t for ${SECONDS_PER}s"
+            cargo fuzz run "$t" -- -max_total_time="$SECONDS_PER"
+          done
+
+  # ── The gates themselves ────────────────────────────────────────────────────
+  gate-selftest:
+    name: "Gates · Self-test on a schedule"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Every gate must still catch what it claims to
+        # Also run on every push, but repeated here because this is the check
+        # with no natural symptom when it rots: a gate whose patterns stopped
+        # matching goes on printing ok indefinitely.
+        run: |
+          python3 -m pip install --quiet --disable-pip-version-check jsonschema
+          bash scripts/gate-selftest.sh

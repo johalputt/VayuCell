@@ -1,0 +1,19 @@
+// SPDX-License-Identifier: Apache-2.0
+{
+  "config": {
+    // Prose in this repository argues; it is not reference material formatted to
+    // a house column width. Line length is left to the author.
+    "MD013": false,
+    // The ADRs use repeated section names deliberately ("Open decisions",
+    // "What this will never claim") so the same question is findable in each.
+    "MD024": { "siblings_only": true },
+    // Inline HTML is not used, but tables and code fences are, and the default
+    // rule set is otherwise what we want.
+    "MD033": false,
+    // The first line of every ADR is its own title; the repo README starts with
+    // an H1 too. Enforced properly by scripts/docs-gate.sh instead.
+    "MD041": true
+  },
+  "globs": ["**/*.md"],
+  "ignores": ["target/**", ".git/**"]
+}
