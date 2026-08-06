@@ -4,23 +4,64 @@
   "title": "VayuCell device compatibility record",
   "description": "One verified device profile. CC0-1.0. Records what was OBSERVED on real hardware, never what a spec sheet claims. Contributed voluntarily; contains no identifiers, no location, no account.",
   "type": "object",
-  "required": ["schema_version", "model", "verified", "tiers", "battery", "reported_at"],
+  "required": [
+    "schema_version",
+    "model",
+    "verified",
+    "tiers",
+    "battery",
+    "reported_at"
+  ],
   "additionalProperties": false,
   "properties": {
-    "schema_version": { "const": 1 },
+    "schema_version": {
+      "const": 1
+    },
     "model": {
       "type": "object",
-      "required": ["vendor", "codename", "soc", "ram_mb", "storage_gb"],
+      "required": [
+        "vendor",
+        "codename",
+        "soc",
+        "ram_mb",
+        "storage_gb"
+      ],
       "additionalProperties": false,
       "properties": {
-        "vendor":       { "type": "string" },
-        "marketing":    { "type": "string" },
-        "codename":     { "type": "string", "description": "Build codename — the stable identity" },
-        "soc":          { "type": "string" },
-        "ram_mb":       { "type": "integer", "minimum": 256 },
-        "storage_gb":   { "type": "integer", "minimum": 4 },
-        "storage_class":{ "enum": ["emmc", "ufs2", "ufs3", "ufs4", "unknown"] },
-        "release_year": { "type": "integer", "minimum": 2010 }
+        "vendor": {
+          "type": "string"
+        },
+        "marketing": {
+          "type": "string"
+        },
+        "codename": {
+          "type": "string",
+          "description": "Build codename \u2014 the stable identity"
+        },
+        "soc": {
+          "type": "string"
+        },
+        "ram_mb": {
+          "type": "integer",
+          "minimum": 256
+        },
+        "storage_gb": {
+          "type": "integer",
+          "minimum": 4
+        },
+        "storage_class": {
+          "enum": [
+            "emmc",
+            "ufs2",
+            "ufs3",
+            "ufs4",
+            "unknown"
+          ]
+        },
+        "release_year": {
+          "type": "integer",
+          "minimum": 2010
+        }
       }
     },
     "verified": {
@@ -31,97 +72,241 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "os":                { "type": "string", "examples": ["android-14", "postmarketos-edge"] },
-        "kernel_version":    { "type": "string" },
-        "kernel_build_date": { "type": "string", "format": "date",
-          "description": "The single best proxy for how long this device has run unpatched code. Drives the permanent security row." },
-        "security_patch":    { "type": "string", "format": "date" }
+        "os": {
+          "type": "string",
+          "examples": [
+            "android-14",
+            "postmarketos-edge"
+          ]
+        },
+        "kernel_version": {
+          "type": "string"
+        },
+        "kernel_build_date": {
+          "type": "string",
+          "format": "date",
+          "description": "The single best proxy for how long this device has run unpatched code. Drives the permanent security row."
+        },
+        "security_patch": {
+          "type": "string",
+          "format": "date"
+        }
       }
     },
     "tiers": {
       "type": "object",
       "description": "Per ADR-0001. Each tier records whether it was ACHIEVED on this hardware, not whether it is theoretically possible.",
-      "required": ["highest_achieved"],
+      "required": [
+        "highest_achieved"
+      ],
       "additionalProperties": false,
       "properties": {
-        "highest_achieved": { "enum": ["T0", "T1", "T2", "T3"] },
-        "t1_root":            { "$ref": "#/$defs/probe" },
-        "t2_virtualisation":  { "$ref": "#/$defs/probe" },
-        "t3_mainline":        { "$ref": "#/$defs/probe" },
-        "bootloader_unlockable": { "enum": ["yes", "no", "carrier-locked", "unknown"] }
+        "highest_achieved": {
+          "enum": [
+            "T0",
+            "T1",
+            "T2",
+            "T3"
+          ]
+        },
+        "t1_root": {
+          "$ref": "#/$defs/probe"
+        },
+        "t2_virtualisation": {
+          "$ref": "#/$defs/probe"
+        },
+        "t3_mainline": {
+          "$ref": "#/$defs/probe"
+        },
+        "bootloader_unlockable": {
+          "enum": [
+            "yes",
+            "no",
+            "carrier-locked",
+            "unknown"
+          ]
+        }
       }
     },
     "battery": {
       "type": "object",
       "description": "Per ADR-0002. The safety-critical section.",
-      "required": ["charge_control"],
+      "required": [
+        "charge_control"
+      ],
       "additionalProperties": false,
       "properties": {
         "charge_control": {
           "type": "object",
-          "required": ["available", "mechanism"],
+          "required": [
+            "available",
+            "mechanism"
+          ],
           "additionalProperties": false,
           "properties": {
-            "available": { "type": "boolean" },
-            "mechanism": {
-              "enum": ["none", "end_threshold", "input_suspend", "current_limit", "voltage_max", "device_tree", "host_mediated"]
+            "available": {
+              "type": "boolean"
             },
-            "node_path":     { "type": "string", "description": "The node that ANSWERED, verbatim" },
-            "verified_hold": { "type": "boolean", "description": "Ceiling was set, read back, and still held after 24h" },
-            "reverted_by":   { "type": "string", "description": "What was observed resetting it, if anything" }
+            "mechanism": {
+              "enum": [
+                "none",
+                "end_threshold",
+                "input_suspend",
+                "current_limit",
+                "voltage_max",
+                "device_tree",
+                "host_mediated"
+              ]
+            },
+            "node_path": {
+              "type": "string",
+              "description": "The node that ANSWERED, verbatim"
+            },
+            "verified_hold": {
+              "type": "boolean",
+              "description": "Ceiling was set, read back, and still held after 24h"
+            },
+            "reverted_by": {
+              "type": "string",
+              "description": "What was observed resetting it, if anything"
+            }
           }
         },
-        "design_capacity_mah": { "type": "integer" },
+        "design_capacity_mah": {
+          "type": "integer"
+        },
         "boots_without_battery": {
-          "enum": ["yes", "no", "unknown"],
+          "enum": [
+            "yes",
+            "no",
+            "unknown"
+          ],
           "description": "Empirical only. 'yes' is the safest operating configuration for this model."
         },
-        "thermal_sensors": { "type": "array", "items": { "type": "string" } }
+        "thermal_sensors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
       }
     },
     "storage": {
       "type": "object",
       "additionalProperties": false,
+      "description": "Per ADR-0004. NOTE: 'flush_honest' was WITHDRAWN \u2014 a flush-honesty test cannot be run on a sealed-battery device (ADR-0004 \u00a70). We assume the flash may lie and design so it does not matter.",
       "properties": {
-        "flush_honest": {
-          "enum": ["pass", "fail", "untested"],
-          "description": "Power-cut test per ADR-0004. 'fail' means the controller acknowledged a flush it did not perform — device demoted from primary storage."
+        "durability_class": {
+          "enum": [
+            "assumed_untrusted",
+            "lab_verified"
+          ],
+          "default": "assumed_untrusted",
+          "description": "'assumed_untrusted' is the correct posture toward all consumer flash and is NOT a defect in the device. 'lab_verified' requires a real power-fault fixture and describes ONE physical part \u2014 it never transfers to another handset."
         },
-        "wear_indicator_available": { "type": "boolean" }
+        "lab_verification": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Present only where a contributor ran a real power-fault rig. Advisory; never grants a tier.",
+          "required": [
+            "method",
+            "fixture",
+            "date"
+          ],
+          "properties": {
+            "method": {
+              "type": "string"
+            },
+            "fixture": {
+              "type": "string",
+              "description": "The physical rig. A warm reboot is NOT a valid fixture \u2014 see ADR-0004 \u00a70"
+            },
+            "date": {
+              "type": "string",
+              "format": "date"
+            },
+            "storage_part": {
+              "type": "string"
+            }
+          }
+        },
+        "wear_indicator": {
+          "enum": [
+            "readable",
+            "absent",
+            "unreliable"
+          ],
+          "description": "Whether the device exposes anything \u2014 not what it said. 'absent' is reported as absent, never as 'healthy'."
+        },
+        "graceful_shutdown_verified": {
+          "type": "boolean",
+          "description": "The governor's shed ladder completed and the database was consistent on restart. The one durability property genuinely testable on-device, because it measures OUR behaviour, not the device's honesty."
+        }
       }
     },
     "network": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "reachability": { "enum": ["direct", "nat", "carrier-nat", "unknown"] },
-        "modem_present": { "type": "boolean" },
-        "wifi_standard": { "type": "string" }
+        "reachability": {
+          "enum": [
+            "direct",
+            "nat",
+            "carrier-nat",
+            "unknown"
+          ]
+        },
+        "modem_present": {
+          "type": "boolean"
+        },
+        "wifi_standard": {
+          "type": "string"
+        }
       }
     },
     "power": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "idle_watts":     { "type": "number" },
-        "loaded_watts":   { "type": "number" },
-        "sustained_load_throttles_after_min": { "type": "number" }
+        "idle_watts": {
+          "type": "number"
+        },
+        "loaded_watts": {
+          "type": "number"
+        },
+        "sustained_load_throttles_after_min": {
+          "type": "number"
+        }
       }
     },
-    "notes":       { "type": "string", "maxLength": 2000 },
-    "reported_at": { "type": "string", "format": "date" }
+    "notes": {
+      "type": "string",
+      "maxLength": 2000
+    },
+    "reported_at": {
+      "type": "string",
+      "format": "date"
+    }
   },
   "$defs": {
     "probe": {
       "type": "object",
-      "required": ["result"],
+      "required": [
+        "result"
+      ],
       "additionalProperties": false,
       "properties": {
         "result": {
-          "enum": ["present", "absent", "unverified"],
-          "description": "'unverified' is NEVER treated as 'absent' — charter Article IV."
+          "enum": [
+            "present",
+            "absent",
+            "unverified"
+          ],
+          "description": "'unverified' is NEVER treated as 'absent' \u2014 charter Article IV."
         },
-        "detail": { "type": "string" }
+        "detail": {
+          "type": "string"
+        }
       }
     }
   }

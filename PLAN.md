@@ -238,10 +238,14 @@ wear indicators** rather than assuming health.
 
 **Controllers lie about `fsync`.** A cheap flash controller can acknowledge a
 flush it has not performed, which turns a power cut into a corrupted database.
-This is *testable*: write, cut power under controlled conditions, and see whether
-the acknowledged data survived. VayuCell ships that test, and a device that fails
-it is reported as **not durable for primary storage** — a demotion to cache or
-replica role, not a warning label.
+The draft of this plan proposed *testing* that on-device. **It cannot be done:**
+a sealed-battery phone cannot drop its own storage rail, and the ordinary reboot
+paths flush the cache on the way out, so an honest device and a lying one produce
+identical results (ADR-0004 §0). VayuCell therefore **assumes the flash may lie**
+and is designed so that assumption costs nothing to be right about: the durability
+guarantee is stated as a **live replication lag** rather than an adjective, and the
+governed battery converts most power cuts into graceful shutdowns, which is the
+real durability mechanism on a phone.
 
 **And the rule that follows from both:** a phone is a *replica*, never the only
 copy. VayuKeep in the VayuPress stack already provides encrypted, continuously
@@ -380,7 +384,7 @@ capability before it can verify it.
 | **P3** | **Sovereign Ingress** — onion, relay, local | A reachable server with no public IP | Reachable from outside with no port forward |
 | **P4** | Catalogue: VayuPress stack + personal cloud | The two headline uses | A real site and real file sync, served from a phone |
 | **P5** | **T2 virtualised tier** (pKVM guest) | Server-grade on unrooted, updated phones | Guest survives host reboot; escapes Doze |
-| **P6** | Storage durability suite, wear reporting, VayuKeep integration | Data you can trust | Power-cut test; a lying controller is demoted |
+| **P6** | Replication lag as the stated guarantee, verified-restore reporting, wear observation | Data you can trust | Graceful-shutdown ladder verified; an unrestored backup reads *unverified* |
 | **P7** | **Fleet** — roles, replication, rolling upgrade, shared verdicts | Redundancy and scale | One node killed mid-write loses nothing |
 | **P8** | **T3 mainline tier** (postmarketOS-class images) | A maintained kernel — the real fix for B4 | Verified images for the top device families |
 | **P9** | Local model inference, household services | Private AI on hardware you own | Runs within the declared thermal envelope |

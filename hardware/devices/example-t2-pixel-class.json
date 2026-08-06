@@ -1,20 +1,67 @@
 {
   "schema_version": 1,
-  "model": { "vendor": "ExampleCo", "marketing": "Example 7", "codename": "example7",
-    "soc": "ExampleSoC 2", "ram_mb": 8192, "storage_gb": 128, "storage_class": "ufs3", "release_year": 2022 },
+  "model": {
+    "vendor": "ExampleCo",
+    "marketing": "Example 7",
+    "codename": "example7",
+    "soc": "ExampleSoC 2",
+    "ram_mb": 8192,
+    "storage_gb": 128,
+    "storage_class": "ufs3",
+    "release_year": 2022
+  },
   "verified": true,
-  "firmware": { "os": "android-16", "kernel_version": "5.10.209", "kernel_build_date": "2026-03-11", "security_patch": "2026-03-05" },
-  "tiers": { "highest_achieved": "T2",
-    "t1_root": { "result": "absent", "detail": "stock, bootloader locked by choice" },
-    "t2_virtualisation": { "result": "present", "detail": "pKVM guest started; survived host reboot" },
-    "t3_mainline": { "result": "unverified", "detail": "no port attempted" },
-    "bootloader_unlockable": "yes" },
-  "battery": { "charge_control": { "available": true, "mechanism": "host_mediated",
-      "node_path": "host-requested; verified from guest", "verified_hold": true },
-    "design_capacity_mah": 4355, "boots_without_battery": "no", "thermal_sensors": ["battery", "skin"] },
-  "storage": { "flush_honest": "pass", "wear_indicator_available": true },
-  "network": { "reachability": "carrier-nat", "modem_present": true, "wifi_standard": "wifi6" },
-  "power": { "idle_watts": 1.4, "loaded_watts": 5.2, "sustained_load_throttles_after_min": 18 },
+  "firmware": {
+    "os": "android-16",
+    "kernel_version": "5.10.209",
+    "kernel_build_date": "2026-03-11",
+    "security_patch": "2026-03-05"
+  },
+  "tiers": {
+    "highest_achieved": "T2",
+    "t1_root": {
+      "result": "absent",
+      "detail": "stock, bootloader locked by choice"
+    },
+    "t2_virtualisation": {
+      "result": "present",
+      "detail": "pKVM guest started; survived host reboot"
+    },
+    "t3_mainline": {
+      "result": "unverified",
+      "detail": "no port attempted"
+    },
+    "bootloader_unlockable": "yes"
+  },
+  "battery": {
+    "charge_control": {
+      "available": true,
+      "mechanism": "host_mediated",
+      "node_path": "host-requested; verified from guest",
+      "verified_hold": true
+    },
+    "design_capacity_mah": 4355,
+    "boots_without_battery": "no",
+    "thermal_sensors": [
+      "battery",
+      "skin"
+    ]
+  },
+  "storage": {
+    "durability_class": "assumed_untrusted",
+    "wear_indicator": "readable",
+    "graceful_shutdown_verified": true
+  },
+  "network": {
+    "reachability": "carrier-nat",
+    "modem_present": true,
+    "wifi_standard": "wifi6"
+  },
+  "power": {
+    "idle_watts": 1.4,
+    "loaded_watts": 5.2,
+    "sustained_load_throttles_after_min": 18
+  },
   "notes": "Best-case profile. T2 gives a maintained host kernel WITHOUT unlocking. Charge ceiling held at 60% across 30 days.",
   "reported_at": "2026-08-06"
 }

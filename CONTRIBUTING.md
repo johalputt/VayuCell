@@ -49,6 +49,18 @@ is exactly what the next person needs to know.
 In the attacker's voice, with the consequence in the name, and mutation-tested.
 `TestChargeCeilingRevertedByVendorDaemonIsDetected` beats `TestCharge`.
 
+## Durability claims: one rule with a citation
+
+**A warm reboot is not a durability test.** Proposing one — under any name —
+fails review, and ADR-0004 §0 is the citation. A sealed-battery device cannot
+drop its own storage rail, and the ordinary reboot paths flush the device cache
+on the way out, so an honest device and a maximally dishonest one return
+identical results. Any on-device "flush honesty" verdict is therefore a green
+light from a test that cannot go red for the reason it claims to.
+
+Real power-fault testing needs a physical fixture and lives in `hardware/lab/`.
+Its result is advisory, describes one physical part, and never transfers.
+
 ## What will be refused
 
 - Any capability that reports success without reading the result back.
