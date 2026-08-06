@@ -35,8 +35,8 @@ disappearing would not stop your device working**.
 
 | | |
 | --- | --- |
-| Written | The capability registry, tier detection, the CSP and response security headers, **the battery safety governor** — state machine, verification loop, thresholds, recovery — the sysfs layer it drives, the sampling cadence, and **the mains-loss shed ladder**: the inversion where a governed cell stops being the largest risk and becomes an integrated UPS |
-| Not written | The panel |
+| Written | The capability registry, tier detection, the CSP and response security headers, **the battery safety governor** — state machine, verification loop, thresholds, recovery — the sysfs layer it drives, the sampling cadence, the mains-loss shed ladder, and **the safety panel**, where a row that could not be checked is not allowed to read as one that was |
+| Not written | The daemon that runs the loop, the fleet view, the hardware database itself |
 | Unblocked | [Charter III.1](CHARTER.md) forbade anything serving traffic before the governor. The governor exists, so that constraint is now satisfied — and the gate still fails the build if it is ever removed |
 | Never tested on hardware | Everything. Every device-facing behaviour is exercised through a fake host describing handsets nobody here is holding |
 

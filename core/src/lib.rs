@@ -21,6 +21,7 @@ pub mod csp;
 pub mod governor;
 pub mod headers;
 pub mod host;
+pub mod panel;
 pub mod sampler;
 pub mod shed;
 pub mod sysfs;
@@ -34,6 +35,8 @@ mod csp_test;
 mod governor_test;
 #[cfg(test)]
 mod headers_test;
+#[cfg(test)]
+mod panel_test;
 #[cfg(test)]
 mod sampler_test;
 #[cfg(test)]

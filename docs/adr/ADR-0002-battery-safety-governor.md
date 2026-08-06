@@ -10,8 +10,11 @@
   the governor reports once the cell stops being readable at all. The **shed
   ladder of §8** is implemented in `core/src/shed.rs`, including the reserve the
   node shuts down holding and the battery-absent case that may not claim a UPS
-  at all. **Not yet built:** the panel, and the non-ceiling mechanisms as
-  controls in their own right. Nothing here has run on a phone.
+  at all. The **panel** of §5–6 is implemented in `core/src/panel.rs`, including
+  the swelling estimate rendered as an estimate and the physical-inspection
+  prompt that appears at every risk level. **Not yet built:** the daemon that
+  runs the sampling loop on a device, and the non-ceiling mechanisms as controls
+  in their own right. Nothing here has run on a phone.
 - **Date:** 2026-08-06
 - **Relates to:** CHARTER Article III (safety of persons); ADR-0001 (tiers)
 - **Priority:** P1 — **nothing that serves traffic ships before this**

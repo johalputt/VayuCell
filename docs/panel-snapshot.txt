@@ -1,0 +1,35 @@
+# What the VayuCell safety panel tells a user
+#
+# Generated from core/src/panel.rs. Do not edit by hand.
+# Regenerate: cargo test --workspace -- --ignored regenerate_the_panel_snapshot
+#
+# Two devices: one where every check holds, and one T0 handset with no
+# charge control, a derated governor and no cell behind it.
+
+--- a device where everything was checked and holds ---
+
+BATTERY SAFETY: PROTECTED
+
+  VERIFIED     device tier                  T1 established from positive evidence on this device
+  VERIFIED     charge mechanism             charge_control_end_threshold answered at a readable ceiling
+  VERIFIED     charge ceiling               60% written to charge_control_end_threshold and read back
+  VERIFIED     battery governor             governor at NORMAL; no threshold crossed
+  VERIFIED     outage reserve               a cell carries this node and it shuts down holding 10%
+
+Swelling risk: Nominal, low confidence — an estimate from cycle count against age, capacity fade, not a measurement.
+
+Physical inspection is the definitive check, and this software cannot perform it. Put the phone face-down on a flat table. If it rocks, does not lie flat, or the screen or back cover is lifting at any edge, stop using it now and take it to hazardous-waste handling.
+
+--- a stock handset with no charge control and no cell ---
+
+BATTERY SAFETY: UNSAFE
+
+  VERIFIED     device tier                  T0 established from positive evidence on this device
+  FAILED       charge mechanism             this device exposes no charge control, so no ceiling can be held
+  UNVERIFIED   charge ceiling               no mechanism exists to hold a ceiling on this device
+  FAILED       battery governor             governor at DERATED; the workload has been reduced or stopped
+  FAILED       outage reserve               no battery is carrying this node; mains loss stops it immediately
+
+Swelling risk: Elevated, moderate confidence — an estimate from capacity fade, time above 40 °C, charge acceptance falling, not a measurement.
+
+Physical inspection is the definitive check, and this software cannot perform it. Put the phone face-down on a flat table. If it rocks, does not lie flat, or the screen or back cover is lifting at any edge, stop using it now and take it to hazardous-waste handling.

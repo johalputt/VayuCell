@@ -51,6 +51,25 @@ traffic before it.
   with its pack removed has no cell to ride an outage on, so mains loss stops
   it immediately — and it reports that it cannot make the claim, instead of
   presenting three minutes of ladder it has no energy to run.
+- **The safety panel** (ADR-0002 §5–6) — the one screen anybody actually
+  reads, and so the one place where being wrong is guaranteed to reach them.
+  Every row cites what it saw, including the rows that admit they could not
+  check; there is no way to write "verified" without saying what verified it.
+  The headline is computed from the rows rather than set beside them, and a
+  single unchecked row is enough to take it off `PROTECTED` — four green rows
+  and one nobody could read is not a protected device.
+- **Swelling is estimated and never claimed.** The confidence attached to that
+  estimate has no `High` setting and cannot be given one without editing the
+  source, because software has no instrument for a millimetre of deformation.
+  The panel renders it as an estimate and then asks for the check that does
+  settle it: the phone face-down on a flat table, at every risk level rather
+  than only the alarming ones — an estimate reading nominal is not evidence of
+  a flat cell.
+- **What the panel says is committed to `docs/panel-snapshot.txt`**, alongside
+  the response security posture. Both the reassuring panel and the alarming one
+  are rendered there, so softening the alarming one — the way status displays
+  actually drift — produces a plain-text diff rather than an innocuous-looking
+  edit to a Rust file.
 
 ### Changed
 

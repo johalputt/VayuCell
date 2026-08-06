@@ -212,7 +212,7 @@ the code compiles there.
 
 ### `mutation`
 
-Runs [`scripts/mutation-gate.sh`](../scripts/mutation-gate.sh). **Sixty-three guards**, each re-broken in turn, each required to turn its matching test red:
+Runs [`scripts/mutation-gate.sh`](../scripts/mutation-gate.sh). **Seventy-three guards**, each re-broken in turn, each required to turn its matching test red:
 
 | Mutation | Test that must fail |
 | --- | --- |
@@ -279,6 +279,16 @@ Runs [`scripts/mutation-gate.sh`](../scripts/mutation-gate.sh). **Sixty-three gu
 | A flickering supply silently restarting a closed database | `mains_returning_after_the_database_was_closed_does_not_silently_reopen_it` |
 | A node with no battery presenting a shed ladder | `a_node_with_no_cell_does_not_claim_a_ups_and_does_not_pretend_to_ride_it_out` |
 | A node still holding 70% shut down on a timer | `time_alone_never_reaches_shutdown` |
+| An unverified row counted as protection on the panel | `one_unverified_row_takes_the_headline_off_protected` |
+| A confirmed failure filed under "not fully verified" | `a_failure_outranks_an_unverified_row` |
+| A panel row built on blank evidence | `a_row_cannot_be_built_on_blank_evidence` |
+| A device with no charge control given a green mechanism row | `a_device_with_no_charge_control_says_so_rather_than_omitting_the_row` |
+| A derated or halted governor rendering as verified | `a_governor_that_has_left_normal_is_never_a_verified_row` |
+| The inspection prompt dropped when the estimate looks nominal | `the_inspection_instruction_appears_at_every_risk_level_including_nominal` |
+| The swelling estimate losing the words that stop it reading as a measurement | `the_swelling_estimate_is_rendered_as_an_estimate_and_never_as_a_measurement` |
+| An estimate resting on no proxies rendering as a clean bill | `an_estimate_resting_on_nothing_says_so_rather_than_rendering_an_empty_list` |
+| A node with no cell credited with an outage reserve | `a_node_with_no_cell_is_not_credited_with_an_outage_reserve` |
+| The panel's wording softened without any individual assertion breaking | `the_rendered_panels_match_the_committed_snapshot` |
 
 Three of these were defects in the **tests** rather than the code, found because
 a mutation survived or because writing one exposed the test as vacuous:
@@ -299,16 +309,32 @@ a mutation survived or because writing one exposed the test as vacuous:
   lowest rung once, and the test rewritten to assert the band *moves with the
   ladder*, which is the property that actually distinguishes a correct
   implementation.
+- **A `compile_fail` proof that compiled.** `Finding::Verified` was written
+  without a type annotation, and a bare tuple-variant name in Rust is the
+  *constructor function*, not a value of the enum — so the snippet compiled, the
+  `compile_fail` doctest failed loudly, and the proof would otherwise have sat
+  in the tree asserting nothing. Caught because the doctest run reports a
+  `compile_fail` that compiles as a failure; it is worth knowing that the same
+  mistake inside a `no_run` or an `ignore` block would have been silent.
 
-### The security posture snapshot
+### The committed snapshots
 
-[`docs/security-posture.txt`](security-posture.txt) is the exact header set a
-production response carries, committed and compared by a test.
+Two files are committed renderings of what this software emits, each compared
+by a test:
 
-Every guard in `csp` and `headers` tests one property in isolation, which is
-right and is not sufficient. A change that weakens the posture while keeping each
-individual assertion true reads, in a diff, as a small edit to a Rust file —
-nobody reviewing it sees the header set change.
+- [`docs/security-posture.txt`](security-posture.txt) — the exact header set a
+  production response carries.
+- [`docs/panel-snapshot.txt`](panel-snapshot.txt) — what the safety panel tells
+  a user, for two devices: one where every check holds, and one stock handset
+  with no charge control, a derated governor and no cell behind it. Both are
+  rendered, because a snapshot of only the reassuring case would let the
+  alarming panel be softened without producing any diff at all.
+
+Every guard in `csp`, `headers` and `panel` tests one property in isolation,
+which is right and is not sufficient. A change that weakens the posture — or
+softens what a user is told — while keeping each individual assertion true reads,
+in a diff, as a small edit to a Rust file. Nobody reviewing it sees the header
+set change, or notices that `UNSAFE` now says something gentler.
 
 With the snapshot committed, weakening anything produces a diff in a plain text
 file that states, in order, what every response will carry. That is a thing a
@@ -318,6 +344,7 @@ Regenerating is deliberate and separate:
 
 ```bash
 cargo test --workspace -- --ignored regenerate_the_security_posture
+cargo test --workspace -- --ignored regenerate_the_panel_snapshot
 ```
 
 The command is the easy part and it is not the point — the diff is.

@@ -94,6 +94,7 @@ G=core/src/governor.rs
 SF=core/src/sysfs.rs
 SM=core/src/sampler.rs
 SH=core/src/shed.rs
+P=core/src/panel.rs
 
 mutate "$T" a_guest_that_cannot_see_the_phone_reports_unverified_rather_than_guessing \
   "a bare VM is promoted to T2 without the shell's assertion" \
@@ -526,6 +527,80 @@ mutate "$SH" time_alone_never_reaches_shutdown \
             Stage::Quiesced" \
   "        if elapsed >= self.quiesce_after {
             Stage::ShuttingDown"
+
+mutate "$P" one_unverified_row_takes_the_headline_off_protected \
+  "an unverified row is counted as protection" \
+  "                Finding::Unverified(_) => Overall::Unverified," \
+  "                Finding::Unverified(_) => Overall::Protected,"
+
+mutate "$P" a_failure_outranks_an_unverified_row \
+  "a confirmed failure is filed as a paperwork problem" \
+  "pub enum Overall {
+    /// Everything on the panel was checked and holds.
+    Protected,
+    /// Something could not be checked. Not a failure, and not protection.
+    Unverified,
+    /// Something was checked and does not hold.
+    Unsafe,
+}" \
+  "pub enum Overall {
+    /// Everything on the panel was checked and holds.
+    Protected,
+    /// Something was checked and does not hold.
+    Unsafe,
+    /// Something could not be checked. Not a failure, and not protection.
+    Unverified,
+}"
+
+mutate "$P" a_row_cannot_be_built_on_blank_evidence \
+  "a row is built on blank evidence and renders as a confident claim" \
+  "        if what.trim().is_empty() {
+            return None;
+        }" \
+  "        if false {
+            return None;
+        }"
+
+mutate "$P" a_device_with_no_charge_control_says_so_rather_than_omitting_the_row \
+  "a device with no charge control gets a green mechanism row" \
+  "                None => Finding::Refused(evidence(
+                    \"this device exposes no charge control, so no ceiling can be held\",
+                ))," \
+  "                None => Finding::Verified(evidence(
+                    \"this device exposes no charge control, so no ceiling can be held\",
+                )),"
+
+mutate "$P" a_governor_that_has_left_normal_is_never_a_verified_row \
+  "a derated or halted governor still renders as a verified row" \
+  "                other => Finding::Refused(evidence(&format!(" \
+  "                other => Finding::Verified(evidence(&format!("
+
+mutate "$P" the_inspection_instruction_appears_at_every_risk_level_including_nominal \
+  "the inspection prompt is dropped when the estimate looks nominal" \
+  "        let _ = write!(out, \"\\n{INSPECTION}\\n\");" \
+  "        if self.risk.level != RiskLevel::Nominal {
+            let _ = write!(out, \"\\n{INSPECTION}\\n\");
+        }"
+
+mutate "$P" the_swelling_estimate_is_rendered_as_an_estimate_and_never_as_a_measurement \
+  "the swelling estimate loses the words that stop it reading as a measurement" \
+  "            \"\\nSwelling risk: {:?}, {} — an estimate from {basis}, not a measurement.\\n\"," \
+  "            \"\\nSwelling risk: {:?} ({} / {basis})\\n\","
+
+mutate "$P" an_estimate_resting_on_nothing_says_so_rather_than_rendering_an_empty_list \
+  "an estimate resting on no proxies renders as a clean bill" \
+  "            \"no proxies at all\".to_owned()" \
+  "            \"the available signals\".to_owned()"
+
+mutate "$P" a_node_with_no_cell_is_not_credited_with_an_outage_reserve \
+  "a node with no cell is credited with an outage reserve" \
+  "                UpsClaim::Unbacked { why } => Finding::Refused(evidence(why))," \
+  "                UpsClaim::Unbacked { why } => Finding::Verified(evidence(why)),"
+
+mutate "$P" the_rendered_panels_match_the_committed_snapshot \
+  "the panel's wording is softened without any assertion breaking" \
+  "            Overall::Unsafe => \"UNSAFE\"," \
+  "            Overall::Unsafe => \"NEEDS ATTENTION\","
 
 echo
 # The suite was green before the first mutation and every mutation was undone,
