@@ -2,87 +2,90 @@
 
 # The VayuCell mark
 
-The logo set is **generated**, not hand-edited:
+The logo set is **generated, not hand-edited**:
 
 ```bash
 python3 scripts/make-logo.py
 ```
 
-Everything is drawn as explicit paths — including every letter of the wordmark
-and the tagline. Nothing depends on a font being installed, which matters
-because most of the machines this project runs on are phones, and none of the
-build runners have a display typeface.
+Regenerating produces byte-identical files. That is the same determinism
+argument the release build makes, applied to the artwork: if you cannot rebuild
+it, you cannot check it.
+
+## What it is
+
+A calligraphic **V** — one tapering brush stroke, a fine point at the entry,
+swelling through the body, thinning again through the turn — with a three-unit
+**server rack** standing in the crook of it.
+
+The stroke is *vayu*, wind. The rack is what the wind is carrying.
+
+They **interlock**. The rack's stand comes down exactly where the rising arm
+ends its travel, so neither element reads as having been pasted on top of the
+other. This is the part that took the most iterations: at the first tip position
+the arm swept underneath the rack and buried the one element that says *server*.
 
 ## Construction
 
-It shares its construction with the VayuPress mark deliberately. The **chevron**
-and the **two wind ribbons** are the family signature — *vayu*, wind. What
-changes per product is the accent.
+Everything is an explicit path — including **every letter of the wordmark**.
+Nothing depends on a font being installed. That is not purism: most of the
+machines this project runs on are phones, none of the build runners carry a
+display typeface, and a logo that renders differently depending on what happens
+to be installed is a logo nobody can verify.
 
-The chevron geometry is derived rather than eyeballed. Both arms are bounded by
-pairs of parallel lines offset 88 units horizontally, and the two vertices are
-the intersections of those lines. That is what makes the left arm read heavier
-than the right without either looking like a mistake. The right arm is cut at
-**40% of the chevron's height**, which is what leaves the ribbons a clear field
-instead of crossing the metal.
+The swash is a single closed contour. Both edges begin at the same point, which
+is what makes the entry a *point* rather than a cut, and the body swells because
+the inner edge bulges right while the outer edge holds its line.
 
-The ribbons taper to a point at **both** ends. This is not decoration: a blunt
-tail lands on the right arm and turns the crossing into a smudge. Pointed, the
-tails sit in the notch between the arms and read as motion leaving the mark.
+The rack is **outlined, not filled**. An outline keeps its shape at the size a
+favicon is actually seen at, where a solid block would close up into a
+rectangle.
 
-## Palette
+## Colour
 
-| Role | Value | Note |
-|---|---|---|
-| Ink | `#111C2B` | Wordmark on a light ground. The family navy |
-| Ink, reversed | `#EEF4F9` | Wordmark on a dark ground |
-| Accent, deep | `#047857` | Emerald 700 |
-| Accent, mid | `#10B981` | Emerald 500 |
-| Accent, bright | `#5EEAD4` | Teal 300 — the lit tip of the leading ribbon |
-| Tile ground | `#0B1220` | The favicon's own background |
+**Monochrome.** One colour, inherited from `color` on the root element, so a
+single SVG serves a light ground and a dark one.
 
-VayuPress is blue. **VayuCell is emerald going to mint, because this product is
-about a cell that still has charge left in it** — a phone somebody was told was
-finished.
+| Role | Value |
+|---|---|
+| Ink | `#0A0A0A` |
+| Paper | `#FFFFFF` |
+| Tile ground | `#0A0A0A` |
 
-On a dark ground the whole accent shifts one step brighter. The emerald end of
-the ramp closes up against a dark background and the leading letters of `CELL`
-go muddy; same hues, different footing. A palette that ignores what it is
-sitting on is a palette that only works in one place.
+There is no accent and no gradient. The mark carries its meaning in its shape.
 
 ## The files
 
 | File | Use |
 |---|---|
-| `vayucell-logo.svg` / `.png` | Full lockup, light backgrounds |
-| `vayucell-logo-dark.svg` / `.png` | Full lockup, dark backgrounds |
-| `vayucell-logo-metallic.svg` / `.png` | The premium lockup — chiselled steel chevron |
+| `vayucell-logo.svg` / `.png` | Full lockup, light grounds |
+| `vayucell-logo-dark.svg` / `.png` | Full lockup, dark grounds |
 | `vayucell-mark.svg` / `.png` | Mark only, no wordmark |
-| `vayucell-mark-dark.svg` | Mark only, reversed |
-| `vayucell-icon.svg`, `vayucell-icon-dark.svg` | Square, transparent |
-| `vayucell-tile.svg`, `favicon-*.png` | Square with its own dark ground |
+| `vayucell-mark-dark.svg` / `.png` | Mark only, reversed |
+| `vayucell-tile.svg`, `favicon-*.png` | Square, with its own dark ground |
 
 The tile carries a background on purpose. At 32px a transparent icon competes
-with whatever the browser puts behind it, and the difference between a
-recognisable favicon and a smudge is having a ground of your own. The mark is
-scaled to 76% inside it, because launchers mask the corners and clip the outer
-few percent.
+with whatever the browser puts behind it, and having a ground of your own is the
+difference between a recognisable favicon and a smudge. The mark is fitted to
+**66% of the tile** from its measured bounding box rather than a guessed scale
+factor — launchers mask the corners and clip the outer few percent, and an
+eyeballed factor had it sitting small and off-centre.
 
 ## Rules
 
 1. **Do not retype the wordmark.** It is drawn geometry, not a font, and no
    installed typeface will match it.
-2. **Do not recolour the accent** to another product's colour. The accent is how
-   the family tells its members apart.
-3. **Do not put the ribbons on the left**, or mirror the mark. It moves one way.
-4. **Do not add a drop shadow to the flat variants.** The metallic variant is
-   the one that carries dimension; the flat ones are flat on purpose.
-5. **Clear space:** at least the height of the wordmark's cap on every side.
-6. **Minimum size:** the full lockup stops being legible below 180px wide. Use
-   the mark or the tile below that.
+2. **Do not separate the rack from the stroke.** They interlock; moved apart
+   they are two clip-art elements sharing a canvas.
+3. **Do not mirror the mark.** The stroke travels one way.
+4. **Do not add colour, gradient, or shadow.** If a surface needs the mark to
+   stand out, change the surface.
+5. **Clear space:** at least the cap height of the wordmark on every side.
+6. **Minimum size:** the full lockup stops being legible below 160px wide. Use
+   the mark, or the tile, below that.
 
 ## Licence
 
 CC0-1.0, like the charter and the hardware database. The *name* VayuCell is
-covered by [`TRADEMARK.md`](../TRADEMARK.md) — you may copy the artwork freely,
-but do not use the name to imply that a modified build is the official one.
+covered by [`TRADEMARK.md`](../TRADEMARK.md) — copy the artwork freely, but do
+not use the name to imply that a modified build is the official one.

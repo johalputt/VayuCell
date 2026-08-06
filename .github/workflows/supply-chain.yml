@@ -1,0 +1,105 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Supply chain: what is in the artefact, and what is known about it.
+#
+# The core is required to carry no third-party runtime dependencies (ADR-0005
+# §5.1, Charter Article V.5). These jobs exist so that claim is checkable by
+# somebody who does not take our word for it, and so the day it stops being true
+# is a day something goes red rather than a day nobody notices.
+
+name: Supply chain
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 4 * * 1"   # Monday 04:00 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+
+  sbom:
+    name: "SBOM (CycloneDX)"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Generate
+        run: |
+          cargo install cargo-cyclonedx --locked
+          bash scripts/sbom.sh sbom.cdx.json
+      - name: The dependency count must match the charter's claim
+        # Article V.5 and ADR-0005 §5.1: zero third-party runtime dependencies.
+        # An SBOM nobody asserts anything about is a file, not a check.
+        run: |
+          python3 - <<'PY'
+          import json, sys
+          doc = json.load(open("sbom.cdx.json"))
+          third_party = [
+              c for c in doc.get("components", [])
+              if not str(c.get("name", "")).startswith("vayucell")
+          ]
+          for c in third_party:
+              print(f"  third-party: {c.get('name')} {c.get('version')}")
+          if third_party:
+              print()
+              print("The core has taken a third-party runtime dependency. That needs an")
+              print("ADR admitting it, and deny.toml reviewed, before this can go green.")
+              sys.exit(1)
+          print("no third-party runtime components — the charter's claim holds")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.cdx.json
+
+  osv:
+    name: "OSV scan"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - name: Scan the lockfile against the OSV database
+        # A second opinion alongside cargo-deny's advisories check. They draw on
+        # overlapping but not identical data, and two sources disagreeing is
+        # itself information worth having.
+        uses: google/osv-scanner-action/osv-scanner-action@v2
+        with:
+          scan-args: |-
+            --lockfile=./Cargo.lock
+
+  scorecard:
+    name: "OpenSSF Scorecard"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    # Only on main: the scan grades repository settings, which a pull request
+    # branch cannot change and should not be judged on.
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      id-token: write
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: ossf/scorecard-action@v2
+        with:
+          results_file: scorecard.sarif
+          results_format: sarif
+          publish_results: false
+      - uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: scorecard.sarif
+        continue-on-error: true

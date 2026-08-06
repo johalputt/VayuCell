@@ -88,6 +88,7 @@ echo
 T=core/src/tier.rs
 H=core/src/host.rs
 C=core/src/csp.rs
+HD=core/src/headers.rs
 
 mutate "$T" a_guest_that_cannot_see_the_phone_reports_unverified_rather_than_guessing \
   "a bare VM is promoted to T2 without the shell's assertion" \
@@ -217,6 +218,71 @@ mutate "$C" --doc \
   '            Source::Https => "https:",' \
   '            Source::Https => "https:",
             Source::UnsafeInline => "unsafe",'
+
+# -- Response security headers (ADR-0006 §6) -----------------------------------
+
+mutate "$HD" the_production_set_enforces_rather_than_reports \
+  "a release ships report-only, enforcing nothing while looking identical" \
+  "            mode: Mode::Enforce," \
+  '            mode: Mode::ReportOnly("shipped by accident".to_owned()),'
+
+mutate "$HD" content_sniffing_is_never_permitted \
+  "the browser is allowed to guess a content type" \
+  'out.push(("X-Content-Type-Options", "nosniff".to_owned()));' \
+  'out.push(("X-Content-Type-Options", "sniff".to_owned()));'
+
+mutate "$HD" the_page_is_refused_to_framers_by_two_independent_mechanisms \
+  "the legacy framing refusal is downgraded to same-origin" \
+  'out.push(("X-Frame-Options", "DENY".to_owned()));' \
+  'out.push(("X-Frame-Options", "SAMEORIGIN".to_owned()));'
+
+mutate "$HD" a_token_hsts_max_age_is_refused_rather_than_sent \
+  "a token HSTS max-age is accepted" \
+  "pub const MIN_MAX_AGE: u32 = 60 * 60 * 24 * 180;" \
+  "pub const MIN_MAX_AGE: u32 = 1;"
+
+mutate "$HD" the_referrer_never_leaks_a_path_to_another_origin \
+  "the default referrer policy starts leaking cross-origin" \
+  'Referrer::None_ => "no-referrer",' \
+  'Referrer::None_ => "unsafe-url",'
+
+mutate "$HD" device_permissions_are_denied_by_enumeration_not_by_omission \
+  "device permissions fall back to whatever the browser defaults to" \
+  '                "camera",' \
+  '                "camera-was-removed",'
+
+mutate "$HD" the_browsing_context_is_isolated \
+  "the browsing context stops being isolated" \
+  'out.push(("Cross-Origin-Opener-Policy", "same-origin".to_owned()));' \
+  'out.push(("Cross-Origin-Opener-Policy", "unsafe-none".to_owned()));'
+
+mutate "$HD" development_sends_no_hsts_because_it_cannot_honour_it \
+  "development pins HTTPS from a machine serving plain HTTP" \
+  "            hsts: None,
+        }
+    }
+
+    /// Overrides the referrer policy." \
+  "            hsts: Some(Hsts::ONE_YEAR),
+        }
+    }
+
+    /// Overrides the referrer policy."
+
+# The compile_fail proof: putting the leaky variant back must make it COMPILE,
+# which turns the doctest red. The match arm goes in the same mutation, or the
+# crate fails to build for an unrelated reason and proves nothing.
+mutate "$HD" --doc \
+  "Referrer gains a leaking variant and the compile_fail proof still passes" \
+  "    StrictOriginWhenCrossOrigin,
+}" \
+  "    StrictOriginWhenCrossOrigin,
+    /// Planted by the mutation gate.
+    UnsafeUrl,
+}" \
+  '            Referrer::StrictOriginWhenCrossOrigin => "strict-origin-when-cross-origin",' \
+  '            Referrer::StrictOriginWhenCrossOrigin => "strict-origin-when-cross-origin",
+            Referrer::UnsafeUrl => "unsafe-url",'
 
 echo
 # The suite was green before the first mutation and every mutation was undone,

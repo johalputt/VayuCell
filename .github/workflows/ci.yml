@@ -120,6 +120,21 @@ jobs:
           [ "$bad" -eq 0 ] || exit 1
           echo "every script is executable and declares its interpreter"
 
+  # ── Release metadata ────────────────────────────────────────────────────────
+  release-meta:
+    name: "Release · Version consistency"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Release gate
+        # Checked on every push, not only at tag time. A version that has been
+        # inconsistent for three weeks is discovered at the worst moment —
+        # while trying to ship — and by then the fix competes with the release.
+        run: bash scripts/release-gate.sh
+
   # ── Hardware compatibility database ─────────────────────────────────────────
   hardware:
     name: "Hardware · Device database schema & honesty"
@@ -406,6 +421,7 @@ jobs:
       - docs
       - shell
       - hardware
+      - release-meta
       - rust
       - msrv
       - mutation

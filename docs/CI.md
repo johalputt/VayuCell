@@ -26,7 +26,7 @@ other symptom. Both failure directions were hit while these gates were written:
   the schema does not have. It printed `ok` on every run while checking nothing.
 
 The second kind is the dangerous one. [`scripts/gate-selftest.sh`](../scripts/gate-selftest.sh)
-is how it gets caught: it plants thirty-four violations in a scratch copy of
+is how it gets caught: it plants **thirty-nine violations** in a scratch copy of
 the repository and requires the matching gate to fail, citing the right rule.
 
 ## Where the logic lives
@@ -36,17 +36,28 @@ No gate's logic is written inline in a workflow file. Every check is a script in
 push. The workflows only decide *when* things run and *with what strictness*.
 
 ```bash
-# The full local gate, in the order CI runs it.
-bash scripts/charter-gate.sh          # the constitution, enforced
-bash scripts/attribution-gate.sh      # the permanent record
-bash scripts/docs-gate.sh             # required docs, ADR integrity, links
-bash scripts/hardware-gate.sh         # device database schema and honesty
-bash scripts/gate-selftest.sh         # the gates above actually fire
-bash scripts/mutation-gate.sh         # the tests would notice if code were wrong
+scripts/local-ci.sh            # everything below, in the order CI runs it
+scripts/local-ci.sh --fast     # skip mutation, coverage and the self-test
+scripts/local-ci.sh --list     # show what would run, and stop
+```
 
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace --all-features
+`local-ci.sh` prints nothing when a gate passes and the captured output only when
+one fails. That is deliberate: a gate that is quiet on success is a gate people
+run before pushing rather than one they mean to.
+
+Individually:
+
+```bash
+scripts/charter-gate.sh          # the constitution, enforced
+scripts/attribution-gate.sh      # the permanent record
+scripts/docs-gate.sh             # required docs, ADR integrity, links, rule counts
+scripts/hardware-gate.sh         # device database schema and honesty
+scripts/release-gate.sh          # the version says the same thing everywhere
+scripts/doctest-count.sh         # a non-zero number of doctests actually ran
+scripts/coverage.sh              # production-only line coverage against the floor
+scripts/sbom.sh                  # CycloneDX bill of materials
+scripts/gate-selftest.sh         # the gates above actually fire
+scripts/mutation-gate.sh         # the tests would notice if the code were wrong
 ```
 
 `scripts/hardware-gate.sh` and `scripts/gate-selftest.sh` need one Python
@@ -61,7 +72,7 @@ python3 -m pip install jsonschema
 ## Workflow: `ci.yml` — the required gate
 
 Runs on every push to `main` and every pull request. Nothing merges without all
-fourteen jobs green.
+fifteen jobs green.
 
 | Setting | Value | Why |
 |---|---|---|
@@ -179,8 +190,8 @@ the code compiles there.
 
 ### `mutation`
 
-Runs [`scripts/mutation-gate.sh`](../scripts/mutation-gate.sh). Twenty guards,
-each re-broken in turn, each required to turn its matching test red:
+Runs [`scripts/mutation-gate.sh`](../scripts/mutation-gate.sh). **Twenty-nine
+guards**, each re-broken in turn, each required to turn its matching test red:
 
 | Mutation | Test that must fail |
 |---|---|
@@ -204,6 +215,15 @@ each re-broken in turn, each required to turn its matching test red:
 | `script-src` falling back to `'self'` | `script_may_run_only_with_the_per_response_nonce` |
 | The page made framable | `a_page_cannot_be_framed_or_have_its_base_rewritten` |
 | **`Source` gains an unsafe variant** | the `compile_fail` doctest. The mutation adds the variant *and* its match arm, so the proof compiles and the doctest must go red |
+| A release ships report-only, enforcing nothing | `the_production_set_enforces_rather_than_reports` |
+| Content sniffing permitted | `content_sniffing_is_never_permitted` |
+| Legacy framing refusal downgraded | `the_page_is_refused_to_framers_by_two_independent_mechanisms` |
+| A token HSTS max-age accepted | `a_token_hsts_max_age_is_refused_rather_than_sent` |
+| The referrer policy starts leaking | `the_referrer_never_leaks_a_path_to_another_origin` |
+| Device permissions fall back to defaults | `device_permissions_are_denied_by_enumeration_not_by_omission` |
+| The browsing context stops being isolated | `the_browsing_context_is_isolated` |
+| Development pins HTTPS it cannot honour | `development_sends_no_hsts_because_it_cannot_honour_it` |
+| **`Referrer` gains a leaking variant** | its `compile_fail` doctest |
 
 Three defects were found while building this, all the same class as the bug the
 gates exist to catch, and all are now guarded:
@@ -294,6 +314,56 @@ source cannot be independently verified by the person installing it.
 The single required status check. Its result list is generated from the whole
 `needs` context rather than a hand-maintained list — a job added above but
 forgotten here would otherwise be required in name and unenforced in fact.
+
+### `release-meta`
+
+Runs [`scripts/release-gate.sh`](../scripts/release-gate.sh) on **every push**,
+not only at tag time: `.release-version`, `core/Cargo.toml` and `CHANGELOG.md`
+must agree, `.release-version` must carry no trailing newline, nothing may be
+stranded under `[Unreleased]`, and the tag must not already exist.
+
+Checking it continuously is the point. A version that has been inconsistent for
+three weeks is discovered while trying to ship, and by then the fix is competing
+with the release.
+
+---
+
+## Workflow: `release.yml`
+
+Triggered by a `v*.*.*` tag.
+
+| Job | What it does |
+|---|---|
+| `preflight` | The release gate, plus an assertion that the **tag matches `.release-version`**. A tag that does not match the tree is a release whose artefacts cannot be traced to their source |
+| `build` | All five targets, `--locked`, with `--remap-path-prefix` so the build directory does not leak into the artefact and break reproducibility |
+| `publish` | Keyless **cosign** signature over the checksum file, CycloneDX SBOM, and verification instructions written into the run summary |
+
+One signature over `SHA256SUMS.txt` rather than one per artefact: the checksums
+already bind every file, and a verifier has one thing to check instead of a list
+they might not finish. The certificate is bound to this workflow — there is no
+private key to steal, and nothing to trust that cannot be checked.
+
+---
+
+## Workflow: `supply-chain.yml`
+
+| Job | What it answers |
+|---|---|
+| `sbom` | Generates a CycloneDX SBOM and **fails if it contains a third-party runtime component**. An SBOM nobody asserts anything about is a file, not a check |
+| `osv` | Scans `Cargo.lock` against the OSV database — a second opinion alongside cargo-deny, drawing on overlapping but not identical data |
+| `scorecard` | OpenSSF Scorecard, on `main` only: it grades repository settings, which a pull request branch cannot change and should not be judged on |
+
+---
+
+## Workflow: `dependabot-automerge.yml`
+
+Auto-merge for **patch and minor** bumps only. Auto-merge does not merge
+immediately — GitHub merges once the required checks pass, so the full gate still
+runs and nothing broken can land. Majors are left for a person, because a major
+is a behaviour change wearing a version number.
+
+The attribution gate exempts `dependabot[bot]` from the human-author rule for
+exactly this flow: the accountable act is the review and the merge.
 
 ---
 

@@ -2,19 +2,19 @@
 # SPDX-License-Identifier: CC0-1.0
 """Generate the VayuCell logo set.
 
-Everything here is drawn, not typeset. Every letterform is an explicit path, so
-the logo renders identically on a machine with no fonts installed — which is
-most of the machines this project runs on, and all of the phones.
+The mark is a calligraphic V — one tapering brush stroke, a fine point at the
+entry, swelling through the body, thinning again through the turn — with a
+three-unit server rack standing in the crook of it. The stroke is vayu, wind.
+The rack is what the wind is carrying. They interlock: the rack's stand comes
+down exactly where the rising arm ends its travel, so neither element reads as
+having been pasted on top of the other.
 
-It shares its construction with the VayuPress mark deliberately. The chevron and
-the two wind ribbons are the family signature (vayu — wind). What changes per
-product is the accent: VayuPress is blue, VayuCell is emerald going to mint,
-because this product is about a cell with charge left in it.
+Monochrome by design. One colour, inherited from `color` on the root element, so
+a single file serves a light ground and a dark one.
 
-The chevron geometry is derived rather than eyeballed. Both arms are bounded by
-pairs of parallel lines offset 88px horizontally, and the vertices are the
-intersections of those lines — which is what makes the left arm read heavier
-than the right without either looking wrong.
+Everything is drawn as explicit paths, including every letter of the wordmark, so
+the logo renders identically on a machine with no fonts installed — which is most
+of the machines this project runs on, and all of the phones.
 
 Usage: python3 scripts/make-logo.py
 """
@@ -23,279 +23,173 @@ import pathlib
 
 OUT = pathlib.Path(__file__).resolve().parent.parent / "docs" / "assets"
 
-# ── Palette ───────────────────────────────────────────────────────────────────
-INK = "#111C2B"          # near-black navy, the family wordmark colour
-INK_LIGHT = "#EEF4F9"    # wordmark on a dark ground
-DEEP = "#047857"         # emerald 700
-MID = "#10B981"          # emerald 500
-BRIGHT = "#5EEAD4"       # teal 300 — the lit tip of the leading ribbon
-STEEL_EDGE = "#2A3340"
+INK = "#0A0A0A"
+PAPER = "#FFFFFF"
 
-W, H = 920, 640
+S = 1024                      # the mark is laid out on a square field
+LOCKUP_H = 940                # the full lockup adds the wordmark below it
 
-# ── The chevron ───────────────────────────────────────────────────────────────
-# Left arm runs at (0.573, 0.819); right arm at (0.777, -0.629). The right arm
-# is cut at 40% of the chevron's height, which is what leaves the ribbons a
-# clear field instead of crossing the metal.
-A1 = (196.0, 60.0)     # top-left, outer
-A2 = (284.0, 60.0)     # top-left, inner
-IV = (479.3, 339.1)    # inner vertex
-B1 = (549.7, 282.0)    # top-right, inner
-B2 = (637.7, 282.0)    # top-right, outer
-OV = (454.9, 430.0)    # outer vertex
-
-CHEVRON = "M{:.1f} {:.1f}L{:.1f} {:.1f}L{:.1f} {:.1f}L{:.1f} {:.1f}L{:.1f} {:.1f}L{:.1f} {:.1f}Z".format(
-    *A1, *A2, *IV, *B1, *B2, *OV
-)
-
-# The right arm alone, drawn as a lighter facet on the metallic variant so the
-# chevron reads as folded metal rather than a flat silhouette.
-FACET = "M{:.1f} {:.1f}L{:.1f} {:.1f}L{:.1f} {:.1f}L{:.1f} {:.1f}Z".format(
-    *IV, *B1, *B2, *OV
-)
-
-# ── The wind ribbons ──────────────────────────────────────────────────────────
-# Two crescents sweeping up and right, each tapering to a point at BOTH ends.
-# The pointed tails matter: a blunt tail lands on the chevron's right arm and
-# turns the crossing into a smudge. Pointed, they sit in the notch between the
-# arms and read as motion leaving the mark.
-# The tails end inside the notch between the arms — the open wedge above the
-# inner vertex at (479, 339). A tail even 20px lower lands on the right arm and
-# the crossing turns into a smudge, which is what the first draft did.
-RIBBON_TOP = (
-    "M478 246"
-    "C556 166 690 74 866 20"
-    "C744 100 612 178 528 250"
+# ── The calligraphic V ────────────────────────────────────────────────────────
+# One closed contour. Traced from the fine entry point at the top left: down the
+# inner edge of the falling stroke to the notch, up the inner edge of the rising
+# arm to its point, back down that arm's outer edge, round the bottom turn, and
+# up the outer edge of the falling stroke to where it started.
+#
+# Both edges begin at the same point, which is what makes the entry a point
+# rather than a cut. The body swells because the inner edge bulges right while
+# the outer edge holds its line.
+SWASH = (
+    "M256 198"
+    "C352 268 452 424 528 566"        # inner edge of the falling stroke
+    "C560 522 612 486 676 468"        # up the inner edge of the rising arm
+    "C650 528 614 590 580 630"        # back down its outer edge
+    "C552 662 500 660 474 620"        # the bottom turn, rounded like a brush
+    "C404 496 316 330 256 198"        # outer edge of the falling stroke
     "Z"
 )
-RIBBON_BOTTOM = (
-    "M486 300"
-    "C556 240 668 172 826 118"
-    "C712 186 604 246 516 300"
-    "Z"
-)
+
+# ── The server rack ───────────────────────────────────────────────────────────
+RACK_X, RACK_W = 600.0, 186.0
+UNIT_H, UNIT_GAP, UNIT_R = 74.0, 14.0, 22.0
+RACK_Y0 = 196.0
+STROKE = 12.0
+
+CX = RACK_X + RACK_W / 2
+STEM_TOP = RACK_Y0 + 3 * UNIT_H + 2 * UNIT_GAP
+STEM_BOTTOM = STEM_TOP + 40
+BASE_HALF = 42.0
+
+
+def rack():
+    """Three outlined units, each with a status light and a drive bay, on a stand."""
+    out = []
+    for i in range(3):
+        y = RACK_Y0 + i * (UNIT_H + UNIT_GAP)
+        # Outlined rather than solid. The rack has to survive the size a favicon
+        # is actually seen at, and an outline keeps its shape where a filled
+        # block would just close up into a rectangle.
+        out.append(
+            f'<rect x="{RACK_X + STROKE / 2:.1f}" y="{y + STROKE / 2:.1f}" '
+            f'width="{RACK_W - STROKE:.1f}" height="{UNIT_H - STROKE:.1f}" '
+            f'rx="{UNIT_R - STROKE / 2:.1f}" fill="none" stroke="currentColor" '
+            f'stroke-width="{STROKE}"/>'
+        )
+        cy = y + UNIT_H / 2
+        out.append(
+            f'<circle cx="{RACK_X + 38:.1f}" cy="{cy:.1f}" r="10" '
+            f'fill="currentColor"/>'
+        )
+        out.append(
+            f'<rect x="{RACK_X + 100:.1f}" y="{cy - 6:.1f}" width="64" '
+            f'height="12" rx="6" fill="currentColor"/>'
+        )
+    out.append(
+        f'<path d="M{CX:.0f} {STEM_TOP:.0f}L{CX:.0f} {STEM_BOTTOM:.0f}'
+        f'M{CX - BASE_HALF:.0f} {STEM_BOTTOM:.0f}L{CX + BASE_HALF:.0f} '
+        f'{STEM_BOTTOM:.0f}" fill="none" stroke="currentColor" '
+        f'stroke-width="{STROKE}" stroke-linecap="round"/>'
+    )
+    return "\n    ".join(out)
+
 
 # ── Letterforms ───────────────────────────────────────────────────────────────
-# Geometric, heavy, on a 100-unit cap height. `hole` paths are punched with
-# fill-rule="evenodd".
+# Light geometric sans, mixed case. Cap height 100, x-height 72, baseline 100,
+# descender to 147. The stems are ~9 units, which is what makes this read light
+# where an uppercase slab would read industrial.
 GLYPHS = {
-    "V": (78, "M0 0L21 0L39 70L57 0L78 0L48 100L30 100Z"),
-    "A": (78, "M0 100L31 0L47 0L78 100L58 100L52 80L26 80L20 100Z"
-              "M39 28L51 71L27 71Z"),
-    "Y": (78, "M0 0L21 0L39 42L57 0L78 0L49 66L49 100L29 100L29 66Z"),
-    "U": (78, "M0 0L20 0L20 60C20 74 28 82 39 82C50 82 58 74 58 60L58 0"
-              "L78 0L78 60C78 86 61 101 39 101C17 101 0 86 0 60Z"),
-    "C": (78, "M78 24C69 8 56 0 39 0C17 0 0 22 0 50C0 78 17 100 39 100"
-              "C56 100 69 92 78 76L61 66C55 76 48 81 39 81C27 81 20 68 20 50"
-              "C20 32 27 19 39 19C48 19 55 24 61 34Z"),
-    "E": (72, "M0 0L72 0L72 19L20 19L20 40L66 40L66 59L20 59L20 81L72 81"
-              "L72 100L0 100Z"),
-    "L": (70, "M0 0L20 0L20 81L70 81L70 100L0 100Z"),
-    "R": (78, "M0 0L48 0C66 0 78 13 78 31C78 45 70 55 58 59L80 100L57 100"
-              "L38 64L20 64L20 100L0 100Z"
-              "M20 19L46 19C54 19 58 24 58 31C58 39 54 45 46 45L20 45Z"),
-    "I": (20, "M0 0L20 0L20 100L0 100Z"),
-    "M": (86, "M0 0L23 0L43 55L63 0L86 0L86 100L67 100L67 40L52 82L34 82"
-              "L19 40L19 100L0 100Z"),
-    "G": (80, "M80 26C71 9 57 0 40 0C18 0 0 22 0 50C0 78 18 100 41 100"
-              "C60 100 74 91 80 76L80 45L41 45L41 63L61 63C58 74 51 81 41 81"
-              "C29 81 20 68 20 50C20 32 28 19 40 19C49 19 56 24 62 35Z"),
-    "O": (80, "M40 0C62 0 80 22 80 50C80 78 62 100 40 100C18 100 0 78 0 50"
-              "C0 22 18 0 40 0Z"
-              "M40 19C29 19 20 32 20 50C20 68 29 81 40 81C51 81 60 68 60 50"
-              "C60 32 51 19 40 19Z"),
-    "N": (78, "M0 0L21 0L58 61L58 0L78 0L78 100L57 100L20 39L20 100L0 100Z"),
-    "S": (74, "M66 24C60 9 51 0 36 0C15 0 2 12 2 29C2 44 12 53 30 58L40 61"
-              "C50 64 54 68 54 74C54 81 47 85 37 85C26 85 18 79 12 69L0 81"
-              "C8 94 21 100 37 100C58 100 74 89 74 71C74 55 64 46 45 41L35 38"
-              "C25 35 21 31 21 26C21 19 27 15 36 15C45 15 51 20 56 29Z"),
-    "·": (16, "M8 42C13 42 16 46 16 51C16 56 13 60 8 60C3 60 0 56 0 51"
-              "C0 46 3 42 8 42Z"),
-    " ": (44, ""),
+    "V": (80, "M0 0L10.5 0L40 86L69.5 0L80 0L45 100L35 100Z"),
+    "a": (72, "M31 28C42 28 51 32 57 40L57 28L66 28L66 100L57 100L57 88"
+              "C51 96 42 100 31 100C13 100 0 84 0 64C0 44 13 28 31 28Z"
+              "M33 37C20 37 9 48 9 64C9 80 20 91 33 91C46 91 57 80 57 64"
+              "C57 48 46 37 33 37Z"),
+    "y": (68, "M0 28L10 28L34 88L58 28L68 28L27 132C22 143 15 148 5 148"
+              "L0 148L0 139L4 139C11 139 16 135 19 128L23 118Z"),
+    "u": (72, "M0 28L9 28L9 70C9 82 18 91 31 91C44 91 53 82 53 70L53 28"
+              "L62 28L62 100L53 100L53 88C48 96 40 100 30 100"
+              "C12 100 0 88 0 71Z"),
+    "C": (94, "M94 22C84 8 69 0 52 0C23 0 4 21 4 50C4 79 23 100 52 100"
+              "C69 100 84 92 94 78L86 72C78 84 66 91 52 91C29 91 13 74 13 50"
+              "C13 26 29 9 52 9C66 9 78 16 86 28Z"),
+    "e": (70, "M34 28C53 28 66 43 66 63L66 68L9 68C11 82 21 91 34 91"
+              "C43 91 50 87 55 80L62 85C55 95 45 100 34 100"
+              "C14 100 0 85 0 64C0 43 14 28 34 28Z"
+              "M34 37C22 37 12 45 9 59L57 59C55 45 46 37 34 37Z"),
+    "l": (28, "M9 0L18 0L18 100L9 100Z"),
 }
 
-WORD = "VAYUCELL"
-SPLIT = 4               # VAYU in ink, CELL in the accent
-TRACK = 28.0            # letter spacing, in glyph units
-CAP = 108.0
+WORD = "VayuCell"
+TRACK = 5.0
+CAP = 118.0
 SCALE = CAP / 100.0
-
-TAGLINE = "RECLAIM · GOVERN · SERVE"
-TAG_TRACK = 40.0
-TAG_CAP = 26.0
-TAG_SCALE = TAG_CAP / 100.0
+BASELINE = 838.0
 
 
-def run_width(text, track, scale):
-    adv = sum(GLYPHS[c][0] for c in text) + track * (len(text) - 1)
-    return adv * scale
+def word_width():
+    return (sum(GLYPHS[c][0] for c in WORD) + TRACK * (len(WORD) - 1)) * SCALE
 
 
-def lay_out(text, x, y, scale, track, fill_for):
-    """Emit one path per glyph. fill_for(index) picks the paint."""
-    parts, cx = [], x
-    for i, ch in enumerate(text):
+def wordmark():
+    x = (S - word_width()) / 2
+    y = BASELINE - CAP
+    parts = []
+    for ch in WORD:
         adv, d = GLYPHS[ch]
-        if d:
-            parts.append(
-                f'<path d="{d}" fill="{fill_for(i)}" fill-rule="evenodd" '
-                f'transform="translate({cx:.2f} {y:.2f}) scale({scale:.5f})"/>'
-            )
-        cx += (adv + track) * scale
-    return "\n  ".join(parts)
-
-
-def defs(metallic, dx, dark):
-    word_x0 = (W - run_width(WORD, TRACK, SCALE)) / 2
-    word_x1 = word_x0 + run_width(WORD, TRACK, SCALE)
-    # The accent gradient runs across the whole CELL span in user space, not
-    # per glyph. Per-glyph object-bounding-box gradients make four letters that
-    # each fade identically, which reads as flat.
-    cell_x0 = word_x0 + run_width(WORD[:SPLIT], TRACK, SCALE) + TRACK * SCALE
-    # On a dark ground the emerald end of the ramp closes up against the
-    # background and the leading letters of CELL go muddy, so the whole accent
-    # shifts one step brighter. Same hues, different footing — a palette that
-    # ignores what it is sitting on is a palette that only works in one place.
-    lead, tail = (MID, BRIGHT) if dark else (DEEP, MID)
-    low_start, low_end = ("#046F55", MID) if dark else ("#02503E", MID)
-
-    g = [
-        f'<linearGradient id="wind" x1="{478+dx}" y1="300" x2="{866+dx}" y2="20" '
-        f'gradientUnits="userSpaceOnUse">'
-        f'<stop offset="0" stop-color="{lead}"/>'
-        f'<stop offset="0.5" stop-color="{MID if not dark else "#34D8B0"}"/>'
-        f'<stop offset="1" stop-color="{BRIGHT}"/></linearGradient>',
-
-        f'<linearGradient id="windLow" x1="{486+dx}" y1="300" x2="{826+dx}" y2="118" '
-        f'gradientUnits="userSpaceOnUse">'
-        f'<stop offset="0" stop-color="{low_start}"/>'
-        f'<stop offset="0.6" stop-color="{DEEP if not dark else MID}"/>'
-        f'<stop offset="1" stop-color="{low_end}"/></linearGradient>',
-
-        f'<linearGradient id="word" x1="{cell_x0:.1f}" y1="0" x2="{word_x1:.1f}" '
-        f'y2="0" gradientUnits="userSpaceOnUse">'
-        f'<stop offset="0" stop-color="{lead}"/>'
-        f'<stop offset="1" stop-color="{tail}"/></linearGradient>',
-    ]
-    if metallic:
-        g.append(
-            f'<linearGradient id="steel" x1="{196+dx}" y1="60" x2="{638+dx}" y2="430" '
-            'gradientUnits="userSpaceOnUse">'
-            '<stop offset="0" stop-color="#FDFEFF"/>'
-            '<stop offset="0.16" stop-color="#DDE3E9"/>'
-            '<stop offset="0.34" stop-color="#B2BAC4"/>'
-            '<stop offset="0.5" stop-color="#F5F8FA"/>'
-            '<stop offset="0.7" stop-color="#BFC7D0"/>'
-            '<stop offset="1" stop-color="#8B95A1"/></linearGradient>'
+        parts.append(
+            f'<path d="{d}" fill="currentColor" fill-rule="evenodd" '
+            f'transform="translate({x:.2f} {y:.2f}) scale({SCALE:.5f})"/>'
         )
-        g.append(
-            f'<linearGradient id="steelFacet" x1="{455+dx}" y1="430" x2="{638+dx}" y2="282" '
-            'gradientUnits="userSpaceOnUse">'
-            '<stop offset="0" stop-color="#98A2AD"/>'
-            '<stop offset="0.55" stop-color="#E9EEF2"/>'
-            '<stop offset="1" stop-color="#FBFCFD"/></linearGradient>'
-        )
-    return "\n    ".join(g)
+        x += (adv + TRACK) * SCALE
+    return "\n    ".join(parts)
+
+
+def svg(vb, w, h, colour, body):
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{vb}" width="{w}" '
+        f'height="{h}" color="{colour}" role="img" aria-label="VayuCell">\n'
+        f"  <title>VayuCell</title>\n  {body}\n</svg>\n"
+    )
+
+
+# The mark's bounding box, derived from the geometry above rather than guessed:
+# the swash spans x 256..~700 and the rack ends at RACK_X + RACK_W, while the
+# stroke bottoms out around y 664.
+MARK_X0, MARK_Y0_ = 256.0, 188.0
+MARK_X1, MARK_Y1 = RACK_X + RACK_W, 664.0
+MARK_W, MARK_H = MARK_X1 - MARK_X0, MARK_Y1 - MARK_Y0_
+MARK_CX, MARK_CY = (MARK_X0 + MARK_X1) / 2, (MARK_Y0_ + MARK_Y1) / 2
 
 
 def build(kind):
-    """kind: light | dark | metallic | mark | mark-dark"""
-    metallic = kind == "metallic"
-    mark_only = kind.startswith(("mark", "icon", "tile"))
-    tile = kind.startswith("tile")
-    # A tile carries its own dark ground, so the mark on it is the light one.
-    dark = kind.endswith("dark") or tile
+    """kind: light | dark | mark | mark-dark | tile"""
+    dark = kind.endswith("dark") or kind == "tile"
+    colour = PAPER if dark else INK
+    mark = f'<path d="{SWASH}" fill="currentColor"/>\n    {rack()}'
 
-    if kind.startswith("icon") or kind.startswith("tile"):
-        # Square, for a favicon or an app tile. The mark's bounding box is
-        # 670 x 410 centred on (531, 225), so a square crop leaves air above and
-        # below rather than cropping the ribbons — an icon that clips its own
-        # mark reads as a mistake at every size, and launchers mask the corners
-        # anyway.
-        side = 716
-        vb = f"{531 - side/2:.0f} {225 - side/2:.0f} {side} {side}"
-        w = h = side
-    elif mark_only:
-        vb, w, h = "170 0 720 450", 720, 450
-    else:
-        vb, w, h = f"0 0 {W} {H}", W, H
-
-    if metallic:
-        chevron = (
-            f'<path d="{CHEVRON}" fill="url(#steel)" stroke="{STEEL_EDGE}" '
-            f'stroke-width="4" stroke-linejoin="round"/>\n  '
-            f'<path d="{FACET}" fill="url(#steelFacet)" stroke="{STEEL_EDGE}" '
-            f'stroke-width="3" stroke-linejoin="round"/>'
-        )
-    else:
-        fill = INK_LIGHT if dark else INK
-        chevron = f'<path d="{CHEVRON}" fill="{fill}"/>'
-
-    # The chevron begins at x=196 and the ribbons reach x=866, so the mark's
-    # optical centre is right of the canvas centre. The lockup nudges it back;
-    # the mark-only crop needs no shift because its viewBox frames it directly.
-    dx = 0 if mark_only else -46
-    body = []
-    if tile:
-        # A rounded square behind the mark. At 32px a transparent icon competes
-        # with whatever the browser puts behind it; a ground of its own is the
-        # difference between a recognisable favicon and a smudge.
-        x0, y0 = 531 - 358, 225 - 358
-        body.append(
-            f'<rect x="{x0}" y="{y0}" width="716" height="716" rx="152" '
-            f'fill="#0B1220"/>'
-        )
-    # Launchers mask icon corners and clip the outer few percent. The mark is
-    # scaled about its own centre so it keeps a safe margin inside the tile
-    # instead of running into the rounded edge.
-    # One attribute, not two: a second transform="" on the same element is a
-    # duplicate attribute and the browser silently keeps the first, so the
-    # scale was being dropped while the file looked correct.
-    inner = (
-        " translate(531 225) scale(0.76) translate(-531 -225)" if tile else ""
-    )
-    body += [
-        f'<g transform="translate({dx} 0){inner}">',
-        f'  {chevron}',
-        f'  <path d="{RIBBON_BOTTOM}" fill="url(#windLow)"/>',
-        f'  <path d="{RIBBON_TOP}" fill="url(#wind)"/>',
-        '</g>',
-    ]
-
-    if not mark_only:
-        ink = INK_LIGHT if kind == "dark" else INK
-        wx = (W - run_width(WORD, TRACK, SCALE)) / 2
-        body.append(
-            lay_out(WORD, wx, 476, SCALE, TRACK,
-                    lambda i: ink if i < SPLIT else "url(#word)")
+    if kind == "tile":
+        # The mark is fitted to the tile from its measured bounding box, not by
+        # a guessed scale factor. 66% of the field leaves the margin launchers
+        # need — they mask the corners and clip the outer few percent — and an
+        # eyeballed factor had it sitting small and off-centre in a corner.
+        k = (S * 0.66) / max(MARK_W, MARK_H)
+        tx, ty = S / 2 - MARK_CX * k, S / 2 - MARK_CY * k
+        return svg(
+            f"0 0 {S} {S}", S, S, colour,
+            f'<rect width="{S}" height="{S}" rx="216" fill="{INK}"/>\n  '
+            f'<g transform="translate({tx:.2f} {ty:.2f}) scale({k:.5f})">'
+            f"\n    {mark}\n  </g>",
         )
 
-        sub = "#9FB3C8" if kind == "dark" else "#33445C"
-        tw = run_width(TAGLINE, TAG_TRACK, TAG_SCALE)
-        tx = (W - tw) / 2
-        ty = 604
-        body.append(
-            lay_out(TAGLINE, tx, ty, TAG_SCALE, TAG_TRACK, lambda i: sub)
-        )
-        # Rules flanking the tagline, set to the accent so the mark's colour
-        # appears once more at the foot of the lockup.
-        rule_y = ty + TAG_CAP / 2 - 1.25
-        gap = 26
-        body.append(
-            f'<rect x="{tx - gap - 110:.1f}" y="{rule_y:.1f}" width="110" '
-            f'height="2.5" fill="{MID}" opacity="0.9"/>'
-            f'<rect x="{tx + tw + gap:.1f}" y="{rule_y:.1f}" width="110" '
-            f'height="2.5" fill="{MID}" opacity="0.9"/>'
+    if kind.startswith("mark"):
+        # Tight crop, even optical margin on every side of the bounding box.
+        m = 44
+        return svg(
+            f"{MARK_X0 - m:.0f} {MARK_Y0_ - m:.0f} {MARK_W + 2 * m:.0f} "
+            f"{MARK_H + 2 * m:.0f}",
+            int(MARK_W + 2 * m), int(MARK_H + 2 * m), colour, mark,
         )
 
-    return (
-        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{vb}" width="{w}" '
-        f'height="{h}" role="img" aria-label="VayuCell">\n'
-        f'  <title>VayuCell</title>\n'
-        f'  <defs>\n    {defs(metallic, dx, dark)}\n  </defs>\n  '
-        + "\n  ".join(body)
-        + "\n</svg>\n"
-    )
+    return svg(f"0 0 {S} {LOCKUP_H}", S, LOCKUP_H, colour,
+               f"{mark}\n    {wordmark()}")
 
 
 def main():
@@ -303,15 +197,12 @@ def main():
     for kind, name in [
         ("light", "vayucell-logo.svg"),
         ("dark", "vayucell-logo-dark.svg"),
-        ("metallic", "vayucell-logo-metallic.svg"),
         ("mark", "vayucell-mark.svg"),
         ("mark-dark", "vayucell-mark-dark.svg"),
-        ("icon", "vayucell-icon.svg"),
-        ("icon-dark", "vayucell-icon-dark.svg"),
         ("tile", "vayucell-tile.svg"),
     ]:
         (OUT / name).write_text(build(kind))
-        print("wrote", (OUT / name).name)
+        print("wrote", name)
 
 
 if __name__ == "__main__":

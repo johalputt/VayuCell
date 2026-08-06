@@ -82,8 +82,10 @@ Three consequences follow, and they bind:
    rule text in place produces a document that describes a project which no
    longer exists — the exact failure Charter Article IV forbids in a device
    report, committed against the reader of the governance instead.
-3. **Appendix A counts them.** If the count is wrong, the document is lying about
-   itself, which is the one thing it may not do.
+3. **Appendix A counts them, and `scripts/docs-gate.sh` checks that count
+   against the document.** If the count is wrong the build fails, because a
+   governance document that miscounts how much of itself is enforced is lying
+   about itself, which is the one thing it may not do.
 
 ### 0.4 On the tone of this document **[NORM]**
 
@@ -398,12 +400,48 @@ install would be genuinely useful to this project — **which is precisely why
 Charter Article V.2 forbids collecting it.** The useful thing and the forbidden
 thing are the same thing.
 
-### 6.6 No secrets, anywhere, ever **[CI]**
+### 6.6 Response security headers ship as a set, or not at all **[CI]**
+
+Nine headers, emitted together by one type. They are not nine independent lines
+in a handler, because nine independent lines is nine things to forget separately
+and eight of them get copied to the next handler.
+
+The ones with no legitimate weaker value are **not configurable**:
+`X-Content-Type-Options` is always `nosniff`, because a knob for it would only
+ever be turned the wrong way.
+
+### 6.7 A referrer policy may not leak a path cross-origin **[CI]**
+
+`Referrer` has no `unsafe-url` and no `no-referrer-when-downgrade` variant. Both
+are common defaults elsewhere; neither can be written down here.
+
+### 6.8 Device permissions are denied by enumeration, never by omission **[CI]**
+
+An unlisted feature is governed by the browser's default, and **defaults change
+without asking us**. On a device with a camera, a microphone and a location, that
+is not a theoretical difference.
+
+### 6.9 A transport-security promise has a floor **[CI]**
+
+HSTS below 180 days is refused rather than sent. A token max-age reads as a
+deployment in every scan while leaving a window in which a downgrade still
+works. The value shipped in a release is a `const` with a compile-time
+assertion: lowering it stops the crate building rather than shipping a weaker
+promise.
+
+### 6.10 Report-only cannot be chosen by accident **[CI]**
+
+`Content-Security-Policy-Report-Only` on a production build enforces **nothing**
+while looking identical to an enforcing header in every log, every screenshot,
+and every audit that greps for the name. It requires a stated reason, and the
+production constructor cannot produce it.
+
+### 6.11 No secrets, anywhere, ever **[CI]**
 
 No verified secret in the working tree or in the history. Not in an example, not
 in a test fixture, not in a comment.
 
-### 6.7 Supply chain **[CI]**
+### 6.12 Supply chain **[CI]**
 
 No published advisory, no wildcard version, no build script, no git source, no
 unused declaration, no drifting lockfile. See [`deny.toml`](deny.toml).
@@ -412,18 +450,18 @@ The policy is strict while the dependency tree is empty **on purpose**, so that
 the first crate anyone proposes has to argue against rules written before there
 was any pressure to relax them.
 
-### 6.8 A build script is a decision, not a default **[CI]**
+### 6.13 A build script is a decision, not a default **[CI]**
 
 `allow-build-scripts = []`. A build script runs arbitrary code on every
 contributor's machine and every CI runner. For a project whose entire claim is
 that you can verify what you are running, that is an ADR-level decision.
 
-### 6.9 Private disclosure, then public **[REVIEW]**
+### 6.14 Private disclosure, then public **[REVIEW]**
 
 Vulnerabilities are reported privately and disclosed once a fix exists or after
 90 days, whichever comes first. See [`SECURITY.md`](SECURITY.md).
 
-### 6.10 The vendor kernel is not trusted, and not defended **[NORM]**
+### 6.15 The vendor kernel is not trusted, and not defended **[NORM]**
 
 An abandoned vendor kernel is not secure, and this project will not imply
 otherwise. Charter Article II. Where the platform is the weak point, the
@@ -570,6 +608,75 @@ installing it.
 ### 10.4 Version numbers do not imply stability that does not exist **[NORM]**
 
 While the governor is unwritten, the version says so.
+
+---
+
+## Article 10A — Provenance
+
+The release exists to be checked by somebody who does not trust us. Everything
+in this article follows from that.
+
+### 10A.1 The version says the same thing everywhere **[CI]**
+
+`.release-version`, `core/Cargo.toml` and `CHANGELOG.md` must agree, and the tag
+must match the tree. A release whose artefacts cannot be matched back to their
+source is the distribution equivalent of an unverifiable safety claim.
+
+Checked on **every push**, not only at tag time. A version that has been
+inconsistent for three weeks is discovered while trying to ship, and by then the
+fix is competing with the release.
+
+### 10A.2 Nothing is stranded under Unreleased **[CI]**
+
+Notes written and never moved under the version that shipped them are notes the
+operator never receives.
+
+### 10A.3 Every artefact is signed, keylessly **[CI]**
+
+One signature over the checksum file rather than one per artefact: the checksums
+already bind every file, and a verifier has one thing to check instead of a list
+they might not finish. The certificate is bound to the workflow, so there is no
+private key to steal — and nothing to trust that cannot be checked.
+
+### 10A.4 The bill of materials is published, and asserted **[CI]**
+
+The SBOM ships with the release, and CI **fails if it contains a third-party
+runtime component**. An SBOM nobody asserts anything about is a file, not a
+check.
+
+### 10A.5 A tag is never moved **[CI]**
+
+Releases are not re-tagged. Somebody has already downloaded it.
+
+### 10A.6 The release is reproducible **[CI]**
+
+See §8.5. Determinism is what makes "check for yourself" a real offer rather than
+a slogan.
+
+---
+
+## Article 10B — Compatibility, and what may be broken
+
+### 10B.1 The hardware database format is the most stable thing here **[REVIEW]**
+
+Device reports are contributed by people who will not be asked again. A schema
+change that invalidates existing records throws away work that was donated, and
+`schema_version` exists so that never has to happen silently.
+
+### 10B.2 An operator's data outlives the software **[NORM]**
+
+Backup and export formats are readable without VayuCell. See §7.4. **A format
+only this software can read is a dependency on this software**, which is the
+thing the project exists to reduce.
+
+### 10B.3 A safety default is never loosened in a patch release **[REVIEW]**
+
+Tightening one is fine and expected. Loosening one changes what an operator is
+running without them choosing it, on hardware in their home.
+
+### 10B.4 Removing a capability is announced before it is done **[REVIEW]**
+
+Including in the release notes of the version before.
 
 ---
 
@@ -762,10 +869,10 @@ permission.
 
 | Enforcement | Count | What it means |
 |---|---|---|
-| **[CI]** | 39 | A gate fails the build |
-| **[REVIEW]** | 25 | A person must catch it |
-| **[NORM]** | 29 | Advisory, and labelled as such |
-| **Total** | 93 | |
+| **[CI]** | 50 | A gate fails the build |
+| **[REVIEW]** | 28 | A person must catch it |
+| **[NORM]** | 30 | Advisory, and labelled as such |
+| **Total** | 108 | |
 
 **These counts are checked by [`scripts/docs-gate.sh`](scripts/docs-gate.sh).**
 They were wrong in the first draft of this document — off by six — and nothing
@@ -786,26 +893,31 @@ Stated here on the same principle the gates apply to themselves. A governance
 document that lists only its strengths is making the exact error Article 4
 forbids.
 
-1. **The [REVIEW] rules are the weak point, and they include the most important
+1. **Roughly half of it is not enforced by a machine.** 28 rules rely on a
+   person noticing, and 30 are advisory. That ratio is stated rather than buried,
+   because a reader deciding how much weight to give this document needs it more
+   than they need the headline number.
+
+2. **The [REVIEW] rules are the weak point, and they include the most important
    ones.** §3.4 — a real review of a power-path change — depends entirely on one
    person's attention on one day. No gate can read a diff and tell whether the
    reviewer genuinely thought about what happens at 45 °C. Anyone who can see how
    to make one of these mechanical should say so; that is a valid issue.
 
-2. **It cannot make a reviewer competent.** It can only ensure the right question
+3. **It cannot make a reviewer competent.** It can only ensure the right question
    is asked.
 
-3. **It cannot prevent a determined maintainer with commit access from
+4. **It cannot prevent a determined maintainer with commit access from
    dismantling it.** The digests, the gates and the CC0 licence make dismantling
    it *visible* and make forking *possible*. That is the whole of the protection,
    and it is worth being precise that it is not more.
 
-4. **It cannot fund the project.** See Article 14, which is the honest version of
+5. **It cannot fund the project.** See Article 14, which is the honest version of
    this document's largest risk.
 
-5. **It cannot verify anything on real hardware.** Every gate here runs on a
+6. **It cannot verify anything on real hardware.** Every gate here runs on a
    Linux runner. The phone on the bench is still the phone on the bench.
 
-6. **It is version 1.0 and has not been tested by an actual conflict.** Governance
+7. **It is version 1.0 and has not been tested by an actual conflict.** Governance
    is only proven by the first time it stops somebody from doing something they
    badly wanted to do. That has not happened yet.

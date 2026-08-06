@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Auto-merge Dependabot's SAFE updates — patch and minor only.
+#
+# "Auto-merge" does not merge immediately. GitHub merges once the required
+# checks pass, so the full gate still runs on every update and nothing broken
+# can land. Major bumps are deliberately left for a person, because a major is a
+# behaviour change wearing a version number.
+#
+# The attribution gate exempts dependabot[bot] from the human-author rule for
+# exactly this flow: the accountable act is the review and the merge, and the
+# merge is what this automates once CI has spoken.
+
+name: Dependabot auto-merge
+
+on: pull_request
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  automerge:
+    name: Enable auto-merge for patch and minor bumps
+    runs-on: ubuntu-24.04
+    if: ${{ github.actor == 'dependabot[bot]' }}
+    steps:
+      - uses: dependabot/fetch-metadata@v2
+        id: meta
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Enable auto-merge
+        if: ${{ steps.meta.outputs.update-type == 'version-update:semver-minor' || steps.meta.outputs.update-type == 'version-update:semver-patch' }}
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Say why a major was left alone
+        if: ${{ steps.meta.outputs.update-type == 'version-update:semver-major' }}
+        run: |
+          echo "Major bump (${{ steps.meta.outputs.dependency-names }}) left for a person." \
+            >> "$GITHUB_STEP_SUMMARY"

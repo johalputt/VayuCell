@@ -11,10 +11,12 @@
 # VayuCell
 
 [![CI](https://github.com/johalputt/VayuCell/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/johalputt/VayuCell/actions/workflows/ci.yml)
+[![Supply chain](https://github.com/johalputt/VayuCell/actions/workflows/supply-chain.yml/badge.svg?branch=main)](https://github.com/johalputt/VayuCell/actions/workflows/supply-chain.yml)
 [![Scheduled](https://github.com/johalputt/VayuCell/actions/workflows/scheduled.yml/badge.svg)](https://github.com/johalputt/VayuCell/actions/workflows/scheduled.yml)
-[![Code licence: Apache-2.0](https://img.shields.io/badge/code-Apache--2.0-blue.svg)](LICENSE)
+[![Code: Apache-2.0](https://img.shields.io/badge/code-Apache--2.0-blue.svg)](LICENSE)
 [![Charter: CC0-1.0](https://img.shields.io/badge/charter-CC0--1.0-lightgrey.svg)](LICENSE-CHARTER)
 [![unsafe: forbidden](https://img.shields.io/badge/unsafe-forbidden-success.svg)](core/src/lib.rs)
+[![deps: zero](https://img.shields.io/badge/runtime%20deps-zero-success.svg)](deny.toml)
 
 **Turn a retired phone into a server you own.**
 
@@ -24,18 +26,42 @@ as an uninterruptible power supply — and it idles at one to three watts. Billi
 of them are in drawers.
 
 VayuCell turns one into a server that hosts your website, your mail, your files
-and your backups. It is free, open source, and designed so that the project
-disappearing would not stop your device working.
+and your backups. It is free, open source, and **designed so that this project
+disappearing would not stop your device working**.
 
 ## Status
 
-**Early. The capability registry and tier detection are written; nothing serves
-traffic yet, and by charter nothing will until the battery governor ships.**
+**Early, and honest about it.**
+
+| | |
+|---|---|
+| Written | The capability registry, tier detection, the CSP and the response security headers |
+| Not written | The battery governor — and until it exists, **nothing may serve traffic**. [Charter III.1](CHARTER.md), enforced by a gate |
+| Never tested on hardware | Everything. Every device-facing behaviour is exercised through a fake host describing handsets nobody here is holding |
+
+That last row is a permanent one. It stops being true the day somebody puts a
+phone on a bench, and not before.
+
+## What it costs you to try
+
+Nothing, and it is designed to keep costing nothing:
+
+- **No account.** There is nothing to sign up for.
+- **No telemetry.** Not aggregate-but-identifying, not "anonymous". None.
+  Enforced by a gate that scans for the concept, not just the word.
+- **No token, no treasury, no fee, no hosted tier.** There is one edition.
+- **No dependency on us.** If this project vanished tomorrow, an installed cell
+  keeps working. That is [Charter Article V.5](CHARTER.md), and it is the test
+  the whole charter is built around.
+
+The core carries **zero third-party runtime dependencies**, and CI fails if the
+published bill of materials ever contains one. You do not have to take that on
+trust — the SBOM ships with every release.
 
 | Document | What it is |
 |---|---|
 | [`CHARTER.md`](CHARTER.md) | The supreme law. CC0. Read this first |
-| [`GOVERNANCE-CONSTITUTION.md`](GOVERNANCE-CONSTITUTION.md) | How the charter is upheld in practice — 93 rules, each marked with whether a machine or a human enforces it |
+| [`GOVERNANCE-CONSTITUTION.md`](GOVERNANCE-CONSTITUTION.md) | How the charter is upheld in practice — 108 rules, each marked with whether a machine, a human, or nothing enforces it |
 | [`PLAN.md`](PLAN.md) | The full project plan |
 | [`ADR-0001`](docs/adr/ADR-0001-tier-model-and-capability-registry.md) | Tier model and capability registry |
 | [`ADR-0002`](docs/adr/ADR-0002-battery-safety-governor.md) | The Battery Safety Governor |
@@ -45,6 +71,7 @@ traffic yet, and by charter nothing will until the battery governor ships.**
 | [`ADR-0006`](docs/adr/ADR-0006-content-security-policy.md) | Content Security Policy: the unsafe keywords made unrepresentable |
 | [`docs/CI.md`](docs/CI.md) | Every gate, and every parameter it checks with |
 | [`docs/BRAND.md`](docs/BRAND.md) | The mark: how it is constructed, and the rules for using it |
+| [`CHANGELOG.md`](CHANGELOG.md) | What changed, and what it means for someone running this |
 | [`hardware/`](hardware/) | Device compatibility database (CC0) |
 
 ## Read this before you plug anything in
@@ -82,9 +109,10 @@ and has no other symptom.
 | Gate | What it refuses to let through |
 |---|---|
 | **Charter** | A serving capability before the governor. A control with no read-back. `Absent` collapsing into `Unverified`. Telemetry, a treasury, a kill switch, a dependency on a host this project runs. An edit to Article III or V that was not recorded as an amendment |
-| **Security** | A CSP that permits `'unsafe-inline'` — the type has no variant for it, so weakening it is an addition to a public enum rather than a one-word edit to a string. A reusable nonce. A violation-report endpoint pointing off the device |
-| **Mutation** | Twenty safety and honesty guards, each re-broken, each required to turn its test red. A green suite proves the code passes its tests; this proves the tests would notice if the code were wrong |
-| **Gate self-test** | Thirty-four planted violations that the gates above must each catch, citing the right rule |
+| **Security** | A CSP that permits `'unsafe-inline'` — the type has no variant for it, so weakening it is an addition to a public enum rather than a one-word edit to a string. A reusable nonce. A referrer policy that leaks cross-origin. A report-only header on a release. An HSTS max-age too short to mean anything |
+| **Provenance** | A version that disagrees with itself, a tag that does not match the tree, a release with no signature, or an SBOM containing a dependency the charter says does not exist |
+| **Mutation** | Twenty-nine safety and honesty guards, each re-broken, each required to turn its test red. A green suite proves the code passes its tests; this proves the tests would notice if the code were wrong |
+| **Gate self-test** | Thirty-nine planted violations that the gates above must each catch, citing the right rule |
 | **Rust** | `cargo fmt`, `clippy` pedantic at `-D warnings`, build, test, and an assertion that the `compile_fail` doctests actually ran — on a private item they run zero tests and still report success |
 | **Hardware** | A device profile that fails its schema, or claims a verified charge ceiling without naming the sysfs node it was read back from |
 | **Targets** | The core failing to compile for 64- and 32-bit Android, mainline ARM, or a contributor's laptop |
@@ -97,12 +125,50 @@ identical check runs on your laptop before you push. [`docs/CI.md`](docs/CI.md)
 documents each job, each parameter, and the four charter articles that **cannot**
 be checked mechanically — printed on every run rather than quietly dropped.
 
+One command runs everything CI runs, in the order CI runs it:
+
 ```bash
-bash scripts/charter-gate.sh      # the constitution, enforced
-bash scripts/gate-selftest.sh     # ...and proof it is actually enforcing it
-bash scripts/mutation-gate.sh     # proof the tests would catch a regression
+scripts/local-ci.sh            # every gate
+scripts/local-ci.sh --fast     # skip mutation, coverage and the self-test
+scripts/local-ci.sh --list     # show what would run, and stop
+```
+
+It prints nothing when a gate passes, which is what makes it a thing you will
+actually run before pushing rather than a thing you mean to.
+
+Individually:
+
+```bash
+scripts/charter-gate.sh      # the constitution, enforced
+scripts/gate-selftest.sh     # ...and proof it is actually enforcing it
+scripts/mutation-gate.sh     # proof the tests would catch a regression
+scripts/release-gate.sh      # the version says the same thing everywhere
 cargo test --workspace
 ```
+
+## Read this before you plug anything in — the short version
+
+The long version is two sections up and you should read it, but if you read
+nothing else:
+
+**Put your phone face-down on a flat table now and then.** If it rocks, or the
+screen or back is lifting at any edge, stop using it and take it to
+hazardous-waste handling. Software cannot see that. You can.
+
+## Contributing
+
+The one thing worth knowing before you open a pull request: **a change that adds
+behaviour has to name the test that would fail if the behaviour were wrong**, or
+say why one is not possible. The template asks for it. It is the only unusual
+demand in [`CONTRIBUTING.md`](CONTRIBUTING.md), and it is the reason the rest of
+the gates are worth anything.
+
+Device reports are the most useful thing most people can contribute, and they
+need no code — see the
+[device report template](.github/ISSUE_TEMPLATE/device-report.yml). Record what
+you **observed**. A field you did not test is left empty; an empty field is
+honest, and a guessed one is worse than nothing because somebody will trust it
+with their mail.
 
 ## Licence
 

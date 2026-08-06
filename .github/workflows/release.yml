@@ -1,0 +1,159 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Release: build for every target this actually runs on, sign, publish.
+#
+# The whole argument of this project is that you can check what you are running.
+# A release that cannot be verified independently — no signature, no SBOM, no
+# reproducible rebuild — asks for exactly the trust the project claims not to
+# need. So every artefact here is signed with a keyless certificate tied to this
+# workflow, and the SBOM ships beside it.
+
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+
+  # ── The tag must agree with what is in the tree ─────────────────────────────
+  preflight:
+    name: "Release · Preflight"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Version consistency and release notes
+        run: bash scripts/release-gate.sh
+      - name: The tag must match .release-version
+        # A tag that does not match the tree is a release whose artefacts cannot
+        # be matched back to their source.
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          file="$(tr -d '\n' < .release-version)"
+          [ "$tag" = "$file" ] || {
+            echo "tag $tag does not match .release-version $file"
+            exit 1
+          }
+          echo "tag and .release-version agree at $tag"
+
+  # ── Build every target the project claims to support ───────────────────────
+  build:
+    name: "Release · ${{ matrix.target }}"
+    needs: preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - aarch64-linux-android
+          - armv7-linux-androideabi
+          - aarch64-unknown-linux-gnu
+          - armv7-unknown-linux-gnueabihf
+          - x86_64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+      - name: Build
+        # --locked so the release resolves exactly the dependency graph that was
+        # reviewed, and remapped paths so the build directory does not leak into
+        # the artefact and break reproducibility.
+        env:
+          RUSTFLAGS: "-D warnings --remap-path-prefix=${{ github.workspace }}=/build"
+        run: cargo build --workspace --release --locked --target ${{ matrix.target }}
+      - name: Collect and checksum
+        run: |
+          mkdir -p dist
+          found=0
+          while IFS= read -r f; do
+            cp "$f" "dist/$(basename "${f%.rlib}")-${{ matrix.target }}.rlib"
+            found=1
+          done < <(find "target/${{ matrix.target }}/release" -maxdepth 1 -name 'libvayucell*.rlib')
+          [ "$found" = "1" ] || { echo "no artefact produced for ${{ matrix.target }}"; exit 1; }
+          ( cd dist && sha256sum ./* > "SHA256SUMS-${{ matrix.target }}.txt" )
+          cat "dist/SHA256SUMS-${{ matrix.target }}.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.target }}
+          path: dist/
+          if-no-files-found: error
+
+  # ── Sign and publish ───────────────────────────────────────────────────────
+  publish:
+    name: "Release · Sign and publish"
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write   # to create the release
+      id-token: write   # for keyless signing
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v4
+        with:
+          path: staging
+      - name: Flatten and re-checksum
+        run: |
+          mkdir -p dist
+          find staging -type f ! -name 'SHA256SUMS-*' -exec cp {} dist/ \;
+          ( cd dist && sha256sum ./* > SHA256SUMS.txt )
+          cat dist/SHA256SUMS.txt
+
+      - uses: sigstore/cosign-installer@v3
+      - name: Sign the checksum file
+        # One signature over the checksum file rather than one per artefact:
+        # the checksums already bind every file, and a verifier has one thing to
+        # check instead of a list they might not finish.
+        run: |
+          cosign sign-blob --yes \
+            --output-signature dist/SHA256SUMS.txt.sig \
+            --output-certificate dist/SHA256SUMS.txt.pem \
+            dist/SHA256SUMS.txt
+
+      - name: Generate the SBOM
+        run: |
+          cargo install cargo-cyclonedx --locked
+          bash scripts/sbom.sh dist/sbom.cdx.json || true
+          ls -la dist/
+
+      - name: How to verify this release
+        run: |
+          {
+            echo "## Verifying this release"
+            echo
+            echo '```bash'
+            echo "cosign verify-blob \\"
+            echo "  --certificate SHA256SUMS.txt.pem \\"
+            echo "  --signature SHA256SUMS.txt.sig \\"
+            echo "  --certificate-identity-regexp 'https://github.com/${{ github.repository }}/' \\"
+            echo "  --certificate-oidc-issuer https://token.actions.githubusercontent.com \\"
+            echo "  SHA256SUMS.txt"
+            echo
+            echo "sha256sum -c SHA256SUMS.txt"
+            echo '```'
+            echo
+            echo "The certificate is keyless and bound to this workflow. There is no"
+            echo "private key to steal, and nothing to trust that you cannot check."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true

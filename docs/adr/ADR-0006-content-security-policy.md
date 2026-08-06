@@ -147,14 +147,84 @@ and the forbidden thing are the same thing.
 
 ---
 
-## §3. What this will never claim
+## §3. The rest of the headers
+
+A Content Security Policy is the loudest of the response headers and the least
+complete. It does nothing about a MIME type the browser decides to sniff, a
+referrer leaking a session path to another origin, a document sharing a browsing
+context group with an attacker's, or a device permission the page never needed
+and was granted anyway.
+
+Each of those has its own header. Each is one line. **Each is forgotten
+separately** — which is the actual failure mode, and it is why they are not
+seven independent lines in a handler here. `SecurityHeaders` in
+`core/src/headers.rs` emits the whole set or none of it.
+
+### §3.1 The ones with no weaker legitimate value are not configurable
+
+`X-Content-Type-Options: nosniff` is not a parameter. There is no case in this
+project where letting the browser guess a content type is wanted, and a knob for
+it would only ever be turned the wrong way.
+
+`X-Frame-Options: DENY` is sent **in addition to** `frame-ancestors 'none'`, not
+instead of it. `frame-ancestors` is the modern control and supersedes the legacy
+header — but the WebView on an abandoned vendor Android build may predate it,
+and the browser is the one component here that nobody gets to choose.
+
+### §3.2 Referrer, closed by type
+
+`Referrer` has no `unsafe-url` and no `no-referrer-when-downgrade` variant. Both
+send a full URL cross-origin, both are still common defaults elsewhere, and
+neither can be written down. A `compile_fail` doctest holds that proof and the
+mutation gate re-adds the variant to confirm the doctest notices.
+
+The production default is `no-referrer`.
+
+### §3.3 Permissions denied by enumeration, never by omission
+
+An unlisted feature is governed by the browser's default, and defaults change
+without asking us. On a device that has a camera, a microphone and a location,
+that is not a theoretical difference. Thirteen features are named and denied.
+
+### §3.4 HSTS has a floor
+
+`Hsts::MIN_MAX_AGE` is 180 days and a shorter value is refused rather than sent.
+A token max-age reads as an HSTS deployment in every scan while leaving a window
+in which a downgrade still works. **The header is a promise about the future, and
+a promise measured in hours is not one.**
+
+`Hsts::ONE_YEAR` is a `const`, and a compile-time assertion proves it satisfies
+the floor. Lowering it below the minimum stops the crate building rather than
+shipping a weaker promise.
+
+Development sends no HSTS at all. Pinning HTTPS from a machine that is serving
+plain HTTP locks the developer out of their own device, and the lockout outlives
+the mistake that caused it.
+
+### §3.5 Report-only, resolved
+
+This was an open decision in the first draft and it is now closed.
+
+`Content-Security-Policy-Report-Only` is genuinely useful while a policy is being
+tightened, and it is the most dangerous value in the module: on a production
+build it enforces **nothing** while looking identical to an enforcing header in
+every log, every screenshot, and every audit that greps for the header name.
+
+So `Mode::ReportOnly` carries a reason string, and `SecurityHeaders::production`
+cannot produce it. Choosing it is possible; choosing it by accident is not.
+
+---
+
+## §4. What this will never claim
 
 1. **That a CSP prevents cross-site scripting.** It reduces what a successful
    injection can do. The injection is still the bug, and output encoding is still
    the fix.
 2. **That the policy is enforced.** It is enforced by a browser this project does
    not ship. On an old vendor Android build, the WebView may be years behind and
-   may not implement every directive sent to it.
+   may not implement every directive sent to it. §3.1 sends the legacy framing
+   header alongside the modern one for exactly this reason, and that is
+   mitigation, not a guarantee.
 3. **That a nonce is unpredictable.** The type checks length and alphabet. It
    cannot check entropy, and does not pretend to.
 4. **That `report-uri` is complete.** Browsers vary in what they report, and a
@@ -168,7 +238,7 @@ and the forbidden thing are the same thing.
 
 ---
 
-## §4. Test gates
+## §5. Test gates
 
 Thirteen unit tests in `core/src/csp_test.rs`, written as attacks, and three
 `compile_fail` doctests with one positive control on the public module.
@@ -185,18 +255,16 @@ deleted. A green test is not evidence that the test works.
 
 ---
 
-## §5. Open decisions
+## §6. Open decisions
 
 1. **Trusted Types.** `require-trusted-types-for 'script'` is strictly stronger
    than a nonce and is not universally supported by the WebView versions this
    project targets. Deferred until the control surface exists and can be measured
    against real devices, rather than adopted now on the strength of the
    specification.
-2. **`Content-Security-Policy-Report-Only` during development.** Useful, and a
-   standing risk: a report-only header on a production build is a policy that
-   enforces nothing while looking identical in every log. If it is added, the
-   build that ships must make the enforcing form impossible to omit — the same
-   argument as §2.1.
+2. ~~**`Content-Security-Policy-Report-Only` during development.**~~ **Resolved
+   in §3.5.** `Mode::ReportOnly` requires a stated reason and
+   `SecurityHeaders::production` refuses it.
 3. **Subresource Integrity.** Everything is same-origin today, so SRI adds
    nothing. It becomes relevant the first time §2.5's allowlist is non-empty, and
    should be decided in the same change.

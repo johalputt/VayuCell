@@ -28,7 +28,8 @@ REQUIRED=(
   README.md CHARTER.md GOVERNANCE-CONSTITUTION.md PLAN.md
   GOVERNANCE.md CONTRIBUTING.md
   SECURITY.md TRADEMARK.md NOTICE LICENSE LICENSE-CHARTER
-  docs/CI.md
+  CHANGELOG.md .release-version
+  docs/CI.md docs/BRAND.md
   hardware/schema.json
 )
 missing=""

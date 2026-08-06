@@ -17,6 +17,7 @@
 
 pub mod capability;
 pub mod csp;
+pub mod headers;
 pub mod host;
 pub mod tier;
 
@@ -24,5 +25,7 @@ pub mod tier;
 mod capability_test;
 #[cfg(test)]
 mod csp_test;
+#[cfg(test)]
+mod headers_test;
 #[cfg(test)]
 mod tier_test;

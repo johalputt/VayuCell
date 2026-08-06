@@ -31,6 +31,7 @@ FAILED=0
 CHARTER=scripts/charter-gate.sh
 HARDWARE=scripts/hardware-gate.sh
 DOCS=scripts/docs-gate.sh
+RELEASE=scripts/release-gate.sh
 ATTRIB=scripts/attribution-gate.sh
 
 WORK="$(mktemp -d)"
@@ -49,7 +50,23 @@ violation() {
   tar -C "$REPO" --exclude=.git --exclude=target -cf - . | tar -C "$sandbox" -xf -
 
   # Setup is a single shell string per case, so "$*" is the intended form.
+  # A fingerprint of the sandbox before and after the plant. A setup command
+  # whose pattern has gone stale — a sed matching a number that has since
+  # changed — edits nothing, the gate then passes for the honest reason, and the
+  # case is scored MISSED against a gate that is working fine. Requiring the
+  # plant to actually change something turns that into a loud, correct error.
+  local before after
+  before="$(cd "$sandbox" && find . -type f -exec sha256sum {} + | sort | sha256sum)"
+
   ( cd "$sandbox" && eval "$*" ) || { echo "  ERROR   setup failed for: $desc"; FAILED=1; return; }
+
+  after="$(cd "$sandbox" && find . -type f -exec sha256sum {} + | sort | sha256sum)"
+  if [ "$before" = "$after" ]; then
+    echo "  STALE   $desc"
+    echo "          the setup command changed nothing, so this case tests nothing."
+    FAILED=1
+    return
+  fi
 
   local out
   out="$(cd "$sandbox" && bash "$gate" 2>&1)"
@@ -75,7 +92,7 @@ echo
 
 # Both baselines must be green, or every "caught" below could be the baseline
 # failing rather than the planted violation.
-for gate in "$CHARTER" "$HARDWARE" "$DOCS" "$ATTRIB"; do
+for gate in "$CHARTER" "$HARDWARE" "$DOCS" "$ATTRIB" "$RELEASE"; do
   if ! bash "$gate" >/dev/null 2>&1; then
     echo "refusing to run: $gate is already failing on a clean tree, so a caught"
     echo "violation would not be evidence that the gate caught anything."
@@ -211,11 +228,32 @@ violation "$DOCS" "an ADR is deleted, leaving a gap in the decision log" \
 
 violation "$DOCS" "the constitution understates how many rules a machine enforces" \
   "Appendix A claims" \
-  "sed -i 's/^| \\*\\*\\[CI\\]\\*\\* | 39 |/| **[CI]** | 12 |/' GOVERNANCE-CONSTITUTION.md"
+  "sed -i -E 's/^\\| \\*\\*\\[CI\\]\\*\\* \\| [0-9]+ \\|/| **[CI]** | 12 |/' GOVERNANCE-CONSTITUTION.md"
 
 violation "$DOCS" "a rule is added without updating the enforcement table" \
   "Appendix A" \
   "printf '\\n### 99.1 A new rule **[CI]**\\n\\nPlanted by the gate self-test.\\n' >> GOVERNANCE-CONSTITUTION.md"
+
+# ── Release gate ──────────────────────────────────────────────────────────────
+violation "$RELEASE" "the crate version drifts from .release-version" \
+  "but .release-version is" \
+  "sed -i 's/^version = \"0.0.1\"/version = \"0.0.2\"/' core/Cargo.toml"
+
+violation "$RELEASE" "a release has no changelog section" \
+  "no '## \[" \
+  "sed -i 's/^## \[0.0.1\].*/## [0.0.9] - later/' CHANGELOG.md"
+
+violation "$RELEASE" "notes are left stranded under Unreleased at release time" \
+  "content under \[Unreleased\]" \
+  "sed -i 's/^## \[Unreleased\]/## [Unreleased]\n\n- forgot to move this/' CHANGELOG.md"
+
+violation "$RELEASE" "an editor adds a trailing newline to .release-version" \
+  "trailing newline" \
+  "printf 'v0.0.1\n' > .release-version"
+
+violation "$RELEASE" "the version file is deleted" \
+  "missing" \
+  "rm -f .release-version"
 
 # ── Attribution gate ──────────────────────────────────────────────────────────
 # These need a repository with history, so the sandbox gets its own.
