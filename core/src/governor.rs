@@ -103,6 +103,17 @@ pub enum Reason {
         /// The threshold that was crossed.
         threshold: Percent,
     },
+    /// The cell could not be read at all, repeatedly.
+    ///
+    /// A governor that cannot see the cell is not governing it. Article IV.3:
+    /// what cannot be checked is unverified, never clean — and a monitor that
+    /// has gone blind and says nothing is reporting a healthy device.
+    Unmeasurable {
+        /// How many consecutive attempts failed.
+        consecutive: u32,
+        /// What the last one said.
+        last_error: String,
+    },
 }
 
 impl fmt::Display for Reason {
@@ -125,6 +136,14 @@ impl fmt::Display for Reason {
             Reason::Health { threshold } => {
                 write!(f, "state of health fell below {threshold}")
             }
+            Reason::Unmeasurable {
+                consecutive,
+                last_error,
+            } => write!(
+                f,
+                "the cell could not be read {consecutive} times in a row, so it \
+                 is unmeasured rather than healthy: {last_error}"
+            ),
         }
     }
 }
@@ -212,6 +231,13 @@ impl Thresholds {
         }
     }
 
+    /// The temperature rungs, ascending. Used by the sampler to decide when a
+    /// reading is close enough to a threshold to be worth watching for.
+    #[must_use]
+    pub fn temperatures(&self) -> [Celsius; 3] {
+        [self.warn_temp, self.critical_temp, self.hard_stop_temp]
+    }
+
     /// Builds a threshold set.
     ///
     /// # Errors
@@ -284,9 +310,17 @@ pub struct Governor {
     level: Level,
     thresholds: Thresholds,
     history: Vec<Transition>,
+    consecutive_failures: u32,
 }
 
 impl Governor {
+    /// Consecutive failed reads tolerated before escalating.
+    ///
+    /// Three, at the alert cadence, is fifteen seconds of blindness. One failure
+    /// is a transient and escalating on it would make the governor cry wolf; a
+    /// run of three is a node that has gone away.
+    pub const BLIND_TOLERANCE: u32 = 3;
+
     /// A governor at [`Level::Normal`].
     #[must_use]
     pub fn new(thresholds: Thresholds) -> Self {
@@ -294,7 +328,14 @@ impl Governor {
             level: Level::Normal,
             thresholds,
             history: Vec::new(),
+            consecutive_failures: 0,
         }
+    }
+
+    /// How many consecutive read attempts have failed.
+    #[must_use]
+    pub fn consecutive_failures(&self) -> u32 {
+        self.consecutive_failures
     }
 
     /// The current level.
@@ -345,6 +386,11 @@ impl Governor {
     /// crosses several lands at the highest one in a single step rather than
     /// walking the ladder and logging three transitions for one event.
     pub fn observe(&mut self, reading: &Reading) -> Option<Transition> {
+        // A reading that arrived is the only thing that clears the blind
+        // counter. Anything else — a retry timer, a restart — would let a device
+        // that manages one reading an hour look continuously monitored.
+        self.consecutive_failures = 0;
+
         let temp = reading.temp.to_celsius();
         let evidence = reading.evidence();
 
@@ -437,6 +483,29 @@ impl Governor {
             );
         }
         None
+    }
+
+    /// Records that a reading could not be taken.
+    ///
+    /// Escalates once [`Governor::BLIND_TOLERANCE`] consecutive attempts have
+    /// failed. One failure is a transient — a node busy, a read interrupted. A
+    /// run of them is a governor that has stopped measuring the cell it exists
+    /// to govern, and saying nothing about that amounts to reporting a healthy
+    /// device.
+    pub fn observe_unreadable(&mut self, error: &str) -> Option<Transition> {
+        self.consecutive_failures = self.consecutive_failures.saturating_add(1);
+        if self.consecutive_failures < Self::BLIND_TOLERANCE {
+            return None;
+        }
+        let consecutive = self.consecutive_failures;
+        self.escalate(
+            Level::Derated,
+            Reason::Unmeasurable {
+                consecutive,
+                last_error: error.to_owned(),
+            },
+            format!("no reading for {consecutive} consecutive attempts"),
+        )
     }
 
     /// Returns a fresh governor after a person has looked at the phone.

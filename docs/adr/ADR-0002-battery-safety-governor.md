@@ -5,9 +5,11 @@
   verification loop, the thresholds and the recovery path exist and are
   mutation-tested. The sysfs layer is implemented in
   `core/src/sysfs.rs`: readings, mechanism detection, and the `EndThreshold`
-  ceiling. **Not yet built:** the sampling loop, the UPS shed ladder (§8), the
-  panel, and the non-ceiling mechanisms as controls in their own right. Nothing
-  here has run on a phone.
+  ceiling. The **sampling cadence** of §3 is implemented in
+  `core/src/sampler.rs` as a pure function of the reading, together with what
+  the governor reports once the cell stops being readable at all.
+  **Not yet built:** the UPS shed ladder (§8), the panel, and the non-ceiling
+  mechanisms as controls in their own right. Nothing here has run on a phone.
 - **Date:** 2026-08-06
 - **Relates to:** CHARTER Article III (safety of persons); ADR-0001 (tiers)
 - **Priority:** P1 — **nothing that serves traffic ships before this**

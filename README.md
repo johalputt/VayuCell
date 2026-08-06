@@ -35,8 +35,8 @@ disappearing would not stop your device working**.
 
 | | |
 | --- | --- |
-| Written | The capability registry, tier detection, the CSP and response security headers, **the battery safety governor** — state machine, verification loop, thresholds, recovery — and the sysfs layer it drives |
-| Not written | The sampling loop, the outage shed ladder, the panel |
+| Written | The capability registry, tier detection, the CSP and response security headers, **the battery safety governor** — state machine, verification loop, thresholds, recovery — the sysfs layer it drives, and **the sampling cadence**, including what the governor reports when the cell stops being readable at all |
+| Not written | The outage shed ladder, the panel |
 | Unblocked | [Charter III.1](CHARTER.md) forbade anything serving traffic before the governor. The governor exists, so that constraint is now satisfied — and the gate still fails the build if it is ever removed |
 | Never tested on hardware | Everything. Every device-facing behaviour is exercised through a fake host describing handsets nobody here is holding |
 

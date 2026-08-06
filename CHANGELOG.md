@@ -25,6 +25,20 @@ traffic before it.
   to be assembled from whatever happened to be readable, mechanism detection that
   records which node answered, and a charge ceiling that reads back from the
   hardware rather than from what this process remembers writing.
+- The **sampling cadence** (ADR-0002 §3): thirty seconds when nothing is close
+  to happening, five when the cell is charging or within five degrees of the
+  lowest threshold. It is a function of the reading rather than a loop that owns
+  a clock, so a cell warming over an hour is a handful of assertions instead of
+  an hour of waiting — and so the device is not kept awake by the monitor that
+  exists to protect its battery.
+- **A governor that has gone blind now says so.** Three consecutive failed reads
+  derate the device and name the reason. Before this, a phone whose power-supply
+  nodes vanished — a kernel update, a permission change — produced no readings,
+  no transitions, and a panel that still said `NORMAL`; a monitor that has
+  stopped measuring and stays quiet is reporting a healthy device. A reading
+  that actually arrived is the only thing that clears the counter. Unreadability
+  also tightens the sampling cadence rather than backing it off, which is the
+  direction a retry timer would naturally have taken it.
 
 ### Changed
 

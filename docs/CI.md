@@ -212,7 +212,7 @@ the code compiles there.
 
 ### `mutation`
 
-Runs [`scripts/mutation-gate.sh`](../scripts/mutation-gate.sh). **Forty-six guards**, each re-broken in turn, each required to turn its matching test red:
+Runs [`scripts/mutation-gate.sh`](../scripts/mutation-gate.sh). **Fifty-three guards**, each re-broken in turn, each required to turn its matching test red:
 
 | Mutation | Test that must fail |
 | --- | --- |
@@ -262,9 +262,16 @@ Runs [`scripts/mutation-gate.sh`](../scripts/mutation-gate.sh). **Forty-six guar
 | A vendor node outranking the mainline one | `the_mainline_node_is_preferred_over_the_vendor_ones` |
 | A device with no charge node given one anyway | `a_device_with_no_charge_node_has_no_mechanism_and_that_is_not_an_error` |
 | `verify` reporting the request instead of reading hardware | `verification_reads_the_hardware_not_what_we_remember_writing` |
+| The monitor polling a cool idle cell every five seconds | `a_cool_idle_cell_is_left_alone` |
+| The approach margin dropped, so watching starts after a crossing | `approaching_a_threshold_tightens_the_cadence_before_it_is_crossed` |
+| The alert band pinned to the hard stop rather than the lowest rung | `the_alert_band_follows_the_lowest_rung_rather_than_a_hardcoded_temperature` |
+| A charging cell sampled at the idle cadence | `a_charging_cell_is_watched_closely_however_cool_it_is` |
+| A device that cannot be read backed off from instead of watched | `a_device_that_cannot_be_read_is_watched_more_closely_not_less` |
+| A governor that has gone blind never saying so | `a_governor_that_has_gone_blind_says_so_rather_than_reporting_health` |
+| The blind counter never cleared, so old failures accumulate | `a_reading_that_arrives_is_the_only_thing_that_clears_the_blind_counter` |
 
-Two of these survived on their first run, and both were defects in the **tests**
-rather than the code:
+Three of these were defects in the **tests** rather than the code, found because
+a mutation survived or because writing one exposed the test as vacuous:
 
 - `a_hardware_ceiling_below_what_was_asked_for_is_satisfying_it` used a fixture
   whose `apply()` overwrote its own held value, so `verify()` always returned
@@ -273,6 +280,15 @@ rather than the code:
 - `a_cooling_cell_does_not_walk_back_down_on_its_own` only observed readings that
   cross no threshold, so nothing ever *attempted* to lower the level and the
   guard against lowering was never reached.
+- The sampler's approach-margin test looped over every temperature rung and
+  asserted each was `Alert`. Because `Thresholds::new` enforces an ascending
+  ladder, a cell within the margin of any higher rung is already past the margin
+  of the lowest, so every iteration after the first was subsumed — the test
+  looked thorough and asserted nothing the preceding case had not. Writing the
+  mutation for it is what surfaced that; the code was simplified to check the
+  lowest rung once, and the test rewritten to assert the band *moves with the
+  ladder*, which is the property that actually distinguishes a correct
+  implementation.
 
 ### The security posture snapshot
 

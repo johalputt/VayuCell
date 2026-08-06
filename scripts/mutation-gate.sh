@@ -92,6 +92,7 @@ HD=core/src/headers.rs
 B=core/src/battery.rs
 G=core/src/governor.rs
 SF=core/src/sysfs.rs
+SM=core/src/sampler.rs
 
 mutate "$T" a_guest_that_cannot_see_the_phone_reports_unverified_rather_than_guessing \
   "a bare VM is promoted to T2 without the shell's assertion" \
@@ -413,6 +414,50 @@ mutate "$SF" verification_reads_the_hardware_not_what_we_remember_writing \
   "        let raw = Some(\"60\".to_string())
             .as_ref()
             .map(std::string::ToString::to_string)"
+
+mutate "$SM" a_cool_idle_cell_is_left_alone \
+  "the monitor keeps the device awake polling a cool idle cell" \
+  "            Cadence::Steady => Duration::from_secs(30)," \
+  "            Cadence::Steady => Duration::from_secs(5),"
+
+mutate "$SM" approaching_a_threshold_tightens_the_cadence_before_it_is_crossed \
+  "the approach margin is dropped, so watching starts only after a crossing" \
+  "    pub const ALERT_MARGIN: Celsius = Celsius::new(5);" \
+  "    pub const ALERT_MARGIN: Celsius = Celsius::new(0);"
+
+mutate "$SM" the_alert_band_follows_the_lowest_rung_rather_than_a_hardcoded_temperature \
+  "the alert band is pinned to the hard stop instead of the lowest rung" \
+  "        let lowest = warn.min(critical).min(hard_stop);" \
+  "        let _ = warn.min(critical);
+        let lowest = hard_stop;"
+
+mutate "$SM" a_charging_cell_is_watched_closely_however_cool_it_is \
+  "a charging cell is sampled at the idle cadence" \
+  "        if reading.is_charging() {
+            return Cadence::Alert;
+        }" \
+  "        if false {
+            return Cadence::Alert;
+        }"
+
+mutate "$SM" a_device_that_cannot_be_read_is_watched_more_closely_not_less \
+  "a device that cannot be read is backed off from instead of watched" \
+  "    pub const fn cadence_when_unreadable() -> Cadence {
+        Cadence::Alert
+    }" \
+  "    pub const fn cadence_when_unreadable() -> Cadence {
+        Cadence::Steady
+    }"
+
+mutate "$G" a_governor_that_has_gone_blind_says_so_rather_than_reporting_health \
+  "a governor that has gone blind never says so" \
+  "    pub const BLIND_TOLERANCE: u32 = 3;" \
+  "    pub const BLIND_TOLERANCE: u32 = u32::MAX;"
+
+mutate "$G" a_reading_that_arrives_is_the_only_thing_that_clears_the_blind_counter \
+  "the blind counter is never cleared, so old failures accumulate forever" \
+  "        self.consecutive_failures = 0;" \
+  "        let _ = self.consecutive_failures;"
 
 echo
 # The suite was green before the first mutation and every mutation was undone,
