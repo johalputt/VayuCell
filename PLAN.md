@@ -46,7 +46,7 @@ This is not a novelty. Measured against a single-board computer at the same
 price point, a five-year-old flagship wins on nearly every axis:
 
 | | Retired flagship phone | Typical SBC |
-|---|---|---|
+| --- | --- | --- |
 | CPU | 8-core ARM64, big.LITTLE | 4-core ARM64 |
 | RAM | 4–12 GB LPDDR | 2–8 GB |
 | Storage | 64–512 GB UFS (fast, onboard) | microSD (slow, fails) |
@@ -79,7 +79,7 @@ A plan that lists capabilities before constraints is a marketing document. These
 are the eight things that actually decide whether a given phone can serve.
 
 | # | Blocker | Severity | Addressed by |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | **B1** | **Battery degradation and swelling** — a lithium cell held at 100% and warm, for years, degrades and can swell. Swelling is treated as damage and a fire hazard by waste authorities | **Critical — safety of persons** | §4, the Battery Safety Governor |
 | **B2** | **No reachable address** — carrier CGNAT and most home ISPs give no inbound path | Blocks all serving | §5, Sovereign Ingress |
 | **B3** | **Doze and background limits** — Android aggressively kills long-running work | Blocks reliability | §3 tiers; VM/native tiers escape it |
@@ -105,7 +105,7 @@ present a single feature list. It **detects a tier**, declares that tier's
 ceiling, and reports every capability against it.
 
 | Tier | Environment | Root | Reachable? | Charge control | Kernel security |
-|---|---|---|---|---|---|
+| --- | --- | --- | --- | --- | --- |
 | **T0** | Stock Android, userspace runtime | No | Tunnel/onion only, ports ≥1024 | **No — permanently red** | Vendor, often EOL |
 | **T1** | Stock Android, rooted | Yes | Any port, wakelocks held | Yes — kernel sysfs node | Vendor, often EOL |
 | **T2** | **Virtualised Linux** (pKVM VM on Android 16+) | In-guest | Host-mediated | Host-mediated | **Android-maintained host** |
@@ -165,7 +165,7 @@ swelling, and swelling is a fire risk in someone's home.
 **The fix, per tier.** The mechanism differs and the honesty must too:
 
 | Tier | Mechanism | Ceiling |
-|---|---|---|
+| --- | --- | --- |
 | T0 | **None available.** Reported permanently red, with the mitigation in plain language | — |
 | T1 | Kernel charge-control sysfs node (device-specific) | 40–60% |
 | T2 | Requested from the Android host; verified from the guest | 40–60% |
@@ -208,7 +208,7 @@ first-class subsystem with four modes, ranked by how much they depend on someone
 else:
 
 | Mode | Dependency | Best for |
-|---|---|---|
+| --- | --- | --- |
 | **Onion service** | **None** — no address, no port-forward, no relay | Censorship resistance, zero-infrastructure publishing |
 | **Relay tunnel** | A cheap VPS you rent | Clearnet domains, normal visitors |
 | **Direct + port forward** | A real public IP | The rare good ISP |
@@ -335,7 +335,7 @@ VayuWeb separates a **CC0 charter** from **permissively licensed code**, and tha
 separation is right. VayuCell adopts it with one deliberate upgrade.
 
 | Artefact | Licence | Why |
-|---|---|---|
+| --- | --- | --- |
 | **Charter & specifications** | **CC0-1.0** | The rules of the commons belong to nobody. Anyone may implement, fork or standardise them |
 | **Code** | **Apache-2.0** | Permissive *plus an express patent grant* |
 | **Hardware compatibility database** | **CC0-1.0** | The device facts are a public good |
@@ -377,7 +377,7 @@ Each phase is independently useful and independently shippable. Nothing claims a
 capability before it can verify it.
 
 | Phase | Content | What it unlocks | Gate that proves it |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | **P0** | Charter, licences, capability registry, device profiler, hardware DB | Nothing yet — but nothing can land undeclared | An unregistered capability fails the build |
 | **P1** | **Battery Safety Governor** + posture report | Safe unattended operation | Ceiling is set, read back, and reverting is detected |
 | **P2** | T0/T1 runtime, service supervisor, one-click installer | A phone that serves something | Survives 30 days unattended with Doze active |
@@ -422,7 +422,7 @@ reading it. The permanent red rows are what make the green ones worth believing.
 ## §13. Open decisions
 
 | # | Decision | Recommendation |
-|---|---|---|
+| --- | --- | --- |
 | 1 | Primary tier to target first | **T0/T1 for reach, T2 as the flagship.** T2 is where this stops being a hobby |
 | 2 | Ship our own mainline images, or defer to an existing distribution | **Defer and contribute upstream.** Maintaining device trees is a decade-long commitment |
 | 3 | Default ingress | **Onion.** It is the only mode with no external dependency |

@@ -68,7 +68,7 @@ something good.
 This is the most important section in the document.
 
 | Marker | Meaning | What it is worth |
-|---|---|---|
+| --- | --- | --- |
 | **[CI]** | A gate fails the build | Real. It does not depend on anyone's attention |
 | **[REVIEW]** | A human must catch it in the diff | Real, and only as reliable as that person on that day |
 | **[NORM]** | Stated preference, no enforcement | Honest about being advisory |
@@ -128,7 +128,7 @@ These are here because an abstract ordering is easy to agree with and hard to
 apply.
 
 | Situation | Resolution |
-|---|---|
+| --- | --- |
 | A charge-ceiling read-back costs 40 ms per cycle and the UI feels sluggish | 1 beats 7. Keep the read-back. Fix the UI, or state the latency |
 | A device cannot limit charging, and the red row makes the product look bad | 2 beats 8. The row stays red forever. Charter III.2 |
 | A crash-safety fix requires an unreviewed dependency | 4 and 5 conflict; neither wins automatically. It needs an ADR, not a judgement call in a pull request |
@@ -868,7 +868,7 @@ permission.
 ## Appendix A — Rules by enforcement
 
 | Enforcement | Count | What it means |
-|---|---|---|
+| --- | --- | --- |
 | **[CI]** | 50 | A gate fails the build |
 | **[REVIEW]** | 28 | A person must catch it |
 | **[NORM]** | 30 | Advisory, and labelled as such |

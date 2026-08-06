@@ -74,7 +74,7 @@ jobs:
         # A second opinion alongside cargo-deny's advisories check. They draw on
         # overlapping but not identical data, and two sources disagreeing is
         # itself information worth having.
-        uses: google/osv-scanner-action/osv-scanner-action@v2
+        uses: google/osv-scanner-action/osv-scanner-action@v2.3.8
         with:
           scan-args: |-
             --lockfile=./Cargo.lock
@@ -94,7 +94,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: ossf/scorecard-action@v2
+      - uses: ossf/scorecard-action@v2.4.4
         with:
           results_file: scorecard.sarif
           results_format: sarif

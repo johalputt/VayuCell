@@ -26,8 +26,12 @@ other symptom. Both failure directions were hit while these gates were written:
   the schema does not have. It printed `ok` on every run while checking nothing.
 
 The second kind is the dangerous one. [`scripts/gate-selftest.sh`](../scripts/gate-selftest.sh)
-is how it gets caught: it plants **thirty-nine violations** in a scratch copy of
-the repository and requires the matching gate to fail, citing the right rule.
+is how it gets caught: it plants **forty violations** in a scratch copy of the
+repository and requires the matching gate to fail, citing the right rule. It also
+refuses to score a plant that changed nothing — a `sed` whose pattern has gone
+stale edits nothing, the gate then passes for the honest reason, and a working
+gate gets recorded as broken. That happened, so the harness now fingerprints the
+sandbox before and after.
 
 ## Where the logic lives
 
@@ -53,6 +57,8 @@ scripts/attribution-gate.sh      # the permanent record
 scripts/docs-gate.sh             # required docs, ADR integrity, links, rule counts
 scripts/hardware-gate.sh         # device database schema and honesty
 scripts/release-gate.sh          # the version says the same thing everywhere
+scripts/actions-gate.sh          # every workflow reference actually resolves
+scripts/markdown-gate.sh         # markdown lint, at the one pinned version
 scripts/doctest-count.sh         # a non-zero number of doctests actually ran
 scripts/coverage.sh              # production-only line coverage against the floor
 scripts/sbom.sh                  # CycloneDX bill of materials
@@ -72,10 +78,10 @@ python3 -m pip install jsonschema
 ## Workflow: `ci.yml` — the required gate
 
 Runs on every push to `main` and every pull request. Nothing merges without all
-fifteen jobs green.
+sixteen jobs green.
 
 | Setting | Value | Why |
-|---|---|---|
+| --- | --- | --- |
 | `concurrency.group` | `<workflow>-<ref>` | One run per branch; rapid pushes supersede each other |
 | `concurrency.cancel-in-progress` | `false` on `main`, `true` elsewhere | `main` always carries a *completed* verdict. A cancelled run reads as unknown, and unknown must never look like pass |
 | `permissions` | `contents: read` | No job needs write. A compromised action cannot push |
@@ -90,7 +96,7 @@ Runs [`scripts/charter-gate.sh`](../scripts/charter-gate.sh), then
 [`scripts/gate-selftest.sh`](../scripts/gate-selftest.sh).
 
 | Article | Checked how |
-|---|---|
+| --- | --- |
 | **III.1** No traffic-serving capability before the governor | Any production source registering `class: Class::Serving` requires `core/src/governor.rs` to exist |
 | **III.3** Never imply a safety property not read back | `Capability::verify` must remain a non-optional `VerifyFn`. As an `Option` a control with no read-back would compile |
 | **III.3** The proof is real | `compile_fail` doctests must still be present on the **public** module — rustdoc collects them nowhere else, and on a private item they run zero tests and report success |
@@ -137,8 +143,20 @@ history cannot fail somebody else's change.
   governance instead. Adding a rule without updating the table now fails the
   build.
 
-Then `markdownlint-cli2` with the rules in
+Then [`scripts/markdown-gate.sh`](../scripts/markdown-gate.sh) with the rules in
 [`.markdownlint-cli2.jsonc`](../.markdownlint-cli2.jsonc).
+
+**The linter runs from a script, not from the action, and this is the second
+lesson of the same kind.** CI originally used
+`DavidAnson/markdownlint-cli2-action@v24`, which bundles markdownlint v0.41,
+while the local check ran `markdownlint-cli2@0.18.1`, which bundles v0.38. v0.41
+added `MD060`, so the local gate printed **0 errors** and the push failed on 244
+violations of a rule the laptop had never heard of.
+
+That is worse than an ordinary red build: a gate whose local form is *weaker*
+than its CI form actively misleads the person running it, and the entire reason
+every check lives in `scripts/` is that the two should be the same check. The
+version is now pinned in one file and both sides run it.
 
 ### `shell`
 
@@ -171,7 +189,7 @@ passed.**
 ### `rust`
 
 | Step | Parameters | Why |
-|---|---|---|
+| --- | --- | --- |
 | `cargo fmt` | `--all -- --check` | Formatting is not reviewed by humans here |
 | `cargo clippy` | `--workspace --all-targets --all-features -- -D warnings` | `--all-targets` covers tests: a lint that skips test code lets it drift into habits the library forbids. `clippy::pedantic` is on via `lib.rs` |
 | `cargo build` | `--workspace --all-features` | |
@@ -194,7 +212,7 @@ Runs [`scripts/mutation-gate.sh`](../scripts/mutation-gate.sh). **Twenty-nine
 guards**, each re-broken in turn, each required to turn its matching test red:
 
 | Mutation | Test that must fail |
-|---|---|
+| --- | --- |
 | A bare VM promoted to T2 without the shell's assertion | `a_guest_that_cannot_see_the_phone_reports_unverified_rather_than_guessing` |
 | An unrecognised machine falling back to T0 | `a_machine_with_no_recognised_evidence_is_unknown_not_t0` |
 | An unreadable device tree reported as absent hardware | `an_unreadable_device_tree_makes_the_verdict_unverified_not_unknown` |
@@ -250,7 +268,7 @@ themselves — here it is the difference between 87% and the **82.83%** that
 describes the actual code. A number that flatters itself is not worth having.
 
 | File | Lines covered |
-|---|---|
+| --- | --- |
 | `tier.rs` | 91.89% |
 | `csp.rs` | 85.12% |
 | `host.rs` | 84.81% |
@@ -279,7 +297,7 @@ crates.io as the only permitted source.
 ### `targets` — the devices this actually runs on
 
 | Target | Why it is in the matrix |
-|---|---|
+| --- | --- |
 | `aarch64-linux-android` | T0/T1 — stock and rooted 64-bit handsets |
 | `armv7-linux-androideabi` | T0/T1 — 32-bit handsets, exactly the drawer phones this is aimed at |
 | `aarch64-unknown-linux-gnu` | T2/T3 — the Android Terminal guest, and mainline ports |
@@ -315,6 +333,26 @@ The single required status check. Its result list is generated from the whole
 `needs` context rather than a hand-maintained list — a job added above but
 forgotten here would otherwise be required in name and unenforced in fact.
 
+### `actions` — workflow references resolve
+
+Runs [`scripts/actions-gate.sh`](../scripts/actions-gate.sh), which extracts
+every `uses:` reference from the workflows and confirms each resolves to a real
+tag or branch with `git ls-remote`.
+
+This gate exists because of a real failure. Two workflows referenced
+`google/osv-scanner-action@v2` and `ossf/scorecard-action@v2` — **neither of
+which is a tag either project publishes**. They were valid YAML, they parsed
+locally, they reviewed fine, and they failed on their first run with *"unable to
+find version v2"*.
+
+A pinned version nobody verified is a pinned version, not a verified one. When
+the gate was first run it caught a third: `taiki-e/install-action@cargo-outdated`
+in the scheduled workflow, which had not run yet and would have failed weeks
+later on a Monday morning.
+
+Without network the gate reports `UNVERIFIED` and carries on; CI sets
+`VAYUCELL_REQUIRE_NETWORK=1` so the authoritative run cannot silently skip it.
+
 ### `release-meta`
 
 Runs [`scripts/release-gate.sh`](../scripts/release-gate.sh) on **every push**,
@@ -333,7 +371,7 @@ with the release.
 Triggered by a `v*.*.*` tag.
 
 | Job | What it does |
-|---|---|
+| --- | --- |
 | `preflight` | The release gate, plus an assertion that the **tag matches `.release-version`**. A tag that does not match the tree is a release whose artefacts cannot be traced to their source |
 | `build` | All five targets, `--locked`, with `--remap-path-prefix` so the build directory does not leak into the artefact and break reproducibility |
 | `publish` | Keyless **cosign** signature over the checksum file, CycloneDX SBOM, and verification instructions written into the run summary |
@@ -348,7 +386,7 @@ private key to steal, and nothing to trust that cannot be checked.
 ## Workflow: `supply-chain.yml`
 
 | Job | What it answers |
-|---|---|
+| --- | --- |
 | `sbom` | Generates a CycloneDX SBOM and **fails if it contains a third-party runtime component**. An SBOM nobody asserts anything about is a file, not a check |
 | `osv` | Scans `Cargo.lock` against the OSV database — a second opinion alongside cargo-deny, drawing on overlapping but not identical data |
 | `scorecard` | OpenSSF Scorecard, on `main` only: it grades repository settings, which a pull request branch cannot change and should not be judged on |
@@ -381,7 +419,7 @@ Monday 05:00 UTC — a working morning, not a weekend, so a red result is seen t
 same day.
 
 | Job | What it answers |
-|---|---|
+| --- | --- |
 | `advisories` | `cargo deny check advisories` and `cargo audit --deny warnings` |
 | `freshness` | `cargo outdated --root-deps-only --exit-code 1`. Should stay empty by charter; exists to go red the week that stops being true |
 | `beta-and-nightly` | Advisory, `continue-on-error`. A lint added to nightly is information about work coming, not a defect in code that is correct today |

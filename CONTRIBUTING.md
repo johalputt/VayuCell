@@ -18,7 +18,7 @@ Per ADR-0001, a capability is a registered contract. You must answer **all six**
 obligations — the zero value of each is invalid and the registry test will fail:
 
 | Obligation | Question |
-|---|---|
+| --- | --- |
 | `Floor` | What is the lowest tier that can provide this? |
 | `Class` | Safety, serving, storage or network? |
 | `Detect` | How is presence established on *this* device? |

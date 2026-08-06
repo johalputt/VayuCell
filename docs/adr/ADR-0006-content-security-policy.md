@@ -90,7 +90,7 @@ Four directives are set to deny even though no script directive covers them,
 because each turns a read-only injection into a working attack:
 
 | Directive | Attack it closes |
-|---|---|
+| --- | --- |
 | `frame-ancestors 'none'` | Clickjacking. The control surface is never legitimately embedded |
 | `base-uri 'none'` | An injected `<base>` rewrites every relative URL, including the ones nonce'd scripts load from |
 | `form-action 'self'` | An injected form posting the operator's session to another origin |

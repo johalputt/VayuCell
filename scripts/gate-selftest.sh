@@ -32,6 +32,7 @@ CHARTER=scripts/charter-gate.sh
 HARDWARE=scripts/hardware-gate.sh
 DOCS=scripts/docs-gate.sh
 RELEASE=scripts/release-gate.sh
+ACTIONS=scripts/actions-gate.sh
 ATTRIB=scripts/attribution-gate.sh
 
 WORK="$(mktemp -d)"
@@ -254,6 +255,18 @@ violation "$RELEASE" "an editor adds a trailing newline to .release-version" \
 violation "$RELEASE" "the version file is deleted" \
   "missing" \
   "rm -f .release-version"
+
+# ── Actions gate ──────────────────────────────────────────────────────────────
+# Skipped without network: the gate reports UNVERIFIED there rather than
+# failing, so a planted violation would be scored MISSED against a gate that is
+# behaving correctly.
+if git ls-remote --tags --refs https://github.com/actions/checkout >/dev/null 2>&1; then
+  violation "$ACTIONS" "a workflow references a tag the project does not publish" \
+    "does not resolve" \
+    "sed -i 's|uses: actions/checkout@v7|uses: actions/checkout@v999|' .github/workflows/ci.yml"
+else
+  echo "  --      actions gate cases skipped: no network"
+fi
 
 # ── Attribution gate ──────────────────────────────────────────────────────────
 # These need a repository with history, so the sandbox gets its own.

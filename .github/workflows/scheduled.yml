@@ -53,7 +53,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
-      - uses: taiki-e/install-action@cargo-outdated
+      - name: Install cargo-outdated
+        # Not available through install-action — its reference resolved to
+        # nothing, which scripts/actions-gate.sh now catches before CI does.
+        run: cargo install cargo-outdated --locked
       - name: Report anything behind its latest release
         run: |
           # The core is required to have no third-party runtime dependencies

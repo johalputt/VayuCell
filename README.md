@@ -34,7 +34,7 @@ disappearing would not stop your device working**.
 **Early, and honest about it.**
 
 | | |
-|---|---|
+| --- | --- |
 | Written | The capability registry, tier detection, the CSP and the response security headers |
 | Not written | The battery governor — and until it exists, **nothing may serve traffic**. [Charter III.1](CHARTER.md), enforced by a gate |
 | Never tested on hardware | Everything. Every device-facing behaviour is exercised through a fake host describing handsets nobody here is holding |
@@ -59,7 +59,7 @@ published bill of materials ever contains one. You do not have to take that on
 trust — the SBOM ships with every release.
 
 | Document | What it is |
-|---|---|
+| --- | --- |
 | [`CHARTER.md`](CHARTER.md) | The supreme law. CC0. Read this first |
 | [`GOVERNANCE-CONSTITUTION.md`](GOVERNANCE-CONSTITUTION.md) | How the charter is upheld in practice — 108 rules, each marked with whether a machine, a human, or nothing enforces it |
 | [`PLAN.md`](PLAN.md) | The full project plan |
@@ -107,7 +107,7 @@ notice, because a check whose pattern silently stops matching prints `ok` foreve
 and has no other symptom.
 
 | Gate | What it refuses to let through |
-|---|---|
+| --- | --- |
 | **Charter** | A serving capability before the governor. A control with no read-back. `Absent` collapsing into `Unverified`. Telemetry, a treasury, a kill switch, a dependency on a host this project runs. An edit to Article III or V that was not recorded as an amendment |
 | **Security** | A CSP that permits `'unsafe-inline'` — the type has no variant for it, so weakening it is an addition to a public enum rather than a one-word edit to a string. A reusable nonce. A referrer policy that leaks cross-origin. A report-only header on a release. An HSTS max-age too short to mean anything |
 | **Provenance** | A version that disagrees with itself, a tag that does not match the tree, a release with no signature, or an SBOM containing a dependency the charter says does not exist |
@@ -173,7 +173,7 @@ with their mail.
 ## Licence
 
 | Artefact | Licence |
-|---|---|
+| --- | --- |
 | Charter and specifications | CC0-1.0 |
 | Source code | Apache-2.0 |
 | Hardware database | CC0-1.0 |

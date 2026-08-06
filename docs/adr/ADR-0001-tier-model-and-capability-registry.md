@@ -32,7 +32,7 @@ bootloader will ever unlock.
 Consider four real devices and one capability — limiting charge to 60%:
 
 | Device class | Charge limiting |
-|---|---|
+| --- | --- |
 | Stock, locked, no root | **Impossible.** No API exposes it |
 | Stock, rooted | Possible, via a vendor-specific sysfs node whose path differs by SoC |
 | Android 16 with virtualisation | Possible, but only mediated by the host — the guest cannot reach the charger |
@@ -57,7 +57,7 @@ T3  Mainline Linux (postmarketOS-class port)
 ```
 
 | | T0 | T1 | T2 | T3 |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | Bind ports < 1024 | No | Yes | Guest-local, host-forwarded | Yes |
 | Escape Doze / background kill | No | Partly (wakelocks) | **Yes** | **Yes** (no Doze) |
 | Charge ceiling | **No** | Yes | Host-mediated | **Yes** |
@@ -174,7 +174,7 @@ A device profile is the evidence behind the tier, and it is stored so a support
 conversation starts from facts:
 
 | Group | Fields |
-|---|---|
+| --- | --- |
 | Identity | SoC, model family, RAM, storage class and size, Android or distribution version, kernel version and build date |
 | Privilege | Root available, bootloader unlockable, virtualisation present, SELinux mode |
 | Power | Charge-control mechanism and path, battery design capacity, present full capacity, cycle count, thermal sensors |
@@ -220,7 +220,7 @@ that; the honest response is to say so in the first screen.
 ## Open decisions
 
 | # | Decision | Recommendation |
-|---|---|---|
+| --- | --- | --- |
 | 1 | Which tier the installer targets by default | **Highest verified**, with an explicit downgrade path the user can choose |
 | 2 | Whether T1 requires a specific root implementation | **No** — probe for the capability, not the brand |
 | 3 | Whether to attempt automatic bootloader unlock | **Never.** It wipes user data and can brick devices. Instruct, never automate |

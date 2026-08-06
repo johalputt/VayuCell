@@ -112,7 +112,7 @@ the project again must continue to function indefinitely.
 ## Article VI — Licensing
 
 | Artefact | Licence |
-|---|---|
+| --- | --- |
 | This charter, and all specifications | **CC0-1.0** |
 | Source code | **Apache-2.0** |
 | Hardware compatibility database | **CC0-1.0** |

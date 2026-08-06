@@ -125,7 +125,7 @@ reads as a health check.
 It is replaced by fields that record only what can be observed:
 
 | Field | Meaning |
-|---|---|
+| --- | --- |
 | `durability_class` | `assumed_untrusted` (default, and the honest answer for essentially every device) or `lab_verified` |
 | `lab_verification` | Optional. Present only where a contributor ran a **real power-fault rig**: method, fixture, date. Advisory, never a grant |
 | `wear_indicator` | `readable` / `absent` / `unreliable` — whether the device exposes anything, not what it said |
@@ -178,7 +178,7 @@ The draft "silently presupposed root", and most of the storage introspection it
 assumed is unavailable on the tier most devices are stuck at. Corrected:
 
 | Capability | T0 | T1 | T2 | T3 |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | Wear / health indicators | Almost never | Sometimes, vendor-dependent | Guest sees virtual storage, not the part | Best, still vendor-dependent |
 | External storage | Limited | Yes | Host-mediated | Yes |
 | Filesystem control | No | Partly | In-guest | Yes |
@@ -208,7 +208,7 @@ Permanent failing rows, per Charter Article IV:
 ## §7. Test gates
 
 | Gate | Proves |
-|---|---|
+| --- | --- |
 | Warm reboot proposed as a durability test | **Fails review by rule** — §0 is cited in the contributing guide |
 | Replication lag exceeds target | Posture warns; the live figure is never hidden |
 | Backup uploaded but never restored | Reads **unverified**, never protected |
@@ -220,7 +220,7 @@ Permanent failing rows, per Charter Article IV:
 ## §8. Open decisions
 
 | # | Decision | Recommendation |
-|---|---|---|
+| --- | --- | --- |
 | 1 | Default replication target | **Off-device, off-site.** Another cell in the same building is availability, not backup |
 | 2 | Replication lag target | **60 s** default, displayed live, configurable — a number the operator can hold us to |
 | 3 | Whether to ever ship an on-device durability verdict | **No.** §0 is the reason, and it is permanent unless the hardware changes |

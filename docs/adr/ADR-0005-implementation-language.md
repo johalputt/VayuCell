@@ -26,7 +26,7 @@ moment to answer the question properly.
 VayuCell is not one program, and noticing that removes most of the argument.
 
 | Part | Constraint | Language |
-|---|---|---|
+| --- | --- | --- |
 | **Android shell** (T0/T1) | Must call platform APIs — foreground services, battery manager, boot receivers, notifications, installer UX | **Kotlin.** There is no realistic alternative |
 | **Core engine** | Reads sysfs and procfs, runs the governor loop, serves the local panel, holds the capability registry | **The actual decision** |
 | **T2 / T3** | A Linux guest or a mainline port — anything runs here | Follows the core |

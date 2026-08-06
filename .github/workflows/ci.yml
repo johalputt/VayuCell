@@ -91,9 +91,13 @@ jobs:
       - name: Documentation gate
         run: bash scripts/docs-gate.sh
       - name: Markdown lint
-        uses: DavidAnson/markdownlint-cli2-action@v24
-        with:
-          globs: "**/*.md"
+        # The script, not the action. The action bundles whatever linter version
+        # its tag happens to carry, and when that differed from the version run
+        # locally the local gate reported clean on a rule it had never heard of.
+        # One pinned version, in one file, used by both.
+        env:
+          VAYUCELL_REQUIRE_MARKDOWNLINT: "1"
+        run: bash scripts/markdown-gate.sh
 
   # ── Shell ───────────────────────────────────────────────────────────────────
   shell:
@@ -119,6 +123,22 @@ jobs:
           done
           [ "$bad" -eq 0 ] || exit 1
           echo "every script is executable and declares its interpreter"
+
+  # ── Workflow references ─────────────────────────────────────────────────────
+  actions:
+    name: "CI · Workflow references resolve"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Actions gate
+        # Two workflows once referenced tags neither project publishes. They
+        # were valid YAML, they parsed, they reviewed fine, and they failed on
+        # first run with "unable to find version v2". A pinned version nobody
+        # verified is a pinned version, not a verified one.
+        env:
+          VAYUCELL_REQUIRE_NETWORK: "1"
+        run: bash scripts/actions-gate.sh
 
   # ── Release metadata ────────────────────────────────────────────────────────
   release-meta:
@@ -421,6 +441,7 @@ jobs:
       - docs
       - shell
       - hardware
+      - actions
       - release-meta
       - rust
       - msrv

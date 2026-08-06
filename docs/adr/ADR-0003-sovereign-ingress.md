@@ -55,7 +55,7 @@ turned out to matter most. Each mode now declares **seven** properties, and the
 registry (ADR-0001) rejects a mode that leaves any unanswered.
 
 | | **Onion** | **Relay tunnel** | **Direct** | **Local-only** |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | **Depends on** | The Tor network (a commons) | A rented VPS (a supplier) | Your ISP granting inbound | Nothing |
 | **Can be evicted by** | No single party | The VPS provider, at will | The ISP changing policy | — |
 | **Reachable by ordinary browsers** | **No** — needs Tor-capable client | Yes | Yes | On-LAN only |
@@ -220,7 +220,7 @@ Each becomes a permanent failing row in the posture report:
 ## §10. Open decisions
 
 | # | Decision | Recommendation |
-|---|---|---|
+| --- | --- | --- |
 | 1 | Default mode | **Local-only.** Publishing is an explicit choice, per Article VIII.5 |
 | 2 | Onion denial-of-service defences | Enable the introduction-point rate limit by default; **verify the proof-of-work capability is actually compiled in** before reporting it — a build lacking it silently has no such defence, and reporting a defence that is absent is the §8-class lie |
 | 3 | Whether to ship a first-party relay | **No.** Article V.5 — a service this project controls would become a dependency it created |

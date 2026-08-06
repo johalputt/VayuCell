@@ -47,7 +47,7 @@ rectangle.
 single SVG serves a light ground and a dark one.
 
 | Role | Value |
-|---|---|
+| --- | --- |
 | Ink | `#0A0A0A` |
 | Paper | `#FFFFFF` |
 | Tile ground | `#0A0A0A` |
@@ -57,7 +57,7 @@ There is no accent and no gradient. The mark carries its meaning in its shape.
 ## The files
 
 | File | Use |
-|---|---|
+| --- | --- |
 | `vayucell-logo.svg` / `.png` | Full lockup, light grounds |
 | `vayucell-logo-dark.svg` / `.png` | Full lockup, dark grounds |
 | `vayucell-mark.svg` / `.png` | Mark only, no wordmark |

@@ -22,7 +22,7 @@ Sign off with:
 Modelled on VayuWeb's VWIP process.
 
 | Change | Route |
-|---|---|
+| --- | --- |
 | Bug fix, documentation, device record | Ordinary pull request |
 | New capability, new tier behaviour, protocol change | **VCIP required** |
 | Charter amendment | **VCIP required**, with the weakened protection named explicitly |

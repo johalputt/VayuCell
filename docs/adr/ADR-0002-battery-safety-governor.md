@@ -60,7 +60,7 @@ Charge limiting is not one feature. It is four different mechanisms with four
 different reliabilities, and the panel must say which one it is using.
 
 | Tier | Mechanism | Reliability |
-|---|---|---|
+| --- | --- | --- |
 | **T0** | **None exists.** No unprivileged Android API limits charging | **Permanently red** |
 | **T1** | Vendor sysfs node, written as root | Good, but vendor-specific and revertible |
 | **T2** | Requested from the Android host; the guest cannot reach the charger directly | Mediated — verify from the guest, never assume |
@@ -195,7 +195,7 @@ Software cannot measure a millimetre of deformation. What it can do is combine
 the signals that correlate with a cell approaching that state:
 
 | Signal | What it suggests |
-|---|---|
+| --- | --- |
 | Cycle count vs. age | How hard this cell has already worked |
 | State of health trend | Capacity fade, the classic ageing curve |
 | Internal-resistance drift | The strongest available proxy for degradation |
@@ -269,7 +269,7 @@ Every one written in the attacker's voice, and mutation-tested — the defence i
 re-broken and the test confirmed to go red again.
 
 | Gate | Proves |
-|---|---|
+| --- | --- |
 | Ceiling is applied, then externally reverted | The loop detects it and enters `DERATED` |
 | Verify path made to fail | State becomes *unverified*, **never** *working* |
 | Temperature ramped past each threshold | Each transition fires, in order, with the reading logged |
@@ -281,7 +281,7 @@ re-broken and the test confirmed to go red again.
 ## Open decisions
 
 | # | Decision | Recommendation |
-|---|---|---|
+| --- | --- | --- |
 | 1 | Default ceiling | **60%** — meaningful ageing reduction while retaining useful UPS runtime |
 | 2 | Hard-stop temperature | **60 °C pack** — conservative; configurable downward only |
 | 3 | Behaviour when the mechanism is absent (T0) | **Serve, but render the safety row permanently red** and prompt inspection on a schedule. Refusing to run would push users to worse, ungoverned alternatives |
