@@ -1,0 +1,16 @@
+[package]
+name = "vayucell-core"
+version = "0.0.1"
+edition = "2021"
+rust-version = "1.80"
+license = "Apache-2.0"
+description = "VayuCell core: capability registry, tier detection, and the battery safety governor."
+repository = "https://github.com/johalputt/VayuCell"
+
+# ADR-0005 §5.1 — the core has no third-party runtime dependencies
+# unless an ADR admits one.
+[dependencies]
+
+[lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"

@@ -1,0 +1,7 @@
+# Product and platform names that appear in prose. Backticking them would imply
+# they are code, which they are not.
+doc-valid-idents = [
+    "VayuCell", "VayuPress", "VayuOS", "VayuMail", "VayuShield", "VayuKeep",
+    "VayuVeil", "VayuFlow", "VayuTor", "VayuWeb",
+    "postmarketOS", "SQLite", "..",
+]

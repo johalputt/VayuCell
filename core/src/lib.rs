@@ -1,0 +1,21 @@
+// SPDX-License-Identifier: Apache-2.0
+
+//! VayuCell core.
+//!
+//! Turns a retired phone into a server whose capabilities are enumerated rather
+//! than assumed, whose battery risk is actively governed rather than ignored,
+//! and which never reports a capability it has not verified on the device
+//! actually in front of it.
+//!
+//! See `CHARTER.md` for the constraints this code may not violate — in
+//! particular Article III, which puts safety of persons ahead of every
+//! schedule, and Article IV, which defines what an indicator is allowed to
+//! mean.
+
+#![forbid(unsafe_code)]
+#![warn(missing_docs, clippy::pedantic)]
+
+pub mod capability;
+
+#[cfg(test)]
+mod capability_test;
