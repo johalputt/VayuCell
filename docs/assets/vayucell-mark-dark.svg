@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="170 0 720 450" width="720" height="450" role="img" aria-label="VayuCell">
+  <title>VayuCell</title>
+  <defs>
+    <linearGradient id="wind" x1="478" y1="300" x2="866" y2="20" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#10B981"/><stop offset="0.5" stop-color="#34D8B0"/><stop offset="1" stop-color="#5EEAD4"/></linearGradient>
+    <linearGradient id="windLow" x1="486" y1="300" x2="826" y2="118" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#046F55"/><stop offset="0.6" stop-color="#10B981"/><stop offset="1" stop-color="#10B981"/></linearGradient>
+    <linearGradient id="word" x1="487.0" y1="0" x2="890.9" y2="0" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#10B981"/><stop offset="1" stop-color="#5EEAD4"/></linearGradient>
+  </defs>
+  <g transform="translate(0 0)">
+    <path d="M196.0 60.0L284.0 60.0L479.3 339.1L549.7 282.0L637.7 282.0L454.9 430.0Z" fill="#EEF4F9"/>
+    <path d="M486 300C556 240 668 172 826 118C712 186 604 246 516 300Z" fill="url(#windLow)"/>
+    <path d="M478 246C556 166 690 74 866 20C744 100 612 178 528 250Z" fill="url(#wind)"/>
+  </g>
+</svg>

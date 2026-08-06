@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 640" width="920" height="640" role="img" aria-label="VayuCell">
+  <title>VayuCell</title>
+  <defs>
+    <linearGradient id="wind" x1="432" y1="300" x2="820" y2="20" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#047857"/><stop offset="0.5" stop-color="#10B981"/><stop offset="1" stop-color="#5EEAD4"/></linearGradient>
+    <linearGradient id="windLow" x1="440" y1="300" x2="780" y2="118" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#02503E"/><stop offset="0.6" stop-color="#047857"/><stop offset="1" stop-color="#10B981"/></linearGradient>
+    <linearGradient id="word" x1="487.0" y1="0" x2="890.9" y2="0" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#047857"/><stop offset="1" stop-color="#10B981"/></linearGradient>
+  </defs>
+  <g transform="translate(-46 0)">
+    <path d="M196.0 60.0L284.0 60.0L479.3 339.1L549.7 282.0L637.7 282.0L454.9 430.0Z" fill="#111C2B"/>
+    <path d="M486 300C556 240 668 172 826 118C712 186 604 246 516 300Z" fill="url(#windLow)"/>
+    <path d="M478 246C556 166 690 74 866 20C744 100 612 178 528 250Z" fill="url(#wind)"/>
+  </g>
+  <path d="M0 0L21 0L39 70L57 0L78 0L48 100L30 100Z" fill="#111C2B" fill-rule="evenodd" transform="translate(29.08 476.00) scale(1.08000)"/>
+  <path d="M0 100L31 0L47 0L78 100L58 100L52 80L26 80L20 100ZM39 28L51 71L27 71Z" fill="#111C2B" fill-rule="evenodd" transform="translate(143.56 476.00) scale(1.08000)"/>
+  <path d="M0 0L21 0L39 42L57 0L78 0L49 66L49 100L29 100L29 66Z" fill="#111C2B" fill-rule="evenodd" transform="translate(258.04 476.00) scale(1.08000)"/>
+  <path d="M0 0L20 0L20 60C20 74 28 82 39 82C50 82 58 74 58 60L58 0L78 0L78 60C78 86 61 101 39 101C17 101 0 86 0 60Z" fill="#111C2B" fill-rule="evenodd" transform="translate(372.52 476.00) scale(1.08000)"/>
+  <path d="M78 24C69 8 56 0 39 0C17 0 0 22 0 50C0 78 17 100 39 100C56 100 69 92 78 76L61 66C55 76 48 81 39 81C27 81 20 68 20 50C20 32 27 19 39 19C48 19 55 24 61 34Z" fill="url(#word)" fill-rule="evenodd" transform="translate(487.00 476.00) scale(1.08000)"/>
+  <path d="M0 0L72 0L72 19L20 19L20 40L66 40L66 59L20 59L20 81L72 81L72 100L0 100Z" fill="url(#word)" fill-rule="evenodd" transform="translate(601.48 476.00) scale(1.08000)"/>
+  <path d="M0 0L20 0L20 81L70 81L70 100L0 100Z" fill="url(#word)" fill-rule="evenodd" transform="translate(709.48 476.00) scale(1.08000)"/>
+  <path d="M0 0L20 0L20 81L70 81L70 100L0 100Z" fill="url(#word)" fill-rule="evenodd" transform="translate(815.32 476.00) scale(1.08000)"/>
+  <path d="M0 0L48 0C66 0 78 13 78 31C78 45 70 55 58 59L80 100L57 100L38 64L20 64L20 100L0 100ZM20 19L46 19C54 19 58 24 58 31C58 39 54 45 46 45L20 45Z" fill="#33445C" fill-rule="evenodd" transform="translate(141.50 604.00) scale(0.26000)"/>
+  <path d="M0 0L72 0L72 19L20 19L20 40L66 40L66 59L20 59L20 81L72 81L72 100L0 100Z" fill="#33445C" fill-rule="evenodd" transform="translate(172.18 604.00) scale(0.26000)"/>
+  <path d="M78 24C69 8 56 0 39 0C17 0 0 22 0 50C0 78 17 100 39 100C56 100 69 92 78 76L61 66C55 76 48 81 39 81C27 81 20 68 20 50C20 32 27 19 39 19C48 19 55 24 61 34Z" fill="#33445C" fill-rule="evenodd" transform="translate(201.30 604.00) scale(0.26000)"/>
+  <path d="M0 0L20 0L20 81L70 81L70 100L0 100Z" fill="#33445C" fill-rule="evenodd" transform="translate(231.98 604.00) scale(0.26000)"/>
+  <path d="M0 100L31 0L47 0L78 100L58 100L52 80L26 80L20 100ZM39 28L51 71L27 71Z" fill="#33445C" fill-rule="evenodd" transform="translate(260.58 604.00) scale(0.26000)"/>
+  <path d="M0 0L20 0L20 100L0 100Z" fill="#33445C" fill-rule="evenodd" transform="translate(291.26 604.00) scale(0.26000)"/>
+  <path d="M0 0L23 0L43 55L63 0L86 0L86 100L67 100L67 40L52 82L34 82L19 40L19 100L0 100Z" fill="#33445C" fill-rule="evenodd" transform="translate(306.86 604.00) scale(0.26000)"/>
+  <path d="M8 42C13 42 16 46 16 51C16 56 13 60 8 60C3 60 0 56 0 51C0 46 3 42 8 42Z" fill="#33445C" fill-rule="evenodd" transform="translate(361.46 604.00) scale(0.26000)"/>
+  <path d="M80 26C71 9 57 0 40 0C18 0 0 22 0 50C0 78 18 100 41 100C60 100 74 91 80 76L80 45L41 45L41 63L61 63C58 74 51 81 41 81C29 81 20 68 20 50C20 32 28 19 40 19C49 19 56 24 62 35Z" fill="#33445C" fill-rule="evenodd" transform="translate(397.86 604.00) scale(0.26000)"/>
+  <path d="M40 0C62 0 80 22 80 50C80 78 62 100 40 100C18 100 0 78 0 50C0 22 18 0 40 0ZM40 19C29 19 20 32 20 50C20 68 29 81 40 81C51 81 60 68 60 50C60 32 51 19 40 19Z" fill="#33445C" fill-rule="evenodd" transform="translate(429.06 604.00) scale(0.26000)"/>
+  <path d="M0 0L21 0L39 70L57 0L78 0L48 100L30 100Z" fill="#33445C" fill-rule="evenodd" transform="translate(460.26 604.00) scale(0.26000)"/>
+  <path d="M0 0L72 0L72 19L20 19L20 40L66 40L66 59L20 59L20 81L72 81L72 100L0 100Z" fill="#33445C" fill-rule="evenodd" transform="translate(490.94 604.00) scale(0.26000)"/>
+  <path d="M0 0L48 0C66 0 78 13 78 31C78 45 70 55 58 59L80 100L57 100L38 64L20 64L20 100L0 100ZM20 19L46 19C54 19 58 24 58 31C58 39 54 45 46 45L20 45Z" fill="#33445C" fill-rule="evenodd" transform="translate(520.06 604.00) scale(0.26000)"/>
+  <path d="M0 0L21 0L58 61L58 0L78 0L78 100L57 100L20 39L20 100L0 100Z" fill="#33445C" fill-rule="evenodd" transform="translate(550.74 604.00) scale(0.26000)"/>
+  <path d="M8 42C13 42 16 46 16 51C16 56 13 60 8 60C3 60 0 56 0 51C0 46 3 42 8 42Z" fill="#33445C" fill-rule="evenodd" transform="translate(603.26 604.00) scale(0.26000)"/>
+  <path d="M66 24C60 9 51 0 36 0C15 0 2 12 2 29C2 44 12 53 30 58L40 61C50 64 54 68 54 74C54 81 47 85 37 85C26 85 18 79 12 69L0 81C8 94 21 100 37 100C58 100 74 89 74 71C74 55 64 46 45 41L35 38C25 35 21 31 21 26C21 19 27 15 36 15C45 15 51 20 56 29Z" fill="#33445C" fill-rule="evenodd" transform="translate(639.66 604.00) scale(0.26000)"/>
+  <path d="M0 0L72 0L72 19L20 19L20 40L66 40L66 59L20 59L20 81L72 81L72 100L0 100Z" fill="#33445C" fill-rule="evenodd" transform="translate(669.30 604.00) scale(0.26000)"/>
+  <path d="M0 0L48 0C66 0 78 13 78 31C78 45 70 55 58 59L80 100L57 100L38 64L20 64L20 100L0 100ZM20 19L46 19C54 19 58 24 58 31C58 39 54 45 46 45L20 45Z" fill="#33445C" fill-rule="evenodd" transform="translate(698.42 604.00) scale(0.26000)"/>
+  <path d="M0 0L21 0L39 70L57 0L78 0L48 100L30 100Z" fill="#33445C" fill-rule="evenodd" transform="translate(729.10 604.00) scale(0.26000)"/>
+  <path d="M0 0L72 0L72 19L20 19L20 40L66 40L66 59L20 59L20 81L72 81L72 100L0 100Z" fill="#33445C" fill-rule="evenodd" transform="translate(759.78 604.00) scale(0.26000)"/>
+  <rect x="5.5" y="615.8" width="110" height="2.5" fill="#10B981" opacity="0.9"/><rect x="804.5" y="615.8" width="110" height="2.5" fill="#10B981" opacity="0.9"/>
+</svg>

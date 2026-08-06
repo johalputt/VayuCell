@@ -1,3 +1,13 @@
+<!-- markdownlint-disable MD041 -->
+<!-- The mark leads the README by convention and the H1 follows it, so
+     the first-line-heading rule is off for this file only. Every other
+     document still has to start with its title, and scripts/docs-gate.sh
+     enforces the stronger form on the ADRs. -->
+<p align="center">
+  <img src="docs/assets/vayucell-logo.png#gh-light-mode-only" alt="VayuCell" width="440">
+  <img src="docs/assets/vayucell-logo-dark.png#gh-dark-mode-only" alt="VayuCell" width="440">
+</p>
+
 # VayuCell
 
 [![CI](https://github.com/johalputt/VayuCell/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/johalputt/VayuCell/actions/workflows/ci.yml)
@@ -34,6 +44,7 @@ traffic yet, and by charter nothing will until the battery governor ships.**
 | [`ADR-0005`](docs/adr/ADR-0005-implementation-language.md) | Rust for the core, Kotlin for the shell |
 | [`ADR-0006`](docs/adr/ADR-0006-content-security-policy.md) | Content Security Policy: the unsafe keywords made unrepresentable |
 | [`docs/CI.md`](docs/CI.md) | Every gate, and every parameter it checks with |
+| [`docs/BRAND.md`](docs/BRAND.md) | The mark: how it is constructed, and the rules for using it |
 | [`hardware/`](hardware/) | Device compatibility database (CC0) |
 
 ## Read this before you plug anything in
