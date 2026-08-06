@@ -91,7 +91,7 @@ jobs:
       - name: Documentation gate
         run: bash scripts/docs-gate.sh
       - name: Markdown lint
-        uses: DavidAnson/markdownlint-cli2-action@v16
+        uses: DavidAnson/markdownlint-cli2-action@v24
         with:
           globs: "**/*.md"
 
