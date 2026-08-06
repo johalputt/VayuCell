@@ -4,8 +4,8 @@
      document still has to start with its title, and scripts/docs-gate.sh
      enforces the stronger form on the ADRs. -->
 <p align="center">
-  <img src="docs/assets/vayucell-logo.png#gh-light-mode-only" alt="VayuCell" width="440">
-  <img src="docs/assets/vayucell-logo-dark.png#gh-dark-mode-only" alt="VayuCell" width="440">
+  <img src="docs/assets/vayucell-logo-transparent.png#gh-light-mode-only" alt="VayuCell" width="380">
+  <img src="docs/assets/vayucell-logo-transparent-dark.png#gh-dark-mode-only" alt="VayuCell" width="380">
 </p>
 
 # VayuCell

@@ -2,81 +2,81 @@
 
 # The VayuCell mark
 
-The logo set is **generated, not hand-edited**:
+## The logo is not generated
+
+It is a designed artefact. The two originals live in
+[`docs/assets/source/`](assets/source/) and are the authority:
+
+| File | What it is |
+| --- | --- |
+| `vayucell-logo-light.png` | The lockup, dark artwork on a white ground |
+| `vayucell-logo-dark.png` | The lockup, light artwork on a black ground |
+
+Everything else in `docs/assets/` is **derived** from those two by
+[`scripts/make-logo.py`](../scripts/make-logo.py):
 
 ```bash
-python3 scripts/make-logo.py
+python3 scripts/make-logo.py     # needs Pillow
 ```
 
-Regenerating produces byte-identical files. That is the same determinism
-argument the release build makes, applied to the artwork: if you cannot rebuild
-it, you cannot check it.
+Derivation, not redrawing — the script invents no geometry. Regenerating
+produces byte-identical files, so any derived asset can be checked against its
+source rather than taken on trust.
 
 ## What it is
 
-A calligraphic **V** — one tapering brush stroke, a fine point at the entry,
-swelling through the body, thinning again through the turn — with a three-unit
-**server rack** standing in the crook of it.
+A calligraphic **V** — one tapering brush stroke, broad through the fall,
+thinning through the turn — with a three-unit **server rack** standing in the
+crook of it. The stroke is *vayu*, wind. The rack is what the wind is carrying.
+The rack's stand comes down where the rising arm ends, so the two read as one
+mark rather than two elements sharing a canvas.
 
-The stroke is *vayu*, wind. The rack is what the wind is carrying.
+Monochrome. There is no accent colour and no gradient.
 
-They **interlock**. The rack's stand comes down exactly where the rising arm
-ends its travel, so neither element reads as having been pasted on top of the
-other. This is the part that took the most iterations: at the first tip position
-the arm swept underneath the rack and buried the one element that says *server*.
+## How the derived files are made
 
-## Construction
+**Transparency** comes from luminance, not a threshold. Both sources are
+monochrome line art on a flat ground, so on the light source alpha is
+`255 − luminance` and on the dark source alpha is `luminance`. That keeps every
+antialiased edge intact where a hard threshold would leave the curves of the V
+ragged.
 
-Everything is an explicit path — including **every letter of the wordmark**.
-Nothing depends on a font being installed. That is not purism: most of the
-machines this project runs on are phones, none of the build runners carry a
-display typeface, and a logo that renders differently depending on what happens
-to be installed is a logo nobody can verify.
+Alpha at or below **8** is floored to zero. The dark source carries roughly
+115,000 background pixels at alpha 1–8 — invisible to the eye, and enough to
+make `getbbox()` return the entire canvas. That silently turned the tile crop
+into a no-op and scaled the mark down to a quarter of its frame before it was
+caught.
 
-The swash is a single closed contour. Both edges begin at the same point, which
-is what makes the entry a *point* rather than a cut, and the body swells because
-the inner edge bulges right while the outer edge holds its line.
-
-The rack is **outlined, not filled**. An outline keeps its shape at the size a
-favicon is actually seen at, where a solid block would close up into a
-rectangle.
-
-## Colour
-
-**Monochrome.** One colour, inherited from `color` on the root element, so a
-single SVG serves a light ground and a dark one.
-
-| Role | Value |
-| --- | --- |
-| Ink | `#0A0A0A` |
-| Paper | `#FFFFFF` |
-| Tile ground | `#0A0A0A` |
-
-There is no accent and no gradient. The mark carries its meaning in its shape.
+**The mark/wordmark split is found, not hard-coded.** The script scans for rows
+containing ink and cuts at the largest vertical gap — the space the designer
+left between the mark and the word. A hard-coded row would crop the wrong place
+the first time a source is re-exported at a different size, and would do it
+quietly.
 
 ## The files
 
 | File | Use |
 | --- | --- |
-| `vayucell-logo.svg` / `.png` | Full lockup, light grounds |
-| `vayucell-logo-dark.svg` / `.png` | Full lockup, dark grounds |
-| `vayucell-mark.svg` / `.png` | Mark only, no wordmark |
-| `vayucell-mark-dark.svg` / `.png` | Mark only, reversed |
-| `vayucell-tile.svg`, `favicon-*.png` | Square, with its own dark ground |
+| `vayucell-logo.png` | Full lockup, light grounds |
+| `vayucell-logo-dark.png` | Full lockup, dark grounds |
+| `vayucell-logo-transparent.png` | Full lockup, dark artwork, no ground |
+| `vayucell-logo-transparent-dark.png` | Full lockup, light artwork, no ground |
+| `vayucell-mark.png` | Mark only, dark artwork, no ground |
+| `vayucell-mark-dark.png` | Mark only, light artwork, no ground |
+| `vayucell-tile.png`, `favicon-*.png` | Square, with its own dark ground |
 
-The tile carries a background on purpose. At 32px a transparent icon competes
-with whatever the browser puts behind it, and having a ground of your own is the
-difference between a recognisable favicon and a smudge. The mark is fitted to
-**66% of the tile** from its measured bounding box rather than a guessed scale
-factor — launchers mask the corners and clip the outer few percent, and an
-eyeballed factor had it sitting small and off-centre.
+The tile carries a ground on purpose. At 32px a transparent icon competes with
+whatever the browser puts behind it, and having a ground of your own is the
+difference between a recognisable favicon and a smudge. The mark is inset 13% —
+launchers mask the corners and clip the outer few percent.
 
 ## Rules
 
-1. **Do not retype the wordmark.** It is drawn geometry, not a font, and no
-   installed typeface will match it.
+1. **Edit the source, never a derived file.** A derived file edited by hand is
+   overwritten the next time anyone runs the script, and the change is lost
+   without a trace.
 2. **Do not separate the rack from the stroke.** They interlock; moved apart
-   they are two clip-art elements sharing a canvas.
+   they are two pieces of clip art.
 3. **Do not mirror the mark.** The stroke travels one way.
 4. **Do not add colour, gradient, or shadow.** If a surface needs the mark to
    stand out, change the surface.
@@ -86,6 +86,7 @@ eyeballed factor had it sitting small and off-centre.
 
 ## Licence
 
-CC0-1.0, like the charter and the hardware database. The *name* VayuCell is
-covered by [`TRADEMARK.md`](../TRADEMARK.md) — copy the artwork freely, but do
-not use the name to imply that a modified build is the official one.
+The artwork is CC0-1.0, like the charter and the hardware database. The *name*
+VayuCell is covered by [`TRADEMARK.md`](../TRADEMARK.md) — copy the artwork
+freely, but do not use the name to imply that a modified build is the official
+one.

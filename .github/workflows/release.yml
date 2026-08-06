@@ -127,9 +127,12 @@ jobs:
             dist/SHA256SUMS.txt
 
       - name: Generate the SBOM
+        # No `|| true`. A release that silently ships without its bill of
+        # materials is the unverifiable artefact this workflow exists to
+        # prevent, and swallowing the error is how that happens quietly.
         run: |
           cargo install cargo-cyclonedx --locked
-          bash scripts/sbom.sh dist/sbom.cdx.json || true
+          bash scripts/sbom.sh dist/sbom.cdx.json
           ls -la dist/
 
       - name: How to verify this release
