@@ -16,6 +16,10 @@
 #![warn(missing_docs, clippy::pedantic)]
 
 pub mod capability;
+pub mod host;
+pub mod tier;
 
 #[cfg(test)]
 mod capability_test;
+#[cfg(test)]
+mod tier_test;
