@@ -3,8 +3,10 @@
 - **Status:** Accepted — the governor core is implemented in
   `core/src/governor.rs` and `core/src/battery.rs`. The state machine, the
   verification loop, the thresholds and the recovery path exist and are
-  mutation-tested. **Not yet built:** the sysfs mechanism implementations
-  themselves, the sampling loop, the UPS shed ladder (§8) and the panel. Nothing
+  mutation-tested. The sysfs layer is implemented in
+  `core/src/sysfs.rs`: readings, mechanism detection, and the `EndThreshold`
+  ceiling. **Not yet built:** the sampling loop, the UPS shed ladder (§8), the
+  panel, and the non-ceiling mechanisms as controls in their own right. Nothing
   here has run on a phone.
 - **Date:** 2026-08-06
 - **Relates to:** CHARTER Article III (safety of persons); ADR-0001 (tiers)

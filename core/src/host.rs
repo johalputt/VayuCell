@@ -35,6 +35,27 @@ pub trait Host {
     fn env(&self, key: &str) -> Option<String>;
 }
 
+/// Write access to the machine — a separate trait, deliberately.
+///
+/// Everything else in this crate reads. This is the one thing that *changes a
+/// device*, and on this project that means changing how a lithium cell is
+/// charged in somebody's home. Folding it into [`Host`] would make every probe
+/// in the codebase capable of it, and the capability would stop being visible
+/// at the call site.
+///
+/// A function taking `&dyn Host` cannot write. A function that can write says so
+/// in its signature, and that is the point.
+pub trait Writer {
+    /// Writes a value to a path.
+    ///
+    /// # Errors
+    ///
+    /// Returns what refused: a missing node, a read-only filesystem, a
+    /// permission denial. None of these may be treated as success — a charge
+    /// ceiling that could not be written is not a charge ceiling.
+    fn write(&mut self, path: &str, value: &str) -> Result<(), String>;
+}
+
 /// Reads the machine this process is actually running on.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct RealHost;
@@ -116,12 +137,20 @@ mod tests {
     }
 }
 
+impl Writer for RealHost {
+    fn write(&mut self, path: &str, value: &str) -> Result<(), String> {
+        std::fs::write(path, value).map_err(|e| format!("{path}: {e}"))
+    }
+}
+
 /// A machine described by a test rather than inhabited by one.
 #[derive(Debug, Default, Clone)]
 pub struct FakeHost {
     files: BTreeMap<String, String>,
     env: BTreeMap<String, String>,
     euid: u32,
+    read_only: BTreeMap<String, String>,
+    reverts: BTreeMap<String, String>,
 }
 
 impl FakeHost {
@@ -132,6 +161,8 @@ impl FakeHost {
             files: BTreeMap::new(),
             env: BTreeMap::new(),
             euid: 1000,
+            read_only: BTreeMap::new(),
+            reverts: BTreeMap::new(),
         }
     }
 
@@ -169,6 +200,62 @@ impl FakeHost {
     #[must_use]
     pub fn as_root(self) -> Self {
         self.as_uid(0)
+    }
+
+    /// Removes a path, so a test can describe a device that lacks exactly one
+    /// node.
+    ///
+    /// Building the missing-node cases by subtraction rather than by listing
+    /// every other node keeps them honest: a node added to the fixture is
+    /// automatically covered, where a hand-written list would silently stop
+    /// testing the new one.
+    #[must_use]
+    pub fn without(mut self, path: &str) -> Self {
+        self.files.remove(path);
+        self.read_only.remove(path);
+        self.reverts.remove(path);
+        self
+    }
+
+    /// Adds a node that exists, reads back, and refuses every write.
+    ///
+    /// The ordinary case on a device whose kernel exposes a charge node but will
+    /// not let this process set it.
+    #[must_use]
+    pub fn with_read_only(mut self, path: &str, contents: &str) -> Self {
+        self.read_only.insert(path.to_owned(), contents.to_owned());
+        self.files.insert(path.to_owned(), contents.to_owned());
+        self
+    }
+
+    /// Adds a node that accepts a write and then reports something else.
+    ///
+    /// This is a vendor charging daemon putting the ceiling back after a cable
+    /// event, and it is the failure the whole verification loop exists for.
+    /// Without a fake that can do it, the loop could only ever be tested against
+    /// mechanisms that behave.
+    #[must_use]
+    pub fn with_revert(mut self, path: &str, reverts_to: &str) -> Self {
+        self.reverts.insert(path.to_owned(), reverts_to.to_owned());
+        self.files.insert(path.to_owned(), reverts_to.to_owned());
+        self
+    }
+}
+
+impl Writer for FakeHost {
+    fn write(&mut self, path: &str, value: &str) -> Result<(), String> {
+        if self.read_only.contains_key(path) {
+            return Err(format!("{path}: read-only file system"));
+        }
+        if !self.files.contains_key(path) {
+            return Err(format!("{path}: no such file or directory"));
+        }
+        if let Some(back) = self.reverts.get(path).cloned() {
+            self.files.insert(path.to_owned(), back);
+            return Ok(());
+        }
+        self.files.insert(path.to_owned(), value.to_owned());
+        Ok(())
     }
 }
 

@@ -21,6 +21,10 @@ traffic before it.
   phone.
 - Response security headers as a set (ADR-0006 §3), with the posture committed
   to `docs/security-posture.txt` so weakening it is a visible diff.
+- The **power-supply sysfs layer** (ADR-0002 §2–3): battery readings that refuse
+  to be assembled from whatever happened to be readable, mechanism detection that
+  records which node answered, and a charge ceiling that reads back from the
+  hardware rather than from what this process remembers writing.
 
 ### Changed
 

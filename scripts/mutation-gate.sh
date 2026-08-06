@@ -91,6 +91,7 @@ C=core/src/csp.rs
 HD=core/src/headers.rs
 B=core/src/battery.rs
 G=core/src/governor.rs
+SF=core/src/sysfs.rs
 
 mutate "$T" a_guest_that_cannot_see_the_phone_reports_unverified_rather_than_guessing \
   "a bare VM is promoted to T2 without the shell's assertion" \
@@ -364,6 +365,54 @@ mutate "$G" a_degraded_cell_derates_and_a_spent_one_stops_serving \
   "    pub fn may_serve(&self) -> bool {
         self.level <= Level::Protect
     }"
+
+# -- The power-supply sysfs layer (ADR-0002 §2, §3) ----------------------------
+
+mutate "$SF" a_missing_node_refuses_the_reading_and_names_itself \
+  "a missing node is defaulted instead of refusing the reading" \
+  "        .ok_or(ReadError::Missing { node })?;" \
+  '        .unwrap_or_else(|| "0".to_string());'
+
+mutate "$SF" only_the_threshold_node_is_treated_as_a_ceiling \
+  "a current limit is presented as a charge ceiling" \
+  "        matches!(self, Kind::EndThreshold)" \
+  "        true"
+
+mutate "$SF" a_non_ceiling_mechanism_cannot_be_bound_as_one \
+  "a non-ceiling node is bound as a ceiling anyway" \
+  "        if !kind.is_ceiling() {
+            return None;
+        }" \
+  "        if false {
+            return None;
+        }"
+
+mutate "$SF" the_mainline_node_is_preferred_over_the_vendor_ones \
+  "a vendor node outranks the mainline one" \
+  "pub const PROBE_ORDER: [Kind; 4] = [
+    Kind::EndThreshold,
+    Kind::VoltageMax," \
+  "pub const PROBE_ORDER: [Kind; 4] = [
+    Kind::InputSuspend,
+    Kind::VoltageMax,"
+
+mutate "$SF" a_device_with_no_charge_node_has_no_mechanism_and_that_is_not_an_error \
+  "a device with no charge node is given one anyway" \
+  "    PROBE_ORDER
+        .into_iter()
+        .find(|k| host.exists(&format!(\"{dir}/{}\", k.node())))" \
+  "    let _ = host;
+    let _ = dir;
+    Some(Kind::EndThreshold)"
+
+mutate "$SF" verification_reads_the_hardware_not_what_we_remember_writing \
+  "verify reports the request instead of reading the hardware" \
+  "        let raw = self
+            .host
+            .read(&self.path)" \
+  "        let raw = Some(\"60\".to_string())
+            .as_ref()
+            .map(std::string::ToString::to_string)"
 
 echo
 # The suite was green before the first mutation and every mutation was undone,

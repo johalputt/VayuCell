@@ -212,7 +212,7 @@ the code compiles there.
 
 ### `mutation`
 
-Runs [`scripts/mutation-gate.sh`](../scripts/mutation-gate.sh). **Forty guards**, each re-broken in turn, each required to turn its matching test red:
+Runs [`scripts/mutation-gate.sh`](../scripts/mutation-gate.sh). **Forty-six guards**, each re-broken in turn, each required to turn its matching test red:
 
 | Mutation | Test that must fail |
 | --- | --- |
@@ -256,6 +256,12 @@ Runs [`scripts/mutation-gate.sh`](../scripts/mutation-gate.sh). **Forty guards**
 | An unreachable rung accepted | `an_unordered_ladder_is_refused_rather_than_silently_unreachable` |
 | A cell seen deforming allowed to resume | `a_deformed_cell_does_not_recover_whatever_the_sensors_say_next` |
 | A spent cell still serving | `a_degraded_cell_derates_and_a_spent_one_stops_serving` |
+| A missing sysfs node defaulted instead of refusing the reading | `a_missing_node_refuses_the_reading_and_names_itself` |
+| A current limit presented as a charge ceiling | `only_the_threshold_node_is_treated_as_a_ceiling` |
+| A non-ceiling node bound as a ceiling | `a_non_ceiling_mechanism_cannot_be_bound_as_one` |
+| A vendor node outranking the mainline one | `the_mainline_node_is_preferred_over_the_vendor_ones` |
+| A device with no charge node given one anyway | `a_device_with_no_charge_node_has_no_mechanism_and_that_is_not_an_error` |
+| `verify` reporting the request instead of reading hardware | `verification_reads_the_hardware_not_what_we_remember_writing` |
 
 Two of these survived on their first run, and both were defects in the **tests**
 rather than the code:
