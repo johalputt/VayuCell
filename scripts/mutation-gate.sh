@@ -93,6 +93,7 @@ B=core/src/battery.rs
 G=core/src/governor.rs
 SF=core/src/sysfs.rs
 SM=core/src/sampler.rs
+SH=core/src/shed.rs
 
 mutate "$T" a_guest_that_cannot_see_the_phone_reports_unverified_rather_than_guessing \
   "a bare VM is promoted to T2 without the shell's assertion" \
@@ -458,6 +459,73 @@ mutate "$G" a_reading_that_arrives_is_the_only_thing_that_clears_the_blind_count
   "the blind counter is never cleared, so old failures accumulate forever" \
   "        self.consecutive_failures = 0;" \
   "        let _ = self.consecutive_failures;"
+
+mutate "$SH" a_late_tick_hands_back_every_rung_it_skipped_over \
+  "a late tick reports the final rung and drops the ones it passed" \
+  "        let mut entered = Vec::new();
+        for rung in [" \
+  "        let mut entered = Vec::new();
+        for rung in if true { [Stage::ShuttingDown, target, target, target] } else ["
+
+mutate "$SH" the_ladder_never_walks_back_up_on_its_own \
+  "a clock that steps backwards reopens a quiesced database" \
+  "            if rung > self.stage && rung <= target {" \
+  "            if rung != self.stage && rung <= target {"
+
+mutate "$SH" reaching_the_reserve_shuts_down_however_little_time_has_passed \
+  "the timings become a minimum a low cell must still spend" \
+  "            Charge::Measured(p) if *p <= self.plan.reserve => (" \
+  "            Charge::Measured(p) if *p <= self.plan.reserve && elapsed >= self.plan.quiesce_after => ("
+
+mutate "$SH" the_reserve_is_a_floor_the_node_shuts_down_holding_not_one_it_spends \
+  "the reserve is spent down to rather than stopped at" \
+  "            Charge::Measured(p) if *p <= self.plan.reserve => (
+                Stage::ShuttingDown," \
+  "            Charge::Measured(p) if *p < self.plan.reserve => (
+                Stage::ShuttingDown,"
+
+mutate "$SH" a_cell_that_cannot_be_read_during_an_outage_is_treated_as_empty \
+  "an unreadable cell during an outage is ridden out on optimism" \
+  "            Charge::Unreadable(why) => (Stage::ShuttingDown, ShedReason::Unmeasurable(why.clone()))," \
+  "            Charge::Unreadable(why) => (
+                self.plan.stage_for_elapsed(elapsed),
+                ShedReason::Unmeasurable(why.clone()),
+            ),"
+
+mutate "$SH" the_reserve_may_be_raised_but_never_lowered \
+  "the shutdown reserve can be configured downward" \
+  "        if reserve < Self::MIN_RESERVE {
+            return Err(PlanError::ReserveTooLow);
+        }" \
+  "        if false {
+            return Err(PlanError::ReserveTooLow);
+        }"
+
+mutate "$SH" a_plan_that_quiesces_before_it_sheds_is_refused \
+  "a ladder that flushes the database while services still write to it" \
+  "        if quiesce_after <= shed_after {" \
+  "        if false && quiesce_after <= shed_after {"
+
+mutate "$SH" mains_returning_after_the_database_was_closed_does_not_silently_reopen_it \
+  "a flickering supply silently restarts a closed database" \
+  "        if self.stage == Stage::Announced {" \
+  "        if self.stage != Stage::Serving {"
+
+mutate "$SH" a_node_with_no_cell_does_not_claim_a_ups_and_does_not_pretend_to_ride_it_out \
+  "a node with no battery presents a shed ladder it has no energy to run" \
+  "        if !self.has_cell {
+            return self.walk_to(Stage::ShuttingDown, &ShedReason::NoUps);
+        }" \
+  "        if false {
+            return self.walk_to(Stage::ShuttingDown, &ShedReason::NoUps);
+        }"
+
+mutate "$SH" time_alone_never_reaches_shutdown \
+  "a node still holding 70% is shut down on a timer" \
+  "        if elapsed >= self.quiesce_after {
+            Stage::Quiesced" \
+  "        if elapsed >= self.quiesce_after {
+            Stage::ShuttingDown"
 
 echo
 # The suite was green before the first mutation and every mutation was undone,

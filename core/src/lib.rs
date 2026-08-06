@@ -22,6 +22,7 @@ pub mod governor;
 pub mod headers;
 pub mod host;
 pub mod sampler;
+pub mod shed;
 pub mod sysfs;
 pub mod tier;
 
@@ -35,6 +36,8 @@ mod governor_test;
 mod headers_test;
 #[cfg(test)]
 mod sampler_test;
+#[cfg(test)]
+mod shed_test;
 #[cfg(test)]
 mod sysfs_test;
 #[cfg(test)]

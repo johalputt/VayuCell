@@ -39,11 +39,29 @@ traffic before it.
   that actually arrived is the only thing that clears the counter. Unreadability
   also tightens the sampling cadence rather than backing it off, which is the
   direction a retry timer would naturally have taken it.
+- **The mains-loss shed ladder** (ADR-0002 §8) — the inversion. A governed
+  phone is a server with an integrated uninterruptible power supply, which no
+  single-board computer can say without buying a UPS costing more than the
+  board. On mains loss the node announces, sheds non-essential services at 60
+  seconds, checkpoints and quiesces its database at 180, and shuts down while
+  it still holds a reserve. Reaching that reserve shuts the node down whatever
+  the clock says, and time alone never does: a node an hour into an outage
+  still holding 70% is doing exactly what it was built to do.
+- **The UPS claim is computed rather than written down.** A handset running
+  with its pack removed has no cell to ride an outage on, so mains loss stops
+  it immediately — and it reports that it cannot make the claim, instead of
+  presenting three minutes of ladder it has no energy to run.
 
 ### Changed
 
 - Charter Article III.1 is now **satisfied**: the governor exists, so serving
   capabilities are permitted. The gate stays live in the other direction.
+- *Maintainers only:* the doctest gate now asserts the **exact** number of
+  compile-time proofs rather than a floor of one. Those proofs are collected
+  only from public items, so a proof moved onto a private one runs nothing and
+  still reports success — and under a floor of one, fifteen of sixteen could
+  disappear without the gate noticing. The gate against silent passes was
+  passing silently. Both directions are now covered by the gate self-test.
 
 ## [0.0.1] — 2026-08-06
 

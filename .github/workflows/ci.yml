@@ -203,20 +203,15 @@ jobs:
       - name: Test
         run: cargo test --workspace --all-features --verbose
 
-      - name: Doctests must actually run
-        # The registry's strongest guarantees are compile_fail doctests. Rustdoc
-        # collects those only from public items, so a proof moved onto a private
-        # one runs zero tests and still prints "test result: ok". This asserts a
-        # non-zero count rather than trusting the exit code.
-        run: |
-          out="$(cargo test --workspace --doc 2>&1)"
-          printf '%s\n' "$out"
-          count="$(printf '%s' "$out" | grep -oE 'running [0-9]+ tests?' | grep -oE '[0-9]+' | head -1)"
-          [ -n "$count" ] && [ "$count" -gt 0 ] || {
-            echo "no doctests ran — the compile_fail proofs are not being collected"
-            exit 1
-          }
-          echo "$count doctests ran"
+      - name: Doctests must actually run, and all of them
+        # The strongest guarantees in this crate are compile_fail doctests.
+        # Rustdoc collects those only from public items, so a proof moved onto a
+        # private one runs zero tests and still prints "test result: ok".
+        #
+        # Delegated to the script rather than inlined so CI and a developer's
+        # machine assert the same number. An inline copy is how the markdown
+        # linter came to pass locally and fail here.
+        run: scripts/doctest-count.sh
 
       - name: Documentation builds with no broken intra-doc links
         run: cargo doc --workspace --all-features --no-deps

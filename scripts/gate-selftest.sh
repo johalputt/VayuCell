@@ -312,6 +312,37 @@ violation "$ATTRIB" "a commit is authored by a bot address" \
   "authored by a bot or noreply" \
   "$init_repo && printf 'x\n' >> NOTICE && git add -A && git -c user.name=B -c user.email='b[bot]@users.noreply.example.com' commit -qm tidy"
 
+# ── Doctest count ─────────────────────────────────────────────────────────────
+# Checked directly rather than through violation(), which copies the tree
+# without target/ — a sandboxed cargo case would rebuild the crate from scratch
+# for each assertion, and the thing under test here is arithmetic.
+#
+# Worth testing at all because this gate exists to catch a silent pass, and for
+# most of its life it could not: with a floor of one, fifteen of sixteen proofs
+# could stop being collected and it would still print ok. Both directions are
+# exercised, because a check that only fires when the count is too LOW would go
+# quiet again the moment somebody adds a proof without updating the number.
+expect_doctest_failure() {
+  local arg="$1" desc="$2" expect="$3" out rc
+  out="$(cd "$REPO" && bash scripts/doctest-count.sh "$arg" 2>&1)"; rc=$?
+  if [ "$rc" -eq 0 ]; then
+    echo "  MISSED  $desc"
+    echo "          the gate passed with the count deliberately wrong."
+    FAILED=1
+  elif ! printf '%s' "$out" | grep -q "$expect"; then
+    echo "  WRONG   $desc"
+    echo "          expected a failure mentioning: $expect"
+    FAILED=1
+  else
+    echo "  caught  $desc"
+  fi
+}
+
+expect_doctest_failure 999 "a compile-time proof stops being collected" \
+  "no longer being collected"
+expect_doctest_failure 1 "a proof is added without the count being raised" \
+  "keeps meaning something"
+
 echo
 if [ "$FAILED" -ne 0 ]; then
   echo "GATE SELF-TEST FAILED — a gate does not catch what it claims to."

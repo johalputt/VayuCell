@@ -60,7 +60,7 @@ scripts/hardware-gate.sh         # device database schema and honesty
 scripts/release-gate.sh          # the version says the same thing everywhere
 scripts/actions-gate.sh          # every workflow reference actually resolves
 scripts/markdown-gate.sh         # markdown lint, at the one pinned version
-scripts/doctest-count.sh         # a non-zero number of doctests actually ran
+scripts/doctest-count.sh         # exactly the expected number of doctests ran
 scripts/coverage.sh              # production-only line coverage against the floor
 scripts/sbom.sh                  # CycloneDX bill of materials
 scripts/gate-selftest.sh         # the gates above actually fire
@@ -198,7 +198,7 @@ passed.**
 | `cargo clippy` | `--workspace --all-targets --all-features -- -D warnings` | `--all-targets` covers tests: a lint that skips test code lets it drift into habits the library forbids. `clippy::pedantic` is on via `lib.rs` |
 | `cargo build` | `--workspace --all-features` | |
 | `cargo test` | `--workspace --all-features` | |
-| doctest count | asserts **more than zero** doctests ran | The registry's strongest guarantees are `compile_fail` doctests. Moved onto a private item they run zero tests and still print `test result: ok`. The exit code cannot distinguish that from success; the count can |
+| doctest count | asserts the **exact** number of doctests ran | The strongest guarantees in this crate are `compile_fail` doctests. Moved onto a private item they run zero tests and still print `test result: ok`. The exit code cannot distinguish that from success; the count can — but only if it is exact. This gate asserted a floor of one until it was pointed out that fifteen of sixteen proofs could vanish beneath it, which made the gate against silent passes a silent pass of its own |
 | `cargo doc` | `--no-deps`, `RUSTDOCFLAGS=-D warnings` | Broken intra-doc links fail the build |
 | unsafe | greps for both `#![forbid(unsafe_code)]` and `unsafe_code = "deny"` | Either alone can be dropped in a diff that looks unrelated |
 
@@ -212,7 +212,7 @@ the code compiles there.
 
 ### `mutation`
 
-Runs [`scripts/mutation-gate.sh`](../scripts/mutation-gate.sh). **Fifty-three guards**, each re-broken in turn, each required to turn its matching test red:
+Runs [`scripts/mutation-gate.sh`](../scripts/mutation-gate.sh). **Sixty-three guards**, each re-broken in turn, each required to turn its matching test red:
 
 | Mutation | Test that must fail |
 | --- | --- |
@@ -269,6 +269,16 @@ Runs [`scripts/mutation-gate.sh`](../scripts/mutation-gate.sh). **Fifty-three gu
 | A device that cannot be read backed off from instead of watched | `a_device_that_cannot_be_read_is_watched_more_closely_not_less` |
 | A governor that has gone blind never saying so | `a_governor_that_has_gone_blind_says_so_rather_than_reporting_health` |
 | The blind counter never cleared, so old failures accumulate | `a_reading_that_arrives_is_the_only_thing_that_clears_the_blind_counter` |
+| A late tick reporting the final rung and dropping the ones it passed | `a_late_tick_hands_back_every_rung_it_skipped_over` |
+| A clock stepping backwards reopening a quiesced database | `the_ladder_never_walks_back_up_on_its_own` |
+| The shed timings becoming a minimum a low cell must still spend | `reaching_the_reserve_shuts_down_however_little_time_has_passed` |
+| The shutdown reserve spent down to rather than stopped at | `the_reserve_is_a_floor_the_node_shuts_down_holding_not_one_it_spends` |
+| An unreadable cell during an outage ridden out on optimism | `a_cell_that_cannot_be_read_during_an_outage_is_treated_as_empty` |
+| The shutdown reserve configurable downward | `the_reserve_may_be_raised_but_never_lowered` |
+| A ladder that flushes the database while services still write to it | `a_plan_that_quiesces_before_it_sheds_is_refused` |
+| A flickering supply silently restarting a closed database | `mains_returning_after_the_database_was_closed_does_not_silently_reopen_it` |
+| A node with no battery presenting a shed ladder | `a_node_with_no_cell_does_not_claim_a_ups_and_does_not_pretend_to_ride_it_out` |
+| A node still holding 70% shut down on a timer | `time_alone_never_reaches_shutdown` |
 
 Three of these were defects in the **tests** rather than the code, found because
 a mutation survived or because writing one exposed the test as vacuous:

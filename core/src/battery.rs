@@ -118,6 +118,43 @@ impl Percent {
         Self(u8::try_from(value.clamp(0, 100)).unwrap_or(0))
     }
 
+    /// A percentage written in source, checked when the crate is compiled.
+    ///
+    /// Deliberately does **not** clamp, which is the opposite of
+    /// [`Percent::clamped`] and for the opposite reason. `clamped` takes what a
+    /// vendor kernel said, and a kernel claiming 127% is a device somebody is
+    /// asleep next to, not a reason to crash. This takes a number a person typed
+    /// into this repository, where an out-of-range value is a typo — and
+    /// clamping a typo would silently ship a threshold nobody chose, which is
+    /// precisely the class of quiet wrongness the rest of this crate is built
+    /// against.
+    ///
+    /// Used in a `const`, an out-of-range literal fails the build rather than
+    /// reaching a device:
+    ///
+    /// ```compile_fail
+    /// use vayucell_core::battery::Percent;
+    /// const TYPO: Percent = Percent::literal(101);
+    /// ```
+    ///
+    /// ```
+    /// use vayucell_core::battery::Percent;
+    /// const RESERVE: Percent = Percent::literal(10);
+    /// assert_eq!(RESERVE.get(), 10);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// If `value` exceeds 100.
+    #[must_use]
+    pub const fn literal(value: u8) -> Self {
+        assert!(
+            value <= 100,
+            "a percentage literal above 100 is a typo in this repository, not a reading from a cell"
+        );
+        Self(value)
+    }
+
     /// The value.
     #[must_use]
     pub const fn get(self) -> u8 {

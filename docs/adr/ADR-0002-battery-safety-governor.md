@@ -7,9 +7,11 @@
   `core/src/sysfs.rs`: readings, mechanism detection, and the `EndThreshold`
   ceiling. The **sampling cadence** of §3 is implemented in
   `core/src/sampler.rs` as a pure function of the reading, together with what
-  the governor reports once the cell stops being readable at all.
-  **Not yet built:** the UPS shed ladder (§8), the panel, and the non-ceiling
-  mechanisms as controls in their own right. Nothing here has run on a phone.
+  the governor reports once the cell stops being readable at all. The **shed
+  ladder of §8** is implemented in `core/src/shed.rs`, including the reserve the
+  node shuts down holding and the battery-absent case that may not claim a UPS
+  at all. **Not yet built:** the panel, and the non-ceiling mechanisms as
+  controls in their own right. Nothing here has run on a phone.
 - **Date:** 2026-08-06
 - **Relates to:** CHARTER Article III (safety of persons); ADR-0001 (tiers)
 - **Priority:** P1 — **nothing that serves traffic ships before this**
