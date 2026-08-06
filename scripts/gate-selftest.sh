@@ -33,6 +33,7 @@ HARDWARE=scripts/hardware-gate.sh
 DOCS=scripts/docs-gate.sh
 RELEASE=scripts/release-gate.sh
 ACTIONS=scripts/actions-gate.sh
+CONST=scripts/constitution-gate.sh
 ATTRIB=scripts/attribution-gate.sh
 
 WORK="$(mktemp -d)"
@@ -93,7 +94,7 @@ echo
 
 # Both baselines must be green, or every "caught" below could be the baseline
 # failing rather than the planted violation.
-for gate in "$CHARTER" "$HARDWARE" "$DOCS" "$ATTRIB" "$RELEASE"; do
+for gate in "$CHARTER" "$HARDWARE" "$DOCS" "$ATTRIB" "$RELEASE" "$CONST"; do
   if ! bash "$gate" >/dev/null 2>&1; then
     echo "refusing to run: $gate is already failing on a clean tree, so a caught"
     echo "violation would not be evidence that the gate caught anything."
@@ -255,6 +256,15 @@ violation "$RELEASE" "an editor adds a trailing newline to .release-version" \
 violation "$RELEASE" "the version file is deleted" \
   "missing" \
   "rm -f .release-version"
+
+# ── Constitution gate ─────────────────────────────────────────────────────────
+violation "$CONST" "a rule claims [CI] while naming no enforcer" \
+  "name no enforcer" \
+  "printf '\\n### 99.1 A planted rule **[CI]**\\n\\nNothing enforces this.\\n' >> GOVERNANCE-CONSTITUTION.md"
+
+violation "$CONST" "a rule cites an enforcer that has been deleted" \
+  "does not exist" \
+  "sed -i '0,/\\*\\*Enforced by:\\*\\* \`scripts\\/charter-gate.sh\`/s//**Enforced by:** \`scripts\\/deleted-gate.sh\`/' GOVERNANCE-CONSTITUTION.md"
 
 # ── Actions gate ──────────────────────────────────────────────────────────────
 # Skipped without network: the gate reports UNVERIFIED there rather than

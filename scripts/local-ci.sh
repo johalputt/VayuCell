@@ -37,6 +37,7 @@ STEPS=(
   "charter|0|scripts/charter-gate.sh"
   "attribution|0|scripts/attribution-gate.sh"
   "docs|0|scripts/docs-gate.sh"
+  "constitution|0|scripts/constitution-gate.sh"
   "hardware|0|scripts/hardware-gate.sh"
   "release|0|scripts/release-gate.sh"
   "markdown|0|scripts/markdown-gate.sh"

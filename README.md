@@ -61,7 +61,7 @@ trust — the SBOM ships with every release.
 | Document | What it is |
 | --- | --- |
 | [`CHARTER.md`](CHARTER.md) | The supreme law. CC0. Read this first |
-| [`GOVERNANCE-CONSTITUTION.md`](GOVERNANCE-CONSTITUTION.md) | How the charter is upheld in practice — 108 rules, each marked with whether a machine, a human, or nothing enforces it |
+| [`GOVERNANCE-CONSTITUTION.md`](GOVERNANCE-CONSTITUTION.md) | How the charter is upheld in practice — 110 rules, each marked with whether a machine, a human, or nothing enforces it, and each `[CI]` rule naming the file that enforces it |
 | [`PLAN.md`](PLAN.md) | The full project plan |
 | [`ADR-0001`](docs/adr/ADR-0001-tier-model-and-capability-registry.md) | Tier model and capability registry |
 | [`ADR-0002`](docs/adr/ADR-0002-battery-safety-governor.md) | The Battery Safety Governor |
@@ -110,9 +110,10 @@ and has no other symptom.
 | --- | --- |
 | **Charter** | A serving capability before the governor. A control with no read-back. `Absent` collapsing into `Unverified`. Telemetry, a treasury, a kill switch, a dependency on a host this project runs. An edit to Article III or V that was not recorded as an amendment |
 | **Security** | A CSP that permits `'unsafe-inline'` — the type has no variant for it, so weakening it is an addition to a public enum rather than a one-word edit to a string. A reusable nonce. A referrer policy that leaks cross-origin. A report-only header on a release. An HSTS max-age too short to mean anything |
-| **Provenance** | A version that disagrees with itself, a tag that does not match the tree, a release with no signature, or an SBOM containing a dependency the charter says does not exist |
+| **Provenance** | A version that disagrees with itself, a tag that does not match the tree, a release with no signature, an SBOM containing a dependency the charter says does not exist, or a workflow referencing an action tag that was never published |
 | **Mutation** | Twenty-nine safety and honesty guards, each re-broken, each required to turn its test red. A green suite proves the code passes its tests; this proves the tests would notice if the code were wrong |
-| **Gate self-test** | Thirty-nine planted violations that the gates above must each catch, citing the right rule |
+| **Gate self-test** | Forty-two planted violations that the gates above must each catch, citing the right rule |
+| **Constitution** | A rule claiming `[CI]` while naming no enforcer, or naming one that has been deleted. The document may not claim enforcement it does not have |
 | **Rust** | `cargo fmt`, `clippy` pedantic at `-D warnings`, build, test, and an assertion that the `compile_fail` doctests actually ran — on a private item they run zero tests and still report success |
 | **Hardware** | A device profile that fails its schema, or claims a verified charge ceiling without naming the sysfs node it was read back from |
 | **Targets** | The core failing to compile for 64- and 32-bit Android, mainline ARM, or a contributor's laptop |
@@ -139,12 +140,25 @@ actually run before pushing rather than a thing you mean to.
 Individually:
 
 ```bash
-scripts/charter-gate.sh      # the constitution, enforced
-scripts/gate-selftest.sh     # ...and proof it is actually enforcing it
-scripts/mutation-gate.sh     # proof the tests would catch a regression
-scripts/release-gate.sh      # the version says the same thing everywhere
+scripts/charter-gate.sh        # the charter, enforced
+scripts/constitution-gate.sh   # every [CI] rule names an enforcer that exists
+scripts/gate-selftest.sh       # ...and proof the gates actually enforce
+scripts/mutation-gate.sh       # proof the tests would catch a regression
+scripts/actions-gate.sh        # every workflow reference resolves
+scripts/release-gate.sh        # the version says the same thing everywhere
 cargo test --workspace
 ```
+
+### The security posture is a file you can read
+
+[`docs/security-posture.txt`](docs/security-posture.txt) is the exact header set
+every response carries, committed and checked by a test. It exists because the
+individual guards are not enough on their own: a change that weakens the posture
+while keeping each assertion true reads, in a diff, as a small edit to a Rust
+file, and nobody reviewing it sees the headers change.
+
+With the snapshot committed, weakening anything produces a diff in a plain text
+file — something a reviewer notices without knowing the codebase at all.
 
 ## Read this before you plug anything in — the short version
 

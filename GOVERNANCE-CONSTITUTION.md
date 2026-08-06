@@ -87,7 +87,26 @@ Three consequences follow, and they bind:
    governance document that miscounts how much of itself is enforced is lying
    about itself, which is the one thing it may not do.
 
-### 0.4 On the tone of this document **[NORM]**
+**Enforced by:** `scripts/docs-gate.sh`
+
+### 0.4 Every [CI] rule names its enforcer **[CI]**
+
+A rule marked [CI] claims a gate fails the build for it. Until that claim cites
+something, a reader has no way to check it and neither does the maintainer —
+when this was first checked, **43 of the 50 [CI] rules named nothing at all**.
+The count in Appendix A was correct and the claim behind it was unverifiable.
+
+Every [CI] rule now ends with the artefact that enforces it, and the gate
+confirms that artefact exists. A rule whose enforcer is deleted stops the build,
+which is the only way this classification stays honest as the project moves.
+
+What no script can check is whether the cited file genuinely enforces the
+sentence it is attached to. That link is human review, and the gate prints it as
+uncheckable on every run rather than letting the tick imply otherwise.
+
+**Enforced by:** `scripts/constitution-gate.sh`
+
+### 0.5 On the tone of this document **[NORM]**
 
 It is written to be read by someone deciding whether to trust this software with
 their family's photographs, and by a contributor deciding whether the project is
@@ -165,6 +184,8 @@ treasury, fee, mandatory account, telemetry, device fingerprinting, or a remote
 control path. Thirteen forbidden identifiers, checked by
 [`scripts/charter-gate.sh`](scripts/charter-gate.sh). Charter Article V.
 
+**Enforced by:** `scripts/charter-gate.sh`
+
 ### 2.4 Scope discipline **[REVIEW]**
 
 A proposal that is good software and outside §2.1 is **rejected on scope, not on
@@ -188,6 +209,8 @@ serves a website* — cannot be built first. Charter III.1 puts that constraint
 above every release schedule, and the gate is what makes it survive the week
 somebody really wants the demo.
 
+**Enforced by:** `scripts/charter-gate.sh`
+
 ### 3.2 A control with no read-back does not compile **[CI]**
 
 `Capability::verify` is a `VerifyFn`, not an `Option<VerifyFn>`. A capability
@@ -198,11 +221,15 @@ Three `compile_fail` doctests hold that proof, on a public item, because rustdoc
 collects doctests nowhere else — on a private item they run zero tests and print
 `test result: ok`.
 
+**Enforced by:** `core/src/capability.rs`
+
 ### 3.3 A safety capability may not degrade quietly **[CI]**
 
 `Class::Safety` with `Disposition::Degrade` is refused by the registry. A device
 that cannot limit charging does not keep serving behind a soft warning nobody
 reads.
+
+**Enforced by:** `core/src/capability_test.rs`
 
 ### 3.4 Power-path changes get a named reviewer and a named failure mode **[REVIEW]**
 
@@ -247,16 +274,22 @@ subsystems.
 The result type may not gain `Ok`, `Pass`, `Clean`, `Fine`, or `Good`. Each would
 provide somewhere for "not checked" to be recorded as "checked and fine".
 
+**Enforced by:** `scripts/charter-gate.sh`
+
 ### 4.2 Absent, unverified and present stay three answers **[CI]**
 
 They are distinct variants and may not collapse. **Absence is never protection.
 What could not be checked is never clean.**
+
+**Enforced by:** `scripts/charter-gate.sh`
 
 ### 4.3 No default tier **[CI]**
 
 Tier detection keeps an `Unknown` verdict, and `Unknown` satisfies no capability
 floor. A device nothing recognised is not quietly treated as a device we
 understand.
+
+**Enforced by:** `scripts/charter-gate.sh`
 
 ### 4.4 A check that did not run reports *unverified* **[CI]**
 
@@ -266,11 +299,15 @@ its schema validator is missing, and `VAYUCELL_REQUIRE_SCHEMA_VALIDATOR=1` makes
 that a hard failure in the authoritative run. **A gate that silently skipped is
 not a gate that passed.**
 
+**Enforced by:** `scripts/hardware-gate.sh`
+
 ### 4.5 Gates state what they cannot check **[CI]**
 
 The charter gate prints the four Charter articles that are human-review-only on
 every single run. A gate list that appears complete teaches its reader to stop
 looking for the gaps — which is exactly how a gap survives.
+
+**Enforced by:** `scripts/charter-gate.sh`
 
 ### 4.6 Permanent failing rows stay red **[REVIEW]**
 
@@ -306,6 +343,8 @@ must go red.
 would notice if the code were wrong.** Those are different claims and only the
 second one is worth anything.
 
+**Enforced by:** `scripts/mutation-gate.sh`
+
 ### 5.2 Gates are self-tested **[CI]**
 
 [`scripts/gate-selftest.sh`](scripts/gate-selftest.sh) plants each violation in a
@@ -316,11 +355,15 @@ A gate whose pattern silently stops matching prints `ok` forever and **has no
 other symptom**. There is no error, no warning, no slowdown. Self-testing is the
 only thing that finds it.
 
+**Enforced by:** `scripts/gate-selftest.sh`
+
 ### 5.3 Proofs must actually run **[CI]**
 
 `compile_fail` doctests live on public items, and CI asserts the **count** of
 doctests run is non-zero rather than trusting the exit code. Moved onto a private
 item, a proof runs zero tests and still prints `test result: ok`.
+
+**Enforced by:** `scripts/doctest-count.sh`
 
 ### 5.4 New behaviour names its failing test **[REVIEW]**
 
@@ -363,11 +406,15 @@ check that answers that.
 
 ## Article 6 — Security governance
 
+**Enforced by:** `scripts/coverage.sh`
+
 ### 6.1 Unsafe code is forbidden twice **[CI]**
 
 `#![forbid(unsafe_code)]` in the crate **and** `unsafe_code = "deny"` in the
 manifest. Both are checked, because either one alone can disappear in a diff that
 looks unrelated to memory safety.
+
+**Enforced by:** `.github/workflows/ci.yml`
 
 ### 6.2 The unsafe CSP keywords are unrepresentable **[CI]**
 
@@ -379,12 +426,16 @@ Weakening it is not a one-word edit to a string constant on a Friday. It is an
 addition to a public enum, next to documentation explaining why the variant is
 absent — a diff nobody merges by accident.
 
+**Enforced by:** `core/src/csp.rs`
+
 ### 6.3 The CSP denies by default **[CI]**
 
 `default-src 'none'`, not `'self'`. With `'self'`, a directive nobody enumerated
 silently inherits same-origin permission and the policy's coverage becomes a
 question of what its author remembered. With `'none'`, a forgotten directive
 **fails closed**.
+
+**Enforced by:** `core/src/csp_test.rs`
 
 ### 6.4 Script executes only with a single-use nonce **[CI]**
 
@@ -393,12 +444,16 @@ consumed when rendered, so reuse requires generating another. A repeated nonce i
 exactly as strong as `'unsafe-inline'` while continuing to read as a strict
 policy in every audit that only looks at the header.
 
+**Enforced by:** `core/src/csp_test.rs`
+
 ### 6.5 Violation reports never leave the device **[CI]**
 
 `report-uri` must be a same-origin path. Aggregate violation data across every
 install would be genuinely useful to this project — **which is precisely why
 Charter Article V.2 forbids collecting it.** The useful thing and the forbidden
 thing are the same thing.
+
+**Enforced by:** `core/src/csp_test.rs`
 
 ### 6.6 Response security headers ship as a set, or not at all **[CI]**
 
@@ -410,16 +465,22 @@ The ones with no legitimate weaker value are **not configurable**:
 `X-Content-Type-Options` is always `nosniff`, because a knob for it would only
 ever be turned the wrong way.
 
+**Enforced by:** `core/src/headers_test.rs`
+
 ### 6.7 A referrer policy may not leak a path cross-origin **[CI]**
 
 `Referrer` has no `unsafe-url` and no `no-referrer-when-downgrade` variant. Both
 are common defaults elsewhere; neither can be written down here.
+
+**Enforced by:** `core/src/headers.rs`
 
 ### 6.8 Device permissions are denied by enumeration, never by omission **[CI]**
 
 An unlisted feature is governed by the browser's default, and **defaults change
 without asking us**. On a device with a camera, a microphone and a location, that
 is not a theoretical difference.
+
+**Enforced by:** `core/src/headers_test.rs`
 
 ### 6.9 A transport-security promise has a floor **[CI]**
 
@@ -429,6 +490,8 @@ works. The value shipped in a release is a `const` with a compile-time
 assertion: lowering it stops the crate building rather than shipping a weaker
 promise.
 
+**Enforced by:** `core/src/headers_test.rs`
+
 ### 6.10 Report-only cannot be chosen by accident **[CI]**
 
 `Content-Security-Policy-Report-Only` on a production build enforces **nothing**
@@ -436,10 +499,14 @@ while looking identical to an enforcing header in every log, every screenshot,
 and every audit that greps for the name. It requires a stated reason, and the
 production constructor cannot produce it.
 
+**Enforced by:** `core/src/headers_test.rs`
+
 ### 6.11 No secrets, anywhere, ever **[CI]**
 
 No verified secret in the working tree or in the history. Not in an example, not
 in a test fixture, not in a comment.
+
+**Enforced by:** `.github/workflows/ci.yml`
 
 ### 6.12 Supply chain **[CI]**
 
@@ -450,11 +517,15 @@ The policy is strict while the dependency tree is empty **on purpose**, so that
 the first crate anyone proposes has to argue against rules written before there
 was any pressure to relax them.
 
+**Enforced by:** `deny.toml`
+
 ### 6.13 A build script is a decision, not a default **[CI]**
 
 `allow-build-scripts = []`. A build script runs arbitrary code on every
 contributor's machine and every CI runner. For a project whose entire claim is
 that you can verify what you are running, that is an ADR-level decision.
+
+**Enforced by:** `deny.toml`
 
 ### 6.14 Private disclosure, then public **[REVIEW]**
 
@@ -477,6 +548,8 @@ No production source may reference a host this project operates. An installed
 cell whose owner never contacts the project again **must keep working
 indefinitely** — Charter Article V.5, and the test of the whole Charter.
 
+**Enforced by:** `scripts/charter-gate.sh`
+
 ### 7.2 Measurement is aggregate, opt-in, and count-only, or it does not exist **[REVIEW]**
 
 Charter V.2 permits exactly that and nothing more. Any proposal for measurement
@@ -488,6 +561,8 @@ a place?" is anything but a clear no, the answer is no.**
 
 Device profiles are validated against a schema with `additionalProperties: false`,
 so a field nobody designed cannot arrive in a contributed record.
+
+**Enforced by:** `hardware/schema.json`
 
 ### 7.4 The operator's data is theirs, in a format they can read **[NORM]**
 
@@ -510,15 +585,21 @@ for a window, not kept in an index.
 including tests** — a lint that skips test code lets test code drift into habits
 the library forbids.
 
+**Enforced by:** `.github/workflows/ci.yml`
+
 ### 8.2 The declared MSRV is built, not merely declared **[CI]**
 
 Declaring a minimum supported Rust version and never building against it is a
 claim nobody verified, which Article 4 forbids everywhere else.
 
+**Enforced by:** `.github/workflows/ci.yml`
+
 ### 8.3 No third-party runtime dependency in the core **[CI]**
 
 Unless an ADR admits it. ADR-0005 §5.1 and Charter V.5. Zero dependencies means
 zero dependencies to audit for a network call nobody reviewed.
+
+**Enforced by:** `scripts/charter-gate.sh`
 
 ### 8.4 Every target that matters is compiled **[CI]**
 
@@ -526,12 +607,16 @@ zero dependencies to audit for a network call nobody reviewed.
 host. `fail-fast: false`, so one broken target does not hide the state of the
 others.
 
+**Enforced by:** `.github/workflows/ci.yml`
+
 ### 8.5 The release build is reproducible **[CI]**
 
 Built twice from a clean tree, compared by hash. People are asked to run this
 unattended on hardware in their homes; **"check for yourself" has to be a real
 offer**, and a binary that differs between two builds of the same source cannot
 be independently verified by anyone.
+
+**Enforced by:** `.github/workflows/ci.yml`
 
 ### 8.6 Invalid states are made unrepresentable where possible **[NORM]**
 
@@ -554,6 +639,8 @@ Every source and script file carries one.
 
 ## Article 9 — Decision records
 
+**Enforced by:** `scripts/charter-gate.sh`
+
 ### 9.1 Expensive-to-reverse decisions get an ADR first **[REVIEW]**
 
 Before the code, not after. An ADR written afterwards is a justification, and a
@@ -570,6 +657,8 @@ Filenames, numbers and titles must agree; numbering must be contiguous from
 0001; no ADR may be an orphan; every relative link in the documentation must
 resolve. A dead link into the founding documents is a reader who cannot reach the
 argument they were sent to check.
+
+**Enforced by:** `scripts/docs-gate.sh`
 
 ### 9.4 Superseded decisions stay readable **[NORM]**
 
@@ -592,6 +681,8 @@ though it were obvious.
 `ci-pass` is the single required check, and its list is generated from the whole
 `needs` context rather than maintained by hand — a job added and forgotten would
 otherwise be required in name and unenforced in fact.
+
+**Enforced by:** `.github/workflows/ci.yml`
 
 ### 10.2 A release states what was verified on hardware, and what was not **[REVIEW]**
 
@@ -626,10 +717,14 @@ Checked on **every push**, not only at tag time. A version that has been
 inconsistent for three weeks is discovered while trying to ship, and by then the
 fix is competing with the release.
 
+**Enforced by:** `scripts/release-gate.sh`
+
 ### 10A.2 Nothing is stranded under Unreleased **[CI]**
 
 Notes written and never moved under the version that shipped them are notes the
 operator never receives.
+
+**Enforced by:** `scripts/release-gate.sh`
 
 ### 10A.3 Every artefact is signed, keylessly **[CI]**
 
@@ -638,17 +733,32 @@ already bind every file, and a verifier has one thing to check instead of a list
 they might not finish. The certificate is bound to the workflow, so there is no
 private key to steal — and nothing to trust that cannot be checked.
 
+**Enforced by:** `.github/workflows/release.yml`
+
 ### 10A.4 The bill of materials is published, and asserted **[CI]**
 
 The SBOM ships with the release, and CI **fails if it contains a third-party
 runtime component**. An SBOM nobody asserts anything about is a file, not a
 check.
 
+**Enforced by:** `.github/workflows/supply-chain.yml`
+
 ### 10A.5 A tag is never moved **[CI]**
 
 Releases are not re-tagged. Somebody has already downloaded it.
 
-### 10A.6 The release is reproducible **[CI]**
+**Enforced by:** `scripts/release-gate.sh`
+
+### 10A.6 Every workflow reference resolves **[CI]**
+
+Two workflows once referenced action tags that neither project publishes. They
+were valid YAML, they parsed, they reviewed fine, and they failed on their first
+run with *"unable to find version v2"*. A pinned version nobody verified is a
+pinned version, not a verified one.
+
+**Enforced by:** `scripts/actions-gate.sh`
+
+### 10A.7 The release is reproducible **[CI]**
 
 See §8.5. Determinism is what makes "check for yourself" a real offer rather than
 a slogan.
@@ -656,6 +766,8 @@ a slogan.
 ---
 
 ## Article 10B — Compatibility, and what may be broken
+
+**Enforced by:** `.github/workflows/ci.yml`
 
 ### 10B.1 The hardware database format is the most stable thing here **[REVIEW]**
 
@@ -698,11 +810,15 @@ A charge ceiling recorded as holding must name the sysfs node it was read back
 from. An unreproducible safety claim is exactly the shape of thing this project
 refuses to print.
 
+**Enforced by:** `scripts/hardware-gate.sh`
+
 ### 11.4 Contradictory records are refused **[CI]**
 
 A mechanism cannot be named where the capability is reported unavailable. A
 ceiling cannot be verified to hold on a device with no mechanism. A tier recorded
 as achieved must record how.
+
+**Enforced by:** `scripts/hardware-gate.sh`
 
 ### 11.5 The database is CC0 and belongs to nobody **[NORM]**
 
@@ -721,6 +837,8 @@ unilaterally — the standard mechanism by which open projects are taken private
 With copyright distributed, **relicensing VayuCell is practically impossible,
 including by its own founders. That is the intent.** Charter Article VII.
 
+**Enforced by:** `scripts/charter-gate.sh`
+
 ### 12.2 The permanent record names a person **[CI]**
 
 No assistant attribution in commit messages, source, or any pushed artefact, and
@@ -731,6 +849,8 @@ because a reader years from now needs somebody to ask.
 The single exemption is Dependabot, and it is narrow: a dependency bump carries no
 decision until a person reviews and merges it, and **that human act is the
 accountability**. The exemption covers authorship only.
+
+**Enforced by:** `scripts/attribution-gate.sh`
 
 ### 12.3 Review is on the argument, not the author **[NORM]**
 
@@ -760,6 +880,8 @@ that interest, once acquired, quietly shapes every roadmap decision afterwards.
 Charter V.5. If this project's infrastructure vanished tomorrow, every installed
 cell must keep working. §7.1 enforces the code half.
 
+**Enforced by:** `scripts/charter-gate.sh`
+
 ### 13.3 The founder is not a single point of failure **[REVIEW]**
 
 Anything only one person can do — signing, publishing, the domain, the release
@@ -771,6 +893,8 @@ its founder was never really the user's.**
 Charter Articles III and V may not change without re-recording their SHA-256
 digest, which puts the amendment in the diff where review will see it rather than
 arriving inside an unrelated change. Charter Article IX.
+
+**Enforced by:** `scripts/charter-gate.sh`
 
 ### 13.5 Everything here is CC0 **[NORM]**
 
@@ -857,6 +981,8 @@ forbidden by §0.3.2.
 
 Enforced mechanically. See §13.4.
 
+**Enforced by:** `scripts/charter-gate.sh`
+
 ### 16.5 Fork freely **[NORM]**
 
 CC0. If this governance stops serving its users, the correct response is to take
@@ -869,10 +995,10 @@ permission.
 
 | Enforcement | Count | What it means |
 | --- | --- | --- |
-| **[CI]** | 50 | A gate fails the build |
+| **[CI]** | 52 | A gate fails the build |
 | **[REVIEW]** | 28 | A person must catch it |
 | **[NORM]** | 30 | Advisory, and labelled as such |
-| **Total** | 108 | |
+| **Total** | 110 | |
 
 **These counts are checked by [`scripts/docs-gate.sh`](scripts/docs-gate.sh).**
 They were wrong in the first draft of this document — off by six — and nothing

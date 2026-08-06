@@ -90,6 +90,11 @@ jobs:
       - uses: actions/checkout@v7
       - name: Documentation gate
         run: bash scripts/docs-gate.sh
+      - name: Constitution gate
+        # The constitution marks 52 rules [CI], meaning a gate fails the build
+        # for each. This confirms each one names an enforcer and that the
+        # enforcer exists — 43 of them named nothing when it was first checked.
+        run: bash scripts/constitution-gate.sh
       - name: Markdown lint
         # The script, not the action. The action bundles whatever linter version
         # its tag happens to carry, and when that differed from the version run

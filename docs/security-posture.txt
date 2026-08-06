@@ -1,0 +1,17 @@
+# VayuCell response security posture
+#
+# Generated from core/src/headers.rs. Do not edit by hand.
+# Regenerate: cargo test --workspace -- --ignored regenerate_the_security_posture
+#
+# The nonce is a fixed placeholder here; in a response it is a fresh
+# 128-bit value, used once.
+
+Content-Security-Policy: base-uri 'none'; connect-src 'self'; default-src 'none'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'nonce-r4nd0mBase64urlValue00'; style-src 'self'; report-uri /csp-report
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+Referrer-Policy: no-referrer
+Permissions-Policy: accelerometer=(), autoplay=(), camera=(), display-capture=(), encrypted-media=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), midi=(), payment=(), usb=(), xr-spatial-tracking=()
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Resource-Policy: same-origin
+Cross-Origin-Embedder-Policy: require-corp
+Strict-Transport-Security: max-age=31536000; includeSubDomains

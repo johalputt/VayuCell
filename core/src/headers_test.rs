@@ -192,3 +192,57 @@ fn the_set_is_deterministic() {
     let b = SecurityHeaders::production(control_surface()).render(nonce());
     assert_eq!(a, b);
 }
+
+#[test]
+fn the_production_posture_matches_the_committed_snapshot() {
+    // docs/security-posture.txt is the security posture, written down.
+    //
+    // Every guard in this module and in `csp` tests one property in isolation,
+    // which is right and is not enough: a change that weakens the posture while
+    // keeping each individual assertion true reads, in a diff, as a small edit
+    // to a Rust file. Nobody reviewing it sees the header set change.
+    //
+    // With the snapshot committed, weakening anything produces a diff in a plain
+    // text file that states, in order, exactly what every response will carry.
+    // That is a thing a reviewer notices without knowing the codebase.
+    //
+    // On failure: look at what changed before regenerating. The regeneration
+    // command is the easy part and it is not the point.
+    //   cargo test --workspace -- --ignored regenerate_the_security_posture
+    let expected = include_str!("../../docs/security-posture.txt");
+    assert_eq!(
+        render_posture(),
+        expected,
+        "\nThe response security posture has changed.\n\
+         Read the diff above and satisfy yourself the change is intended, then \
+         regenerate docs/security-posture.txt.\n"
+    );
+}
+
+/// The posture as a stable, human-readable block.
+fn render_posture() -> String {
+    let mut out = String::from(
+        "# VayuCell response security posture\n\
+         #\n\
+         # Generated from core/src/headers.rs. Do not edit by hand.\n\
+         # Regenerate: cargo test --workspace -- --ignored regenerate_the_security_posture\n\
+         #\n\
+         # The nonce is a fixed placeholder here; in a response it is a fresh\n\
+         # 128-bit value, used once.\n\n",
+    );
+    for (name, value) in SecurityHeaders::production(control_surface()).render(nonce()) {
+        out.push_str(name);
+        out.push_str(": ");
+        out.push_str(&value);
+        out.push('\n');
+    }
+    out
+}
+
+#[test]
+#[ignore = "writes docs/security-posture.txt; run deliberately after reviewing a posture change"]
+fn regenerate_the_security_posture() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../docs/security-posture.txt");
+    std::fs::write(path, render_posture()).expect("could not write the snapshot");
+    println!("wrote {path}");
+}

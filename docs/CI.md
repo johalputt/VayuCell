@@ -55,6 +55,7 @@ Individually:
 scripts/charter-gate.sh          # the constitution, enforced
 scripts/attribution-gate.sh      # the permanent record
 scripts/docs-gate.sh             # required docs, ADR integrity, links, rule counts
+scripts/constitution-gate.sh     # every [CI] rule names an enforcer that exists
 scripts/hardware-gate.sh         # device database schema and honesty
 scripts/release-gate.sh          # the version says the same thing everywhere
 scripts/actions-gate.sh          # every workflow reference actually resolves
@@ -79,6 +80,9 @@ python3 -m pip install jsonschema
 
 Runs on every push to `main` and every pull request. Nothing merges without all
 sixteen jobs green.
+
+The `docs` job carries two gates: the documentation gate and the constitution
+gate below.
 
 | Setting | Value | Why |
 | --- | --- | --- |
@@ -243,6 +247,28 @@ guards**, each re-broken in turn, each required to turn its matching test red:
 | Development pins HTTPS it cannot honour | `development_sends_no_hsts_because_it_cannot_honour_it` |
 | **`Referrer` gains a leaking variant** | its `compile_fail` doctest |
 
+### The security posture snapshot
+
+[`docs/security-posture.txt`](security-posture.txt) is the exact header set a
+production response carries, committed and compared by a test.
+
+Every guard in `csp` and `headers` tests one property in isolation, which is
+right and is not sufficient. A change that weakens the posture while keeping each
+individual assertion true reads, in a diff, as a small edit to a Rust file —
+nobody reviewing it sees the header set change.
+
+With the snapshot committed, weakening anything produces a diff in a plain text
+file that states, in order, what every response will carry. That is a thing a
+reviewer notices without knowing the codebase.
+
+Regenerating is deliberate and separate:
+
+```bash
+cargo test --workspace -- --ignored regenerate_the_security_posture
+```
+
+The command is the easy part and it is not the point — the diff is.
+
 Three defects were found while building this, all the same class as the bug the
 gates exist to catch, and all are now guarded:
 
@@ -332,6 +358,27 @@ source cannot be independently verified by the person installing it.
 The single required status check. Its result list is generated from the whole
 `needs` context rather than a hand-maintained list — a job added above but
 forgotten here would otherwise be required in name and unenforced in fact.
+
+### `constitution` — the document may not claim enforcement it does not have
+
+Runs [`scripts/constitution-gate.sh`](../scripts/constitution-gate.sh).
+
+`GOVERNANCE-CONSTITUTION.md` marks 52 rules `[CI]`, and §0.3 says plainly that
+`[CI]` means a gate fails the build. That is the load-bearing claim of the whole
+document — it is what lets a reader tell which rules are real.
+
+**When this gate was first written, 43 of the 50 `[CI]` rules named nothing at
+all.** The count in Appendix A was correct and the claim behind it was
+unverifiable: nobody, including the maintainer, could tell whether "a gate fails
+the build" was true of any particular rule.
+
+Every `[CI]` rule now ends with `**Enforced by:** \`path\``, and the gate checks
+that path exists. A rule whose enforcer is deleted stops the build.
+
+What the gate explicitly does **not** claim is that the cited file genuinely
+enforces the sentence attached to it. No script can read a sentence and confirm
+that. It prints that limitation on every run rather than letting the tick imply
+otherwise.
 
 ### `actions` — workflow references resolve
 
