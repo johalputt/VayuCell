@@ -64,7 +64,15 @@ jobs:
           # asked for on a manual run.
           SECONDS_PER_TARGET: ${{ github.event.inputs.seconds || (github.event_name == 'schedule' && '300' || '60') }}
         run: |
-          cargo fuzz run "${{ matrix.target }}" -- \
+          # --target is explicit and load-bearing. cargo-fuzz infers its default
+          # target from the triple of its own binary, and the installer resolves
+          # to a musl build — so the default becomes x86_64-unknown-linux-musl,
+          # whose statically linked libc AddressSanitizer cannot instrument:
+          # "sanitizer is incompatible with statically linked libc". Naming the
+          # gnu target is what makes the sanitizer usable, and the failure it
+          # avoids is a build error rather than a silently uninstrumented run.
+          cargo fuzz run "${{ matrix.target }}" \
+            --target x86_64-unknown-linux-gnu -- \
             -max_total_time="$SECONDS_PER_TARGET" -print_final_stats=1
 
       - name: Keep whatever crashed
