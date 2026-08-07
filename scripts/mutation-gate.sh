@@ -118,6 +118,7 @@ AR=cli/src/args.rs
 RP=cli/src/report.rs
 DU=core/src/durability.rs
 IN=core/src/ingress.rs
+SV=core/src/serve.rs
 
 mutate "$T" a_guest_that_cannot_see_the_phone_reports_unverified_rather_than_guessing \
   "a bare VM is promoted to T2 without the shell's assertion" \
@@ -820,6 +821,50 @@ mutate "$IN" only_a_round_trip_from_outside_counts_as_verified \
   "a path that merely failed a check counts as verified" \
   "        matches!(self, Reachability::Verified { .. })" \
   "        !matches!(self, Reachability::Unverified(_))"
+
+mutate "$SV" traversal_is_refused_rather_than_normalised_away \
+  "a path that walks out of the document root is stripped and served" \
+  "    if path.split('/').any(|seg| seg == \"..\" || seg == \".\") {
+        return Err(BadRequest::Traversal);
+    }" \
+  "    if false {
+        return Err(BadRequest::Traversal);
+    }"
+
+mutate "$SV" percent_encoding_is_refused_rather_than_decoded \
+  "percent-encoded traversal slips past the check" \
+  "    if path.contains('%') || path.contains('\\\\') || path.contains('\\0') {" \
+  "    if false {"
+
+mutate "$SV" only_the_two_read_verbs_are_implemented \
+  "any verb is accepted as a read" \
+  "        other => return Err(BadRequest::UnsupportedMethod(other.to_owned()))," \
+  "        _ => Method::Get,"
+
+mutate "$SV" even_a_404_carries_the_full_security_posture \
+  "error responses are sent without the security posture" \
+  "        for (name, value) in SecurityHeaders::production(control_surface()).render(nonce) {" \
+  "        let _ = nonce;
+        for (name, value) in Vec::<(&str, String)>::new() {"
+
+mutate "$SV" the_health_path_does_not_restate_the_devices_condition \
+  "the health path restates the device condition, so two places can disagree" \
+  "            Response::text(\"this process is answering; read /panel for what it found\\n\".to_owned())" \
+  "            Response::text(panel.to_owned())"
+
+mutate "$SV" a_request_line_longer_than_the_bound_is_refused_before_it_is_parsed \
+  "an unbounded request line is accepted" \
+  "    if line.len() > MAX_REQUEST_LINE {
+        return Err(BadRequest::Malformed);
+    }" \
+  "    if false {
+        return Err(BadRequest::Malformed);
+    }"
+
+mutate "$SV" a_head_request_omits_the_body_but_still_states_its_length \
+  "a HEAD response carries a body" \
+  "        if method == Method::Get {" \
+  "        if true {"
 
 echo
 # The suite was green before the first mutation and every mutation was undone,

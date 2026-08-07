@@ -212,7 +212,7 @@ the code compiles there.
 
 ### `mutation`
 
-Runs [`scripts/mutation-gate.sh`](../scripts/mutation-gate.sh). **One hundred and three guards**, each re-broken in turn, each required to turn its matching test red:
+Runs [`scripts/mutation-gate.sh`](../scripts/mutation-gate.sh). **One hundred and ten guards**, each re-broken in turn, each required to turn its matching test red:
 
 | Mutation | Test that must fail |
 | --- | --- |
@@ -319,6 +319,13 @@ Runs [`scripts/mutation-gate.sh`](../scripts/mutation-gate.sh). **One hundred an
 | The device with no mitigation available not being told so | `a_device_that_cannot_hold_a_ceiling_is_told_there_is_no_mitigation_at_all` |
 | The audience limit not disclosed before the mode is chosen | `choosing_an_onion_discloses_the_audience_limit_and_the_permanent_compromise` |
 | A path that merely failed a check counting as verified | `only_a_round_trip_from_outside_counts_as_verified` |
+| A path walking out of the document root stripped and served | `traversal_is_refused_rather_than_normalised_away` |
+| Percent-encoded traversal slipping past the check | `percent_encoding_is_refused_rather_than_decoded` |
+| Any verb accepted as a read | `only_the_two_read_verbs_are_implemented` |
+| Error responses sent without the security posture | `even_a_404_carries_the_full_security_posture` |
+| The health path restating the device's condition, so two places can disagree | `the_health_path_does_not_restate_the_devices_condition` |
+| An unbounded request line accepted | `a_request_line_longer_than_the_bound_is_refused_before_it_is_parsed` |
+| A `HEAD` response carrying a body | `a_head_request_omits_the_body_but_still_states_its_length` |
 
 Three of these were defects in the **tests** rather than the code, found because
 a mutation survived or because writing one exposed the test as vacuous:

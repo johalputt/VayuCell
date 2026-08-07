@@ -70,6 +70,23 @@ traffic before it.
   are rendered there, so softening the alarming one — the way status displays
   actually drift — produces a plain-text diff rather than an innocuous-looking
   edit to a Rust file.
+- **A local-only listener** — the first thing in this project a browser has
+  ever spoken to, which makes the CSP and the response headers real rather than
+  rendered into a snapshot. `vayucell serve` binds loopback by default; reaching
+  the rest of your network is a flag you type. Every response carries the full
+  posture including the errors, because a 404 without a CSP is still a page a
+  browser will execute script in. The nonce is minted per response and consumed
+  by the render. Traversal is refused rather than normalised, and
+  percent-encoding refused rather than decoded, because both bypasses work
+  precisely when the check runs against a different string from the one that
+  arrived. Parsing and routing own no socket, so a malformed request is a unit
+  test.
+- *Maintainers only:* the first version of the nonce minter called
+  `std::fs::read("/dev/urandom")`. That device has no end, so the read never
+  returned — it allocated until the process was killed, and the listener died on
+  its first request. Replaced with a `read_exact` into a fixed buffer. The good
+  outcome was that it failed immediately and visibly; the same mistake against a
+  file that is merely large would have shipped as a slow leak.
 - **Sovereign ingress** (ADR-0003) — four modes, each declaring seven
   properties with none of them optional, because the three fields the ADR's
   draft lacked each changed a decision. An onion depends on a commons rather

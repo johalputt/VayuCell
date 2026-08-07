@@ -20,6 +20,7 @@
 //! seen from it. No handset has run this binary.
 
 mod args;
+mod listen;
 mod report;
 
 use std::process::ExitCode;
@@ -56,6 +57,7 @@ fn main() -> ExitCode {
             0
         }
         Command::Status => status(&parsed),
+        Command::Serve => serve(&parsed),
         Command::Run { ticks } => run(&parsed, ticks),
     };
 
@@ -73,6 +75,23 @@ fn status(a: &Args) -> i32 {
     );
     print!("{}", panel.render());
     report::exit_code(panel.overall())
+}
+
+/// Serves the panel, re-assembled per request so it never goes stale.
+fn serve(a: &Args) -> i32 {
+    let dir = a.supply_dir.clone();
+    let ceiling = Percent::clamped(i64::from(a.ceiling));
+    // Re-assembled on every request rather than rendered once at startup. A
+    // panel captured at boot is a panel that says NORMAL for as long as the
+    // process lives, which is the failure the whole project is built against.
+    let panel = move || report::assemble(&RealHost, &dir, ceiling, Level::Normal).render();
+    match listen::serve(&a.bind, &panel) {
+        Ok(()) => 0,
+        Err(e) => {
+            eprintln!("vayucell: {e}");
+            report::EXIT_UNSAFE
+        }
+    }
 }
 
 /// The supervisor loop, against the real machine and a clock that really sleeps.

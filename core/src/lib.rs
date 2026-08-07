@@ -26,6 +26,7 @@ pub mod ingress;
 pub mod panel;
 pub mod runtime;
 pub mod sampler;
+pub mod serve;
 pub mod shed;
 pub mod sysfs;
 pub mod tier;
@@ -48,6 +49,8 @@ mod panel_test;
 mod runtime_test;
 #[cfg(test)]
 mod sampler_test;
+#[cfg(test)]
+mod serve_test;
 #[cfg(test)]
 mod shed_test;
 #[cfg(test)]

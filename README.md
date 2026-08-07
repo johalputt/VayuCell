@@ -29,9 +29,9 @@
   <a href="LICENSE-CHARTER"><img alt="Charter: CC0-1.0" src="https://img.shields.io/badge/charter-CC0--1.0-lightgrey.svg"></a>
   <a href="core/src/lib.rs"><img alt="unsafe: forbidden" src="https://img.shields.io/badge/unsafe-forbidden-success.svg"></a>
   <a href="deny.toml"><img alt="runtime deps: zero" src="https://img.shields.io/badge/runtime%20deps-zero-success.svg"></a>
-  <a href="docs/CI.md"><img alt="coverage: 84.01%" src="https://img.shields.io/badge/coverage-84.01%25-success"></a>
+  <a href="docs/CI.md"><img alt="coverage: 80.83%" src="https://img.shields.io/badge/coverage-80.83%25-success"></a>
   <a href="GOVERNANCE-CONSTITUTION.md"><img alt="constitution: 110 rules" src="https://img.shields.io/badge/constitution-110%20rules-blueviolet"></a>
-  <a href="scripts/mutation-gate.sh"><img alt="mutations killed: 103/103" src="https://img.shields.io/badge/mutations%20killed-103%2F103-success"></a>
+  <a href="scripts/mutation-gate.sh"><img alt="mutations killed: 110/110" src="https://img.shields.io/badge/mutations%20killed-110%2F110-success"></a>
   <a href="scripts/gate-selftest.sh"><img alt="gates self-tested: 45 plants caught" src="https://img.shields.io/badge/gates%20self--tested-45%20plants%20caught-success"></a>
   <a href="CHARTER.md"><img alt="hardware tested: none yet" src="https://img.shields.io/badge/hardware%20tested-none%20yet-inactive"></a>
 </p>
@@ -92,8 +92,8 @@ and no amount of green rows replaces it.
 | | |
 | --- | --- |
 | Written | The capability registry, tier detection, the CSP and response security headers, **the battery safety governor** — state machine, verification loop, thresholds, recovery — the sysfs layer it drives, the sampling cadence, the mains-loss shed ladder, and **the safety panel**, where a row that could not be checked is not allowed to read as one that was |
-| Not written | The fleet view, the hardware database itself, the Android shell, and **any network listener at all — the ingress modes are described and governed in code, but nothing here opens a socket** |
-| Checked | 214 unit tests and 20 doctests, 84.01% line coverage against an 80% floor, **103 mutations each re-broken and each required to turn its named test red**, and **45 violations planted in a scratch repository that the gates must catch citing the right rule**. None of that is evidence about hardware; all of it is evidence about the code |
+| Not written | The fleet view, the hardware database itself, the Android shell, **the fleet, and every ingress mode except local-only — an onion and a relay are described and governed in code, but neither is implemented** |
+| Checked | 232 unit tests and 20 doctests, 80.83% line coverage against an 80% floor, **110 mutations each re-broken and each required to turn its named test red**, and **45 violations planted in a scratch repository that the gates must catch citing the right rule**. None of that is evidence about hardware; all of it is evidence about the code |
 | Unblocked | [Charter III.1](CHARTER.md) forbids anything serving traffic before the governor. The governor is now **written** — the ordering constraint is met in code, and the gate fails the build if it is ever removed. It is not met on hardware, and nothing serves traffic yet regardless |
 | Never tested on hardware | Everything. Every device-facing behaviour is exercised through a fake host describing handsets nobody here is holding |
 
@@ -104,7 +104,7 @@ phone on a bench, and not before.
 
 ## What is built
 
-Fourteen modules in [`core/src`](core/src), `#![forbid(unsafe_code)]`,
+Fifteen modules in [`core/src`](core/src), `#![forbid(unsafe_code)]`,
 `clippy::pedantic` at `-D warnings`, and a `[dependencies]` section that is
 empty — not small, empty — with a charter gate that fails the build if anything
 is ever added to it. Everything below describes code in this repository and
@@ -317,6 +317,27 @@ for a running process — a request from **outside** must traverse the path and 
 served — so "the tunnel is up" is not expressible. **Nothing here opens a
 socket.** *([decision →](docs/adr/ADR-0003-sovereign-ingress.md))*
 
+### 🌐 The local-only listener
+
+The first thing in this project that a browser has ever spoken to. `vayucell
+serve` binds **loopback by default** — reaching the rest of your network is a
+flag you type, because binding every interface would make a weaker version of
+the disclosure decision ADR-0003 reserves for the operator — and it prints the
+address it actually bound rather than the one it was asked for, since a port of
+`0` resolves to something else. Every response carries the **full security
+posture including the errors**, because a 404 without a CSP is still a page a
+browser will execute script in, and error paths are where headers get dropped.
+The nonce is minted per response from `/dev/urandom` and consumed by the render,
+so the type will not let it serve twice. `Method` has no `Post`, `Put` or
+`Delete` variant, so a route that mutated something could not be written without
+first widening a public enum. Traversal is **refused rather than normalised**:
+stripping `..` and serving what is left means `/../../etc/passwd` quietly
+becomes `/etc/passwd` and the log records the second one — and percent-encoding
+is refused rather than decoded, because `%2e%2e` works precisely when the check
+runs against a different string from the one that arrived. The request line is
+bounded at 8 KiB. Parsing and routing own no socket at all, so a malformed
+request is a unit test rather than a fixture.
+
 ---
 
 ## Quick start
@@ -367,9 +388,9 @@ scripts/release-gate.sh        # the version says the same thing everywhere
 cargo test --workspace
 ```
 
-A full run exercises **214 unit tests and 20 doctests** (2 ignored — the two
-snapshot regenerators), kills **103 mutations**, catches **45 planted violations**,
-and measures **84.01% line coverage** against a floor of 80. That is a suite that
+A full run exercises **232 unit tests and 20 doctests** (2 ignored — the two
+snapshot regenerators), kills **110 mutations**, catches **45 planted violations**,
+and measures **80.83% line coverage** against a floor of 80. That is a suite that
 has been shown to fail when the code is wrong — the mutation gate is the proof,
 and it asserts its own match count so a mutation that failed to apply cannot be
 scored as one the code survived. **What none of it establishes, and none of it
@@ -401,7 +422,7 @@ disqualifying failure. The other three options have no cell to be wrong about.
 
 ## How the core fits together
 
-Fourteen modules, one crate, one direction of dependency — thirteen above the seam, plus
+Fifteen modules, one crate, one direction of dependency — fourteen above the seam, plus
 `host.rs` below it. The boundary at the bottom is the honest part of the picture:
 
 ```text
@@ -434,6 +455,8 @@ Fourteen modules, one crate, one direction of dependency — thirteen above the 
                     │                no compile                    │
                     │                                              │
                     │  ── response ─────────────────────────────   │
+                    │  serve.rs      request → response; owns no    │
+                    │                socket                        │
                     │  csp.rs        policy as types, not strings  │
                     │  headers.rs    the nine-header posture       │
                     └──────────────────────┬───────────────────────┘
@@ -447,7 +470,7 @@ Fourteen modules, one crate, one direction of dependency — thirteen above the 
                     │  ON THE OTHER SIDE OF THIS LINE.             │
                     └──────────────────────────────────────────────┘
 
-    NOT BUILT: any network listener ·
+    NOT BUILT: onion and relay ingress ·
     the Android shell · the fleet view · the hardware database · sovereign
     ingress · any code path that has ever touched a handset.
 ```
@@ -584,10 +607,10 @@ and has no other symptom.
 | --- | --- |
 | **Charter** | A serving capability registered while the governor is gone. `Capability::verify` demoted to an `Option`, so a control with no read-back would compile. A generic success variant that would absorb "not checked". `Absent` and `Unverified` collapsing into one answer. A tier detector that defaults to T0. Telemetry, a treasury, a kill switch, a remote wipe, a dependency on a host this project runs. A `[dependencies]` section with anything in it. An edit to Article III or V whose SHA-256 no longer matches `.charter-digests` |
 | **Gate self-test** | A gate that has only ever been observed passing. **Forty-five violations** planted in a scratch copy — the governor deleted, `verify` made optional, telemetry added, a third-party dependency added to the CLI crate, a bot-authored commit, a workflow tag that resolves to nothing — each of which the matching gate must catch **citing the right rule**. A plant that changed nothing is scored `STALE`, not `caught`: the sandbox is fingerprinted before and after |
-| **Mutation** | **One hundred and three** safety and honesty guards, each re-broken in turn, each required to turn its named test red. A green suite proves the code passes its tests; this proves the tests would notice if the code were wrong. Every mutation asserts its own match count, because one that failed to apply would otherwise be reported as one the code survived |
+| **Mutation** | **One hundred and ten** safety and honesty guards, each re-broken in turn, each required to turn its named test red. A green suite proves the code passes its tests; this proves the tests would notice if the code were wrong. Every mutation asserts its own match count, because one that failed to apply would otherwise be reported as one the code survived |
 | **Doctests** | A `compile_fail` proof that stopped being collected. The count is asserted **exactly, in both directions** — too few means a proof moved onto a private item, where rustdoc runs zero tests and still prints `ok`; too many means somebody added a proof without raising the number |
 | **Rust** | Unformatted code, a `clippy::pedantic` warning at `-D warnings` over all targets, a failed build or test, a broken intra-doc link, and the removal of *either* `#![forbid(unsafe_code)]` or `unsafe_code = "deny"` — either alone can be dropped in a diff that looks unrelated |
-| **Coverage** | Production line coverage below **80%** (measured: 84.01%), with test files excluded so the figure is not inflated by the coverage of the tests themselves. A missing coverage tool is a failure, never a pass |
+| **Coverage** | Production line coverage below **80%** (measured: 80.83%), with test files excluded so the figure is not inflated by the coverage of the tests themselves. A missing coverage tool is a failure, never a pass |
 | **Constitution** | A `[CI]` rule claiming enforcement while naming no enforcer, or naming a file that has been deleted. It explicitly does *not* claim the cited file enforces the sentence attached to it, and prints that limitation on every run |
 | **Docs** | A required document missing **or emptied**, an ADR whose title names a different number than its filename, a gap in the decision log, an ADR nothing links to, a dead relative link anywhere in the repository, **or a constitution whose own totals disagree with the rules in it** |
 | **Hardware** | A device profile that fails [`hardware/schema.json`](hardware/schema.json), a verified charge ceiling with no sysfs node named, `available: false` beside a named mechanism, or a storage block with the durability class omitted rather than chosen |

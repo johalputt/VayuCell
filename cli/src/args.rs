@@ -23,6 +23,8 @@ pub enum Command {
         /// Stop after this many ticks. `None` runs until the governor halts.
         ticks: Option<u32>,
     },
+    /// Serve the panel on the local network.
+    Serve,
     /// Print usage.
     Help,
     /// Print the version.
@@ -41,6 +43,8 @@ pub struct Args {
     /// How long the outage clock has been running, for testing the shed ladder
     /// without unplugging anything.
     pub assume_outage: Option<Duration>,
+    /// What address `serve` binds.
+    pub bind: String,
 }
 
 /// Why an invocation was refused.
@@ -59,6 +63,14 @@ pub const DEFAULT_SUPPLY: &str = vayucell_core::sysfs::SUPPLY;
 /// The default ceiling. ADR-0002: 60% is the recommended long-term hold.
 pub const DEFAULT_CEILING: u8 = 60;
 
+/// What `serve` binds unless told otherwise.
+///
+/// Loopback. ADR-0003 §3 makes local-only the default because publishing is an
+/// irreversible disclosure, and binding every interface by default would make a
+/// weaker version of that decision on the operator's behalf — reachable by
+/// anything on their network, including whatever else is on the guest Wi-Fi.
+pub const DEFAULT_BIND: &str = "127.0.0.1:8080";
+
 /// What `--help` prints.
 pub const USAGE: &str = "\
 vayucell — report what a device can be trusted to do, and govern its cell
@@ -70,6 +82,7 @@ COMMANDS:
     status              Read the device once, print the safety panel, and exit
                         with a code that reflects it
     run                 Run the supervisor loop until the governor halts
+    serve               Serve the safety panel over HTTP, local only
     help                Print this
     version             Print the version
 
@@ -80,6 +93,9 @@ OPTIONS:
     --ticks <N>         Stop `run` after N passes instead of running on
     --assume-outage <S> Treat mains as lost this many seconds ago, so the shed
                         ladder can be exercised without unplugging anything
+    --bind <ADDR>       Address for `serve` [default: 127.0.0.1:8080]. The
+                        default is loopback: reaching the rest of your network
+                        is something you type, not something you get
 
 EXIT CODES:
     0   the panel reads PROTECTED — every row was checked and held
@@ -105,6 +121,7 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
     let mut ceiling = DEFAULT_CEILING;
     let mut ticks: Option<u32> = None;
     let mut assume_outage: Option<Duration> = None;
+    let mut bind = DEFAULT_BIND.to_owned();
 
     let mut i = 0;
     while i < argv.len() {
@@ -112,10 +129,14 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
         match arg {
             "status" => set_command(&mut command, Command::Status, arg)?,
             "run" => set_command(&mut command, Command::Run { ticks: None }, arg)?,
+            "serve" => set_command(&mut command, Command::Serve, arg)?,
             "help" | "--help" | "-h" => set_command(&mut command, Command::Help, arg)?,
             "version" | "--version" | "-V" => set_command(&mut command, Command::Version, arg)?,
             "--supply-dir" => {
                 supply_dir = value_after(argv, &mut i, "--supply-dir")?;
+            }
+            "--bind" => {
+                bind = value_after(argv, &mut i, "--bind")?;
             }
             "--ceiling" => {
                 let raw = value_after(argv, &mut i, "--ceiling")?;
@@ -169,6 +190,7 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
         supply_dir,
         ceiling,
         assume_outage,
+        bind,
     })
 }
 
@@ -215,6 +237,7 @@ mod tests {
                 supply_dir: DEFAULT_SUPPLY.to_owned(),
                 ceiling: DEFAULT_CEILING,
                 assume_outage: None,
+                bind: super::DEFAULT_BIND.to_owned(),
             }
         );
         assert_eq!(DEFAULT_CEILING, 60, "ADR-0002's recommended long-term hold");
