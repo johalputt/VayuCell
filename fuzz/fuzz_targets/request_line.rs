@@ -25,9 +25,19 @@ fuzz_target!(|data: &[u8]| {
             "an accepted path must be rooted: {:?}",
             request.path
         );
+        // Checked per SEGMENT, which is what normalise actually guarantees.
+        // The first version of this asserted the path contained no ".."
+        // anywhere, and the fuzzer produced "/a..b" within seconds — a perfectly
+        // ordinary filename. The assertion was wrong, not the parser, and an
+        // over-strict fuzz oracle costs exactly as much attention as a real bug.
         assert!(
-            !request.path.contains("..") && !request.path.contains('%'),
-            "an accepted path must not carry a traversal: {:?}",
+            request.path.split('/').all(|seg| seg != ".." && seg != "."),
+            "an accepted path must have no traversal segment: {:?}",
+            request.path
+        );
+        assert!(
+            !request.path.contains('%'),
+            "an accepted path must not be percent-encoded: {:?}",
             request.path
         );
         // Routing an arbitrary accepted path must also not panic.

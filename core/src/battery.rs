@@ -236,9 +236,21 @@ impl Reading {
         if self.charge_full_design_uah <= 0 || self.charge_full_uah < 0 {
             return StateOfHealth::Unknown;
         }
-        StateOfHealth::Measured(Percent::clamped(
-            self.charge_full_uah * 100 / self.charge_full_design_uah,
-        ))
+        // checked_mul, not `*`. `charge_full` is whatever a vendor kernel wrote
+        // into the node, parsed as an i64 with no upper bound, and a value near
+        // i64::MAX overflows this multiply — which panics under debug assertions
+        // and silently wraps to a negative without them. Found by the fuzzer,
+        // and it is the shape of bug this project is least able to afford: the
+        // panic is inside the reading the governor uses to decide whether to
+        // keep charging a cell.
+        //
+        // Unknown rather than a clamp, because a capacity larger than the design
+        // capacity is not a healthy cell — it is a kernel saying something that
+        // cannot be true, and Article IV says an unusable answer is unverified.
+        let Some(scaled) = self.charge_full_uah.checked_mul(100) else {
+            return StateOfHealth::Unknown;
+        };
+        StateOfHealth::Measured(Percent::clamped(scaled / self.charge_full_design_uah))
     }
 
     /// Whether the cell is taking charge.

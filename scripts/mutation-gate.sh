@@ -327,8 +327,12 @@ mutate "$B" the_decidegree_reading_is_not_mistaken_for_degrees \
 
 mutate "$B" an_unmeasurable_state_of_health_is_unknown_not_zero \
   "an unmeasurable state of health collapses into a number" \
-  "            return StateOfHealth::Unknown;" \
-  "            return StateOfHealth::Measured(Percent::clamped(100));"
+  "        if self.charge_full_design_uah <= 0 || self.charge_full_uah < 0 {
+            return StateOfHealth::Unknown;
+        }" \
+  "        if self.charge_full_design_uah <= 0 || self.charge_full_uah < 0 {
+            return StateOfHealth::Measured(Percent::clamped(100));
+        }"
 
 mutate "$G" a_cooling_cell_does_not_walk_back_down_on_its_own \
   "the ladder becomes two-way, so cooling clears a hard stop" \
@@ -865,6 +869,11 @@ mutate "$SV" a_head_request_omits_the_body_but_still_states_its_length \
   "a HEAD response carries a body" \
   "        if method == Method::Get {" \
   "        if true {"
+
+mutate "$B" a_charge_full_near_the_integer_limit_does_not_crash_the_reading \
+  "a charge_full near the integer limit overflows the health calculation again" \
+  "self.charge_full_uah.checked_mul(100)" \
+  "Some(self.charge_full_uah * 100)"
 
 echo
 # The suite was green before the first mutation and every mutation was undone,

@@ -212,7 +212,7 @@ the code compiles there.
 
 ### `mutation`
 
-Runs [`scripts/mutation-gate.sh`](../scripts/mutation-gate.sh). **One hundred and ten guards**, each re-broken in turn, each required to turn its matching test red:
+Runs [`scripts/mutation-gate.sh`](../scripts/mutation-gate.sh). **One hundred and eleven guards**, each re-broken in turn, each required to turn its matching test red:
 
 | Mutation | Test that must fail |
 | --- | --- |
@@ -326,6 +326,7 @@ Runs [`scripts/mutation-gate.sh`](../scripts/mutation-gate.sh). **One hundred an
 | The health path restating the device's condition, so two places can disagree | `the_health_path_does_not_restate_the_devices_condition` |
 | An unbounded request line accepted | `a_request_line_longer_than_the_bound_is_refused_before_it_is_parsed` |
 | A `HEAD` response carrying a body | `a_head_request_omits_the_body_but_still_states_its_length` |
+| A `charge_full` near the integer limit overflowing the health calculation | `a_charge_full_near_the_integer_limit_does_not_crash_the_reading` |
 
 Three of these were defects in the **tests** rather than the code, found because
 a mutation survived or because writing one exposed the test as vacuous:

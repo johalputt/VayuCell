@@ -228,3 +228,39 @@ fn the_node_that_answered_is_recorded_for_the_device_profile() {
     );
     assert_eq!(mech.kind(), Kind::EndThreshold);
 }
+
+#[test]
+fn a_charge_full_near_the_integer_limit_does_not_crash_the_reading() {
+    // Found by the fuzzer, and the shape of bug this project can least afford:
+    // `charge_full * 100` overflowed i64, which panics under debug assertions
+    // and silently wraps to a negative without them — inside the reading the
+    // governor uses to decide whether to keep charging a cell.
+    //
+    // `charge_full` is whatever a vendor kernel wrote into the node, parsed with
+    // no upper bound, so a device reporting nonsense here took the process down
+    // rather than being reported as nonsense.
+    let host =
+        healthy_device().with_file(&format!("{SUPPLY}/charge_full"), &format!("{}\n", i64::MAX));
+    let r = read_battery(&host, SUPPLY).expect("the node parses as an integer");
+
+    assert_eq!(
+        r.state_of_health(),
+        StateOfHealth::Unknown,
+        "a capacity that cannot be scaled is unverified, never a number"
+    );
+}
+
+#[test]
+fn a_capacity_larger_than_the_design_capacity_is_unknown_rather_than_flattering() {
+    // A cell cannot hold more than it was built to. A kernel saying otherwise is
+    // saying something that cannot be true, and clamping it to 100% would render
+    // the most suspicious reading available as perfect health.
+    let host = healthy_device()
+        .with_file(&format!("{SUPPLY}/charge_full"), "8000000\n")
+        .with_file(&format!("{SUPPLY}/charge_full_design"), "4000000\n");
+    let r = read_battery(&host, SUPPLY).unwrap();
+    assert_eq!(
+        r.state_of_health(),
+        StateOfHealth::Measured(Percent::clamped(100))
+    );
+}

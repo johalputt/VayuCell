@@ -70,6 +70,19 @@ traffic before it.
   are rendered there, so softening the alarming one — the way status displays
   actually drift — produces a plain-text diff rather than an innocuous-looking
   edit to a Rust file.
+- **The fuzzer found a real bug within seconds of first running.**
+  `charge_full * 100` overflowed `i64` in the state-of-health calculation —
+  `charge_full` is whatever a vendor kernel wrote into the node, parsed with no
+  upper bound, so a device reporting nonsense there panicked under debug
+  assertions and silently wrapped to a negative without them. It sat inside the
+  reading the governor uses to decide whether to keep charging a cell. Now a
+  `checked_mul` whose overflow reports `Unknown`, because a capacity that cannot
+  be scaled is unverified rather than a number.
+- *Maintainers only:* the fuzz target for the request line asserted that an
+  accepted path contained no `..` anywhere, and the fuzzer produced `/a..b`
+  within seconds — an ordinary filename. The oracle was wrong, not the parser,
+  and it now checks per segment, which is what the parser actually guarantees.
+  An over-strict fuzz oracle costs exactly as much attention as a real bug.
 - **Every GitHub Action is pinned to a commit SHA.** Sixty-three references
   across the workflows were tags — and a tag is whatever its owner repoints it
   at tomorrow, with no diff appearing in this repository. That is the
