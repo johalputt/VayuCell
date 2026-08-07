@@ -70,6 +70,30 @@ traffic before it.
   are rendered there, so softening the alarming one — the way status displays
   actually drift — produces a plain-text diff rather than an innocuous-looking
   edit to a Rust file.
+- **Sovereign ingress** (ADR-0003) — four modes, each declaring seven
+  properties with none of them optional, because the three fields the ADR's
+  draft lacked each changed a decision. An onion depends on a commons rather
+  than on nothing; it is not reachable by an ordinary browser, since `.onion` is
+  a reserved name that is not in DNS; and it has the worst compromise story of
+  the four, because the identity key is the address and there is no revocation.
+  The default is local-only: publishing is irreversible disclosure, which
+  Charter Article VIII.5 forbids without explicit confirmation, and it is the
+  only default executable on T0.
+- **The governor now outranks ingress, by construction.** The worst defect
+  ADR-0003 records is that its draft made the highest-heat mode the default
+  while the battery governor existed to suppress heat-driven ageing — and
+  neither document mentioned the other. `shed_for` takes a governor level and
+  has no parameter that overrides it: `DERATED` sheds high-thermal ingress
+  first, `PROTECT` and `HALT` stop everything outward-facing, and local-only
+  survives because stopping it would take the panel away from the person who
+  most needs to read it. The heat cost, the audience limit and the permanent
+  compromise are disclosed *before* the mode is chosen, and a device that
+  cannot hold a charge ceiling is told that this combination has no mitigation
+  available at all.
+- **"The tunnel is up" is not expressible.** `Reachability` has no variant for a
+  running process; verified means a request originating outside the device
+  traversed the path and was served. A loopback test proves nothing about a path
+  whose entire difficulty is external.
 - **Storage durability** (ADR-0004) — the guarantee is a number rather than an
   adjective. `RecoveryPoint` has no variant meaning durable, and a
   `compile_fail` doctest keeps it that way: a phone is a replica, and that is a

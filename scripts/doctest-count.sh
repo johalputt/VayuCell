@@ -11,8 +11,8 @@
 # The count is asserted EXACTLY, not as a floor. A floor of one only catches all
 # of the proofs disappearing at once, which is the least likely way to lose them.
 # They are lost one at a time: an item made private during a refactor, a proof
-# folded into a doc comment that moved. With nineteen proofs and a floor of one,
-# eighteen could stop being collected and this script would still print "ok" —
+# folded into a doc comment that moved. With twenty proofs and a floor of one,
+# nineteen could stop being collected and this script would still print "ok" —
 # which is exactly the class of silent pass every other gate here exists to
 # catch, sitting inside the gate meant to catch it.
 #
@@ -23,7 +23,7 @@ set -uo pipefail
 
 cd "$(dirname "$0")/.." || exit 1
 
-EXPECTED="${1:-19}"
+EXPECTED="${1:-20}"
 
 out="$(cargo test --workspace --doc 2>&1)"
 rc=$?

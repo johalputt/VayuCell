@@ -117,6 +117,7 @@ RT=core/src/runtime.rs
 AR=cli/src/args.rs
 RP=cli/src/report.rs
 DU=core/src/durability.rs
+IN=core/src/ingress.rs
 
 mutate "$T" a_guest_that_cannot_see_the_phone_reports_unverified_rather_than_guessing \
   "a bare VM is promoted to T2 without the shell's assertion" \
@@ -765,6 +766,60 @@ mutate "$DU" an_unconfigured_device_reports_every_field_at_its_least_reassuring_
   "an unconfigured device starts out looking replicated" \
   "            recovery_point: RecoveryPoint::NoReplica," \
   "            recovery_point: RecoveryPoint::Behind(Duration::from_secs(0)),"
+
+mutate "$IN" a_newly_installed_cell_publishes_nothing \
+  "a newly installed cell publishes itself to the world by default" \
+  "pub const DEFAULT: Mode = Mode::LocalOnly;" \
+  "pub const DEFAULT: Mode = Mode::Onion;"
+
+mutate "$IN" an_onion_is_not_recorded_as_dependency_free \
+  "an onion is recorded as depending on nothing, the draft's flattering ruler" \
+  "                dependency: Dependency::Commons,
+                // RFC 7686" \
+  "                dependency: Dependency::None,
+                // RFC 7686"
+
+mutate "$IN" an_onion_is_recorded_as_unreachable_by_ordinary_browsers \
+  "an onion is recorded as reachable by an ordinary browser" \
+  "                ordinary_browsers: false,
+                thermal: ThermalClass::High," \
+  "                ordinary_browsers: true,
+                thermal: ThermalClass::High,"
+
+mutate "$IN" the_most_sovereign_mode_is_recorded_as_having_the_worst_compromise_story \
+  "the onion identity key is recorded as recoverable after theft" \
+  "                compromise: CompromiseStory::Permanent," \
+  "                compromise: CompromiseStory::Recoverable,"
+
+mutate "$IN" a_derated_governor_sheds_high_thermal_ingress_first \
+  "a derated governor no longer sheds the load that is heating the device" \
+  "            Level::Derated => m.profile().thermal < ThermalClass::High," \
+  "            Level::Derated => true,"
+
+mutate "$IN" protect_and_halt_stop_everything_outward_facing \
+  "outward-facing ingress keeps running through PROTECT and HALT" \
+  "            Level::Protect | Level::Halt => !m.publishes()," \
+  "            Level::Protect | Level::Halt => true,"
+
+mutate "$IN" local_only_survives_every_level_because_it_is_not_what_is_heating_the_device \
+  "a halted governor also takes away the panel the operator needs to read" \
+  "            Level::Protect | Level::Halt => !m.publishes()," \
+  "            Level::Protect | Level::Halt => false,"
+
+mutate "$IN" a_device_that_cannot_hold_a_ceiling_is_told_there_is_no_mitigation_at_all \
+  "the device with no mitigation available is not told so" \
+  "        if !can_hold_ceiling {" \
+  "        if false {"
+
+mutate "$IN" choosing_an_onion_discloses_the_audience_limit_and_the_permanent_compromise \
+  "the audience limit is not disclosed before the mode is chosen" \
+  "    if !p.ordinary_browsers {" \
+  "    if false {"
+
+mutate "$IN" only_a_round_trip_from_outside_counts_as_verified \
+  "a path that merely failed a check counts as verified" \
+  "        matches!(self, Reachability::Verified { .. })" \
+  "        !matches!(self, Reachability::Unverified(_))"
 
 echo
 # The suite was green before the first mutation and every mutation was undone,

@@ -212,7 +212,7 @@ the code compiles there.
 
 ### `mutation`
 
-Runs [`scripts/mutation-gate.sh`](../scripts/mutation-gate.sh). **Ninety-three guards**, each re-broken in turn, each required to turn its matching test red:
+Runs [`scripts/mutation-gate.sh`](../scripts/mutation-gate.sh). **One hundred and three guards**, each re-broken in turn, each required to turn its matching test red:
 
 | Mutation | Test that must fail |
 | --- | --- |
@@ -309,6 +309,16 @@ Runs [`scripts/mutation-gate.sh`](../scripts/mutation-gate.sh). **Ninety-three g
 | A verified shed ladder reported as a concern, so nothing settles | `a_settled_device_still_required_somebody_to_restore_a_backup` |
 | The default flash posture listed beside real problems | `assuming_the_flash_lies_is_never_itself_a_concern` |
 | An unconfigured device starting out looking replicated | `an_unconfigured_device_reports_every_field_at_its_least_reassuring_value` |
+| A newly installed cell publishing itself to the world by default | `a_newly_installed_cell_publishes_nothing` |
+| An onion recorded as depending on nothing | `an_onion_is_not_recorded_as_dependency_free` |
+| An onion recorded as reachable by an ordinary browser | `an_onion_is_recorded_as_unreachable_by_ordinary_browsers` |
+| The onion identity key recorded as recoverable after theft | `the_most_sovereign_mode_is_recorded_as_having_the_worst_compromise_story` |
+| A derated governor no longer shedding the load heating the device | `a_derated_governor_sheds_high_thermal_ingress_first` |
+| Outward-facing ingress running through `PROTECT` and `HALT` | `protect_and_halt_stop_everything_outward_facing` |
+| A halted governor also taking away the panel the operator must read | `local_only_survives_every_level_because_it_is_not_what_is_heating_the_device` |
+| The device with no mitigation available not being told so | `a_device_that_cannot_hold_a_ceiling_is_told_there_is_no_mitigation_at_all` |
+| The audience limit not disclosed before the mode is chosen | `choosing_an_onion_discloses_the_audience_limit_and_the_permanent_compromise` |
+| A path that merely failed a check counting as verified | `only_a_round_trip_from_outside_counts_as_verified` |
 
 Three of these were defects in the **tests** rather than the code, found because
 a mutation survived or because writing one exposed the test as vacuous:

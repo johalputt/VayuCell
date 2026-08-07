@@ -22,6 +22,7 @@ pub mod durability;
 pub mod governor;
 pub mod headers;
 pub mod host;
+pub mod ingress;
 pub mod panel;
 pub mod runtime;
 pub mod sampler;
@@ -39,6 +40,8 @@ mod durability_test;
 mod governor_test;
 #[cfg(test)]
 mod headers_test;
+#[cfg(test)]
+mod ingress_test;
 #[cfg(test)]
 mod panel_test;
 #[cfg(test)]
