@@ -312,6 +312,10 @@ violation "$ATTRIB" "a commit is authored by a bot address" \
   "authored by a bot or noreply" \
   "$init_repo && printf 'x\n' >> NOTICE && git add -A && git -c user.name=B -c user.email='b[bot]@users.noreply.example.com' commit -qm tidy"
 
+violation "$CHARTER" "the CLI crate gains a third-party dependency" \
+  "V.5 a crate gained runtime dependencies" \
+  "sed -i '/^\\[dependencies\\]/a serde = \"1\"' cli/Cargo.toml"
+
 # ── Doctest count ─────────────────────────────────────────────────────────────
 # Checked directly rather than through violation(), which copies the tree
 # without target/ — a sandboxed cargo case would rebuild the crate from scratch

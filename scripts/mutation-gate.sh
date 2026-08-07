@@ -23,16 +23,34 @@ cd "$(dirname "$0")/.."
 # The sources are snapshotted to a temp directory and restored from there rather
 # than with 'git checkout', so the gate is safe to run on a dirty tree: it can
 # never discard uncommitted work, and it does not depend on git at all.
+# EVERY crate's sources, not just core/. This gate previously snapshotted
+# core/src by name; the moment a mutation named a file in cli/src it was applied
+# and never restored, and the crate stayed mutated on disk. The "is the suite
+# green after restore" assertion at the bottom is what caught it — which is the
+# only reason that assertion exists, and the reason it is worth its runtime.
 SNAPSHOT="$(mktemp -d)"
-cp -a core/src "$SNAPSHOT/src"
+CRATES=()
+while IFS= read -r d; do CRATES+=("$d"); done < <(
+  find . -mindepth 2 -maxdepth 2 -type d -name src -not -path './target/*' | sed 's|^\./||' | sort
+)
+if [ "${#CRATES[@]}" -eq 0 ]; then
+  echo "refusing to run: found no crate sources to snapshot."
+  exit 1
+fi
+for c in "${CRATES[@]}"; do
+  mkdir -p "$SNAPSHOT/$c"
+  cp -a "$c/." "$SNAPSHOT/$c/"
+done
 
 # 'cp -a' would preserve the snapshot's original mtimes, leaving the restored
 # file OLDER than the object compiled from the mutated source. Cargo fingerprints
 # on mtime, so it would skip the rebuild and keep running the mutant — the gate's
 # own false-green. The restore therefore stamps a fresh mtime deliberately.
 restore() {
-  cp -r "$SNAPSHOT/src/." core/src/
-  find core/src -type f -exec touch {} +
+  for c in "${CRATES[@]}"; do
+    cp -r "$SNAPSHOT/$c/." "$c/"
+    find "$c" -type f -exec touch {} +
+  done
 }
 cleanup() { restore; rm -rf "$SNAPSHOT"; }
 trap cleanup EXIT
@@ -96,6 +114,8 @@ SM=core/src/sampler.rs
 SH=core/src/shed.rs
 P=core/src/panel.rs
 RT=core/src/runtime.rs
+AR=cli/src/args.rs
+RP=cli/src/report.rs
 
 mutate "$T" a_guest_that_cannot_see_the_phone_reports_unverified_rather_than_guessing \
   "a bare VM is promoted to T2 without the shell's assertion" \
@@ -640,6 +660,50 @@ mutate "$RT" mains_returning_after_the_database_was_closed_does_not_silently_reo
                 self.shed = Shed::new(ShedPlan::recommended());
                 Vec::new()
             }"
+
+mutate "$AR" a_ceiling_outside_the_range_is_refused_rather_than_clamped \
+  "a ceiling of 200 is clamped to 100, which holds no ceiling at all" \
+  "                    .filter(|c| *c <= 100)" \
+  "                    .map(|c| c.min(100))"
+
+mutate "$AR" a_flag_with_no_value_is_refused_rather_than_falling_back_to_the_default \
+  "a flag with no value falls back to the default path" \
+  "        .filter(|v| !v.starts_with(\"--\"))" \
+  "        .filter(|_| true)"
+
+mutate "$AR" two_commands_are_refused_rather_than_last_one_winning \
+  "a second command silently replaces the first" \
+  "    if slot.is_some() {
+        return Err(ArgError(format!(
+            \"only one command at a time; {name:?} came after another\"
+        )));
+    }" \
+  "    if false {
+        return Err(ArgError(format!(
+            \"only one command at a time; {name:?} came after another\"
+        )));
+    }"
+
+mutate "$RP" the_exit_code_distinguishes_unmeasured_from_failed \
+  "an unmeasured device and a failed one exit with the same code" \
+  "        Overall::Unverified => EXIT_UNVERIFIED," \
+  "        Overall::Unverified => EXIT_UNSAFE,"
+
+mutate "$RP" a_present_ceiling_node_is_not_reported_verified_before_anything_was_written \
+  "a detected ceiling node is reported verified before anything was written" \
+  "            Some(k) if k.is_ceiling() => Finding::Unverified(evidence(&format!(
+                \"{} is present and holds a percentage; run \`vayucell run\` to \\
+                 write {}% and read it back\"," \
+  "            Some(k) if k.is_ceiling() => Finding::Verified(evidence(&format!(
+                \"{} is present and holds a percentage; run \`vayucell run\` to \\
+                 write {}% and read it back\","
+
+mutate "$RP" a_machine_that_is_not_a_phone_reports_unverified_rather_than_crashing_or_passing \
+  "an unreadable cell is credited with an outage reserve anyway" \
+  "        Err(_) => UpsClaim::Unbacked {
+            why: \"the cell could not be read, so nothing is known to be carrying this node\",
+        }," \
+  "        Err(_) => UpsClaim::Backed { reserve: ceiling },"
 
 echo
 # The suite was green before the first mutation and every mutation was undone,

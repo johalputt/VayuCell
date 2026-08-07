@@ -212,7 +212,7 @@ the code compiles there.
 
 ### `mutation`
 
-Runs [`scripts/mutation-gate.sh`](../scripts/mutation-gate.sh). **Seventy-nine guards**, each re-broken in turn, each required to turn its matching test red:
+Runs [`scripts/mutation-gate.sh`](../scripts/mutation-gate.sh). **Eighty-five guards**, each re-broken in turn, each required to turn its matching test red:
 
 | Mutation | Test that must fail |
 | --- | --- |
@@ -295,6 +295,12 @@ Runs [`scripts/mutation-gate.sh`](../scripts/mutation-gate.sh). **Seventy-nine g
 | The loop reading the cell and never showing the governor the reading | `a_hot_device_escalates_on_the_tick_that_read_it` |
 | An unreadable cell during an outage reported as charged | `an_outage_on_a_cell_that_stopped_answering_shuts_down_rather_than_riding_it_out` |
 | Mains returning walking the shed ladder back up from any rung | `mains_returning_after_the_database_was_closed_does_not_silently_reopen_it` |
+| A `--ceiling` of 200 clamped to 100, which holds no ceiling at all | `a_ceiling_outside_the_range_is_refused_rather_than_clamped` |
+| A flag with no value falling back to the default path | `a_flag_with_no_value_is_refused_rather_than_falling_back_to_the_default` |
+| A second command silently replacing the first | `two_commands_are_refused_rather_than_last_one_winning` |
+| An unmeasured device and a failed one exiting with the same code | `the_exit_code_distinguishes_unmeasured_from_failed` |
+| A detected ceiling node reported verified before anything was written | `a_present_ceiling_node_is_not_reported_verified_before_anything_was_written` |
+| An unreadable cell credited with an outage reserve | `a_machine_that_is_not_a_phone_reports_unverified_rather_than_crashing_or_passing` |
 
 Three of these were defects in the **tests** rather than the code, found because
 a mutation survived or because writing one exposed the test as vacuous:
@@ -322,6 +328,15 @@ a mutation survived or because writing one exposed the test as vacuous:
   in the tree asserting nothing. Caught because the doctest run reports a
   `compile_fail` that compiles as a failure; it is worth knowing that the same
   mistake inside a `no_run` or an `ignore` block would have been silent.
+- **The mutation gate corrupted a crate it did not know about.** It snapshotted
+  `core/src` by name, so the first mutation naming a file in `cli/src` was
+  applied and never restored — five of them accumulated on disk and the crate
+  stayed broken. Nothing in the mutation results said so; what said so was the
+  gate's own closing assertion that the suite must be green *after* the last
+  restore, which is the only reason that assertion exists and the only thing
+  that caught this. The gate now enumerates every crate's `src` directory rather
+  than naming one, and the gate self-test plants a third-party dependency in the
+  CLI crate to prove the charter gate sees crates added after it was written.
 
 ### The committed snapshots
 

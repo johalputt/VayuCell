@@ -163,11 +163,23 @@ done
 # mechanical form is that the core has no third-party runtime dependencies at
 # all, which ADR-0005 §5.1 already requires. A vendored crate could later carry a
 # network call nobody reviewed; zero dependencies means zero to review.
-deps="$(sed -n '/^\[dependencies\]/,/^\[/p' core/Cargo.toml | grep -vE '^\[|^\s*#|^\s*$' || true)"
+# EVERY crate is checked, not just core/. The binary was added after this gate
+# was written, and a gate that names one manifest by hand goes on passing while a
+# dependency lands in the crate beside it — which is precisely the silent pass
+# every gate here exists to catch. A path dependency on another crate in this
+# workspace is not third-party and is allowed; anything else is not.
+deps=""
+while IFS= read -r manifest; do
+  found="$(sed -n '/^\[dependencies\]/,/^\[/p' "$manifest" \
+    | grep -vE '^\[|^\s*#|^\s*$' \
+    | grep -v 'path *= *"' || true)"
+  [ -n "$found" ] && deps="$deps$manifest: $found"$'\n'
+done < <(find . -name Cargo.toml -not -path './target/*' -not -path './.git/*' | sort)
+
 if [ -z "$deps" ]; then
-  pass "V.5 the core has no third-party runtime dependencies"
+  pass "V.5 no crate has a third-party runtime dependency"
 else
-  fail "V.5 the core gained runtime dependencies without an ADR admitting them:"
+  fail "V.5 a crate gained runtime dependencies without an ADR admitting them:"
   printf '        %s\n' "$deps"
 fi
 

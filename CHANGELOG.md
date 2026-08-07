@@ -70,6 +70,25 @@ traffic before it.
   are rendered there, so softening the alarming one — the way status displays
   actually drift — produces a plain-text diff rather than an innocuous-looking
   edit to a Rust file.
+- **`vayucell`, the binary** — the thing that owns the loop. `status` reads the
+  device once, prints the panel and exits with the verdict: 0 protected, 1 not
+  fully verified, 2 unsafe, 64 unusable arguments. A monitor gets the answer
+  without parsing prose, and unmeasured stays a different number from failed,
+  because collapsing them loses the distinction Article IV exists to keep.
+  `run` holds the ceiling and stops when the governor halts. A `--ceiling` of
+  200 is refused rather than clamped — 100 holds no ceiling at all, so clamping
+  would make the unsafe reading the silent one on the single setting that
+  governs a cell in somebody's home. Zero third-party dependencies here too;
+  argument parsing is thirty lines of `std`.
+- *Maintainers only:* **the mutation gate was corrupting a crate it did not know
+  about.** It snapshotted `core/src` by name, so mutations naming files in the
+  new `cli/src` were applied and never restored — five accumulated on disk.
+  Nothing in the mutation output said so; the gate's own closing check that the
+  suite must be green *after* the last restore is what caught it. It now
+  enumerates every crate rather than naming one, the charter gate's
+  no-dependencies rule was widened from `core/Cargo.toml` to every manifest, and
+  the gate self-test plants a dependency in the CLI crate to prove that widening
+  works.
 - **The supervisor loop** — the piece that makes the rest a running thing. One
   tick reads the cell, enforces the ceiling, shows the reading to the governor,
   advances the shed ladder and returns how long to wait. The clock is a trait,

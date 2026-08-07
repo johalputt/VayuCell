@@ -1,0 +1,22 @@
+[package]
+name = "vayucell"
+version = "0.0.1"
+edition = "2021"
+rust-version = "1.80"
+license = "Apache-2.0"
+description = "VayuCell: the command that reports what a device can be trusted to do, and governs its cell."
+repository = "https://github.com/johalputt/VayuCell"
+
+[[bin]]
+name = "vayucell"
+path = "src/main.rs"
+
+# ADR-0005 §5.1 — no third-party runtime dependencies here either. Argument
+# parsing is thirty lines of std; a parser crate would be the first dependency
+# in a project whose headline claim is that it has none.
+[dependencies]
+vayucell-core = { path = "../core", version = "0.0.1" }
+
+[lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"

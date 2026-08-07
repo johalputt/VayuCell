@@ -3,5 +3,12 @@
 version = 3
 
 [[package]]
+name = "vayucell"
+version = "0.0.1"
+dependencies = [
+ "vayucell-core",
+]
+
+[[package]]
 name = "vayucell-core"
 version = "0.0.1"
