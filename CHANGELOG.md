@@ -70,6 +70,26 @@ traffic before it.
   are rendered there, so softening the alarming one — the way status displays
   actually drift — produces a plain-text diff rather than an innocuous-looking
   edit to a Rust file.
+- **Storage durability** (ADR-0004) — the guarantee is a number rather than an
+  adjective. `RecoveryPoint` has no variant meaning durable, and a
+  `compile_fail` doctest keeps it that way: a phone is a replica, and that is a
+  guarantee only for data older than the replication lag. The closest thing to
+  good news the type can express is how far behind the off-device copy is, which
+  still names the window in which data exists on one device only.
+- **A backup nobody has restored can never read as proven.** Everything anybody
+  checks on a written backup — its size, its checksum, that it appeared — is a
+  property of the file rather than of the restore, and writing more backups is
+  what people do instead of restoring one, so it never moves that row. Of the
+  four things ADR-0004 records, the one that can read as verified is the shed
+  ladder completing, because it measures this software's behaviour rather than
+  the flash controller's honesty.
+- **Assuming the flash lies is never itself reported as a fault.** It is the
+  correct posture toward all consumer flash and true of every device; rendered
+  as a warning it would appear on every panel forever, and a warning that is
+  always on is one nobody reads. `lab_verified` cannot be claimed without naming
+  the method, the fixture and the date, so it cannot be set by somebody who
+  rebooted a phone and watched the database survive — which is the test ADR-0004
+  withdrew.
 - **`vayucell`, the binary** — the thing that owns the loop. `status` reads the
   device once, prints the panel and exits with the verdict: 0 protected, 1 not
   fully verified, 2 unsafe, 64 unusable arguments. A monitor gets the answer

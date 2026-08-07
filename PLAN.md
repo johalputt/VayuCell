@@ -384,7 +384,7 @@ capability before it can verify it.
 | **P3** | **Sovereign Ingress** — onion, relay, local | A reachable server with no public IP | Reachable from outside with no port forward |
 | **P4** | Catalogue: VayuPress stack + personal cloud | The two headline uses | A real site and real file sync, served from a phone |
 | **P5** | **T2 virtualised tier** (pKVM guest) | Server-grade on unrooted, updated phones | Guest survives host reboot; escapes Doze |
-| **P6** | Replication lag as the stated guarantee, verified-restore reporting, wear observation | Data you can trust | Graceful-shutdown ladder verified; an unrestored backup reads *unverified* |
+| **P6** | Replication lag as the stated guarantee, verified-restore reporting, wear observation | Data you can trust | Graceful-shutdown ladder verified; an unrestored backup reads *unverified*. *The types are in `core/src/durability.rs` and an unrestored backup cannot read as proven; the ladder's on-device verification needs a device* |
 | **P7** | **Fleet** — roles, replication, rolling upgrade, shared verdicts | Redundancy and scale | One node killed mid-write loses nothing |
 | **P8** | **T3 mainline tier** (postmarketOS-class images) | A maintained kernel — the real fix for B4 | Verified images for the top device families |
 | **P9** | Local model inference, household services | Private AI on hardware you own | Runs within the declared thermal envelope |

@@ -18,6 +18,7 @@
 pub mod battery;
 pub mod capability;
 pub mod csp;
+pub mod durability;
 pub mod governor;
 pub mod headers;
 pub mod host;
@@ -32,6 +33,8 @@ pub mod tier;
 mod capability_test;
 #[cfg(test)]
 mod csp_test;
+#[cfg(test)]
+mod durability_test;
 #[cfg(test)]
 mod governor_test;
 #[cfg(test)]

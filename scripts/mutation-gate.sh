@@ -116,6 +116,7 @@ P=core/src/panel.rs
 RT=core/src/runtime.rs
 AR=cli/src/args.rs
 RP=cli/src/report.rs
+DU=core/src/durability.rs
 
 mutate "$T" a_guest_that_cannot_see_the_phone_reports_unverified_rather_than_guessing \
   "a bare VM is promoted to T2 without the shell's assertion" \
@@ -704,6 +705,66 @@ mutate "$RP" a_machine_that_is_not_a_phone_reports_unverified_rather_than_crashi
             why: \"the cell could not be read, so nothing is known to be carrying this node\",
         }," \
   "        Err(_) => UpsClaim::Backed { reserve: ceiling },"
+
+mutate "$DU" an_unreachable_replica_is_not_filtered_out_as_noise \
+  "an unreachable replica is filtered out as noise" \
+  "            RecoveryPoint::Behind(lag) => *lag > target,
+            _ => true," \
+  "            RecoveryPoint::Behind(lag) => *lag > target,
+            RecoveryPoint::Unreachable(_) => false,
+            _ => true,"
+
+mutate "$DU" a_backup_nobody_has_restored_is_never_proven \
+  "a backup that was merely written counts as proven" \
+  "        matches!(self, BackupState::Restored { .. })" \
+  "        !matches!(self, BackupState::NotConfigured)"
+
+mutate "$DU" the_default_posture_toward_flash_is_untrusted \
+  "the default posture toward consumer flash becomes trusting" \
+  "    fn default() -> Self {
+        Self::AssumedUntrusted
+    }" \
+  "    fn default() -> Self {
+        Self::LabVerified(LabVerification {
+            method: String::new(),
+            fixture: String::new(),
+            date: String::new(),
+        })
+    }"
+
+mutate "$DU" an_unrestored_backup_is_a_standing_concern_that_no_amount_of_backing_up_clears \
+  "an unrestored backup stops being a standing concern" \
+  "        if !self.backup.is_proven() {
+            out.push(self.backup.to_string());
+        }" \
+  "        if false {
+            out.push(self.backup.to_string());
+        }"
+
+mutate "$DU" a_shed_ladder_nobody_has_watched_complete_is_not_credited \
+  "a shed ladder nobody watched complete is silently credited" \
+  "            GracefulShutdown::NeverObserved => out.push(
+                \"the shed ladder has never been observed completing on this device\".to_owned(),
+            )," \
+  "            GracefulShutdown::NeverObserved => {}"
+
+mutate "$DU" a_settled_device_still_required_somebody_to_restore_a_backup \
+  "a verified shed ladder is reported as a concern anyway, so nothing ever settles" \
+  "            GracefulShutdown::Verified => {}" \
+  "            GracefulShutdown::Verified => out.push(\"unsettled\".to_owned()),"
+
+mutate "$DU" assuming_the_flash_lies_is_never_itself_a_concern \
+  "the default flash posture is listed beside real problems" \
+  "        // Deliberately NOT a concern: DurabilityClass::AssumedUntrusted, and a" \
+  "        if !self.durability.is_lab_verified() {
+            out.push(\"the flash is not lab verified\".to_owned());
+        }
+        // Deliberately NOT a concern: DurabilityClass::AssumedUntrusted, and a"
+
+mutate "$DU" an_unconfigured_device_reports_every_field_at_its_least_reassuring_value \
+  "an unconfigured device starts out looking replicated" \
+  "            recovery_point: RecoveryPoint::NoReplica," \
+  "            recovery_point: RecoveryPoint::Behind(Duration::from_secs(0)),"
 
 echo
 # The suite was green before the first mutation and every mutation was undone,

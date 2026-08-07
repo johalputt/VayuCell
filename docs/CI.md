@@ -212,7 +212,7 @@ the code compiles there.
 
 ### `mutation`
 
-Runs [`scripts/mutation-gate.sh`](../scripts/mutation-gate.sh). **Eighty-five guards**, each re-broken in turn, each required to turn its matching test red:
+Runs [`scripts/mutation-gate.sh`](../scripts/mutation-gate.sh). **Ninety-three guards**, each re-broken in turn, each required to turn its matching test red:
 
 | Mutation | Test that must fail |
 | --- | --- |
@@ -301,6 +301,14 @@ Runs [`scripts/mutation-gate.sh`](../scripts/mutation-gate.sh). **Eighty-five gu
 | An unmeasured device and a failed one exiting with the same code | `the_exit_code_distinguishes_unmeasured_from_failed` |
 | A detected ceiling node reported verified before anything was written | `a_present_ceiling_node_is_not_reported_verified_before_anything_was_written` |
 | An unreadable cell credited with an outage reserve | `a_machine_that_is_not_a_phone_reports_unverified_rather_than_crashing_or_passing` |
+| An unreachable replica filtered out as noise | `an_unreachable_replica_is_not_filtered_out_as_noise` |
+| A backup that was merely written counted as proven | `a_backup_nobody_has_restored_is_never_proven` |
+| The default posture toward consumer flash becoming trusting | `the_default_posture_toward_flash_is_untrusted` |
+| An unrestored backup ceasing to be a standing concern | `an_unrestored_backup_is_a_standing_concern_that_no_amount_of_backing_up_clears` |
+| A shed ladder nobody watched complete credited silently | `a_shed_ladder_nobody_has_watched_complete_is_not_credited` |
+| A verified shed ladder reported as a concern, so nothing settles | `a_settled_device_still_required_somebody_to_restore_a_backup` |
+| The default flash posture listed beside real problems | `assuming_the_flash_lies_is_never_itself_a_concern` |
+| An unconfigured device starting out looking replicated | `an_unconfigured_device_reports_every_field_at_its_least_reassuring_value` |
 
 Three of these were defects in the **tests** rather than the code, found because
 a mutation survived or because writing one exposed the test as vacuous:
