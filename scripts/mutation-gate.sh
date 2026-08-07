@@ -95,6 +95,7 @@ SF=core/src/sysfs.rs
 SM=core/src/sampler.rs
 SH=core/src/shed.rs
 P=core/src/panel.rs
+RT=core/src/runtime.rs
 
 mutate "$T" a_guest_that_cannot_see_the_phone_reports_unverified_rather_than_guessing \
   "a bare VM is promoted to T2 without the shell's assertion" \
@@ -601,6 +602,44 @@ mutate "$P" the_rendered_panels_match_the_committed_snapshot \
   "the panel's wording is softened without any assertion breaking" \
   "            Overall::Unsafe => \"UNSAFE\"," \
   "            Overall::Unsafe => \"NEEDS ATTENTION\","
+
+mutate "$RT" a_device_that_cannot_be_read_still_produces_a_full_outcome \
+  "an unreadable tick backs the cadence off instead of tightening it" \
+  "                let cadence = Sampler::cadence_when_unreadable();" \
+  "                let cadence = Cadence::Steady;"
+
+mutate "$RT" three_unreadable_ticks_derate_the_device_through_the_loop \
+  "the loop never tells the governor it went blind" \
+  "                let transition = self.governor.observe_unreadable(&e.to_string());" \
+  "                let transition = None;"
+
+mutate "$RT" a_reverted_ceiling_is_caught_on_the_tick_that_wrote_it \
+  "the loop stops enforcing the ceiling it was given" \
+  "                let mut transition =
+                    mechanism.and_then(|m| self.governor.enforce(m, self.ceiling, &reading));" \
+  "                let mut transition = None;
+                let _ = mechanism;"
+
+mutate "$RT" a_hot_device_escalates_on_the_tick_that_read_it \
+  "the loop reads the cell and never shows the governor the reading" \
+  "                transition = transition.or_else(|| self.governor.observe(&reading));" \
+  "                transition = transition.or(None);"
+
+mutate "$RT" an_outage_on_a_cell_that_stopped_answering_shuts_down_rather_than_riding_it_out \
+  "an unreadable cell during an outage is reported as charged" \
+  "                let shed = self.advance_shed(power, &Charge::Unreadable(e.to_string()));" \
+  "                let shed = self.advance_shed(power, &Charge::Measured(Percent::clamped(100)));"
+
+mutate "$RT" mains_returning_after_the_database_was_closed_does_not_silently_reopen_it \
+  "mains returning walks the ladder back up from any rung" \
+  "            Power::Mains => {
+                self.shed.restored();
+                Vec::new()
+            }" \
+  "            Power::Mains => {
+                self.shed = Shed::new(ShedPlan::recommended());
+                Vec::new()
+            }"
 
 echo
 # The suite was green before the first mutation and every mutation was undone,

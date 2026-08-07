@@ -380,7 +380,7 @@ capability before it can verify it.
 | --- | --- | --- | --- |
 | **P0** | Charter, licences, capability registry, device profiler, hardware DB | Nothing yet — but nothing can land undeclared | An unregistered capability fails the build |
 | **P1** | **Battery Safety Governor** + posture report | Safe unattended operation | Ceiling is set, read back, and reverting is detected |
-| **P2** | T0/T1 runtime, service supervisor, one-click installer | A phone that serves something | Survives 30 days unattended with Doze active |
+| **P2** | T0/T1 runtime, service supervisor, one-click installer | A phone that serves something | Survives 30 days unattended with Doze active. *The supervisor loop exists in `core/src/runtime.rs` and thirty simulated days is a test; the gate itself needs a device and remains open* |
 | **P3** | **Sovereign Ingress** — onion, relay, local | A reachable server with no public IP | Reachable from outside with no port forward |
 | **P4** | Catalogue: VayuPress stack + personal cloud | The two headline uses | A real site and real file sync, served from a phone |
 | **P5** | **T2 virtualised tier** (pKVM guest) | Server-grade on unrooted, updated phones | Guest survives host reboot; escapes Doze |

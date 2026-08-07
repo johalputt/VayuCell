@@ -212,7 +212,7 @@ the code compiles there.
 
 ### `mutation`
 
-Runs [`scripts/mutation-gate.sh`](../scripts/mutation-gate.sh). **Seventy-three guards**, each re-broken in turn, each required to turn its matching test red:
+Runs [`scripts/mutation-gate.sh`](../scripts/mutation-gate.sh). **Seventy-nine guards**, each re-broken in turn, each required to turn its matching test red:
 
 | Mutation | Test that must fail |
 | --- | --- |
@@ -289,6 +289,12 @@ Runs [`scripts/mutation-gate.sh`](../scripts/mutation-gate.sh). **Seventy-three 
 | An estimate resting on no proxies rendering as a clean bill | `an_estimate_resting_on_nothing_says_so_rather_than_rendering_an_empty_list` |
 | A node with no cell credited with an outage reserve | `a_node_with_no_cell_is_not_credited_with_an_outage_reserve` |
 | The panel's wording softened without any individual assertion breaking | `the_rendered_panels_match_the_committed_snapshot` |
+| An unreadable tick backing the cadence off instead of tightening it | `a_device_that_cannot_be_read_still_produces_a_full_outcome` |
+| The loop never telling the governor it went blind | `three_unreadable_ticks_derate_the_device_through_the_loop` |
+| The loop no longer enforcing the ceiling it was given | `a_reverted_ceiling_is_caught_on_the_tick_that_wrote_it` |
+| The loop reading the cell and never showing the governor the reading | `a_hot_device_escalates_on_the_tick_that_read_it` |
+| An unreadable cell during an outage reported as charged | `an_outage_on_a_cell_that_stopped_answering_shuts_down_rather_than_riding_it_out` |
+| Mains returning walking the shed ladder back up from any rung | `mains_returning_after_the_database_was_closed_does_not_silently_reopen_it` |
 
 Three of these were defects in the **tests** rather than the code, found because
 a mutation survived or because writing one exposed the test as vacuous:

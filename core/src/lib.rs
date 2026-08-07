@@ -22,6 +22,7 @@ pub mod governor;
 pub mod headers;
 pub mod host;
 pub mod panel;
+pub mod runtime;
 pub mod sampler;
 pub mod shed;
 pub mod sysfs;
@@ -37,6 +38,8 @@ mod governor_test;
 mod headers_test;
 #[cfg(test)]
 mod panel_test;
+#[cfg(test)]
+mod runtime_test;
 #[cfg(test)]
 mod sampler_test;
 #[cfg(test)]

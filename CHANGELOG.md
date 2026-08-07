@@ -70,6 +70,18 @@ traffic before it.
   are rendered there, so softening the alarming one — the way status displays
   actually drift — produces a plain-text diff rather than an innocuous-looking
   edit to a Rust file.
+- **The supervisor loop** — the piece that makes the rest a running thing. One
+  tick reads the cell, enforces the ceiling, shows the reading to the governor,
+  advances the shed ladder and returns how long to wait. The clock is a trait,
+  so thirty simulated days — 86,400 ticks — is a unit test that finishes in
+  milliseconds. That test says the composition does not drift or stop
+  escalating over a long run; it says nothing about a real kernel or a real
+  cell, and it is not the roadmap's P2 gate. The unreadable case is not an
+  early return: it feeds the blind counter, tightens the cadence and fills in
+  the same outcome as any other tick, because a loop whose error path is
+  shorter than its success path goes quiet exactly when something is wrong.
+  A governor that halted before a restart comes back halted, because the
+  supervisor is handed one rather than building a fresh one.
 - **ADR-0007** records the panel's design decisions and, more usefully, the
   alternatives that were rejected: a numeric risk score, a stored headline, a
   conditional inspection prompt, and dropping the charge-mechanism row on
