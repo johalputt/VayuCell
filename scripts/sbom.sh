@@ -54,16 +54,46 @@ fi
 echo "  produced:"
 printf '    %s\n' "${PRODUCED[@]}"
 
-# One workspace member today. If that changes, merging them is a real decision
-# and should be made deliberately rather than by this script picking one.
-if [ "${#PRODUCED[@]}" -gt 1 ]; then
+# More than one crate produces more than one SBOM, and choosing between them is
+# a real decision rather than something to settle by taking the first.
+#
+# The decision: the bill of materials describes the ARTEFACT THAT SHIPS, which is
+# the `vayucell` binary. Its SBOM already names vayucell-core as a component, so
+# it covers the library transitively; the library's own SBOM describes something
+# nobody installs on its own. This is a selection, not a merge — merging two
+# CycloneDX documents means reconciling their metadata and their bom-refs, and a
+# script that did that silently would be inventing provenance.
+#
+# The published crate is named rather than positional, so a workspace member
+# added later cannot quietly become the thing whose SBOM gets published.
+PUBLISHED="vayucell"
+CHOSEN=""
+for f in "${PRODUCED[@]}"; do
+  subject="$(python3 -c '
+import json, sys
+try:
+    print(json.load(open(sys.argv[1]))["metadata"]["component"]["name"])
+except Exception:
+    print("")
+' "$f")"
+  [ "$subject" = "$PUBLISHED" ] && CHOSEN="$f"
+done
+
+if [ -z "$CHOSEN" ]; then
   echo
-  echo "more than one SBOM was produced; merging them is a decision this script"
-  echo "does not make on its own."
+  echo "no SBOM describes the published artefact ($PUBLISHED)."
+  echo "Produced SBOMs describe: "
+  for f in "${PRODUCED[@]}"; do
+    printf '    %s\n' "$f"
+  done
+  echo "Publishing one of these anyway would attach a bill of materials to a"
+  echo "binary it does not describe."
   exit 1
 fi
 
-[ "${PRODUCED[0]}" = "./$OUT" ] || mv "${PRODUCED[0]}" "$OUT"
+[ "${#PRODUCED[@]}" -gt 1 ] && echo "  selected:  $CHOSEN (the published artefact)"
+
+[ "$CHOSEN" = "./$OUT" ] || mv "$CHOSEN" "$OUT"
 
 python3 - "$OUT" <<'PY'
 import json
