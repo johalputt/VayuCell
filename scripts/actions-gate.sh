@@ -57,6 +57,18 @@ if ! git ls-remote --tags --refs https://github.com/actions/checkout >/dev/null 
   exit 0
 fi
 
+# Every reference must be pinned to a full commit SHA, and the SHA must exist.
+#
+# A tag is a moving target. `actions/checkout@v7` is whatever the owner of that
+# tag decides it is tomorrow, and a tag can be repointed at any commit without
+# anybody downstream seeing a diff — which is the supply-chain attack this
+# project would otherwise have no defence against, on a binary people are asked
+# to run unattended in the building where they sleep.
+#
+# So the check is now in two parts, and BOTH must hold: the reference is a
+# 40-character SHA, and that SHA is reachable in the repository it names. The
+# second part matters on its own — a SHA nobody can fetch fails the workflow on
+# its first run, and a typo in a SHA looks exactly like a legitimate pin.
 for entry in "${REFS[@]}"; do
   repo_path="${entry%@*}"
   ref="${entry##*@}"
@@ -65,20 +77,27 @@ for entry in "${REFS[@]}"; do
   owner="$(echo "$repo_path" | cut -d/ -f1)"
   name="$(echo "$repo_path" | cut -d/ -f2)"
 
-  if git ls-remote --exit-code "https://github.com/$owner/$name" \
-      "refs/tags/$ref" "refs/heads/$ref" >/dev/null 2>&1; then
+  if ! printf '%s' "$ref" | grep -qE '^[0-9a-f]{40}$'; then
+    fail "$entry is not pinned to a commit SHA; a tag can be repointed at any commit without producing a diff here"
+    continue
+  fi
+
+  # `ls-remote <sha>` does not work — a SHA is not a ref. Fetching the single
+  # object is the only way to establish it exists without cloning the history.
+  tmp="$(mktemp -d)"
+  if git -C "$tmp" init -q 2>/dev/null \
+     && git -C "$tmp" fetch -q --depth 1 "https://github.com/$owner/$name" "$ref" 2>/dev/null; then
     pass "$entry"
   else
-    latest="$(git ls-remote --tags --refs "https://github.com/$owner/$name" 2>/dev/null \
-      | awk -F/ '{print $NF}' | grep -E '^v?[0-9]+(\.[0-9]+)*$' | sort -V | tail -1)"
-    fail "$entry does not resolve${latest:+ (latest tag: $latest)}"
+    fail "$entry names a commit that could not be fetched from $owner/$name"
   fi
+  rm -rf "$tmp"
 done
 
 echo
 if [ "$FAILED" -ne 0 ]; then
-  echo "ACTIONS GATE FAILED — a workflow references something that does not exist."
+  echo "ACTIONS GATE FAILED — a workflow reference is unpinned or unreachable."
   echo "It would fail on the first run, in CI, at the worst possible moment."
   exit 1
 fi
-echo "Actions gate passed: all ${#REFS[@]} workflow references resolve."
+echo "Actions gate passed: all ${#REFS[@]} workflow references are SHA-pinned and reachable."

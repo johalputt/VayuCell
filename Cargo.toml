@@ -1,3 +1,8 @@
 [workspace]
 members = ["core", "cli"]
+
+# The fuzz harness carries a third-party dependency and must never be built
+# into anything that ships. Excluding it here is what makes that true;
+# scripts/charter-gate.sh verifies the exclusion rather than trusting it.
+exclude = ["fuzz"]
 resolver = "2"

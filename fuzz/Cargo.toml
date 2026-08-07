@@ -1,0 +1,44 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# The fuzz harness is deliberately NOT a workspace member.
+#
+# It carries libfuzzer-sys, which is a third-party dependency, and Charter
+# Article V.5 says the shipped code carries none. Both are true at once because
+# nothing here ships: this crate is excluded in the root Cargo.toml, is never a
+# dependency of vayucell-core or of the binary, and is built only by somebody
+# who typed `cargo fuzz`. scripts/charter-gate.sh checks that exclusion rather
+# than trusting this comment — an exemption nobody verifies is a hole.
+
+[package]
+name = "vayucell-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+vayucell-core = { path = "../core" }
+
+[[bin]]
+name = "request_line"
+path = "fuzz_targets/request_line.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "battery_reading"
+path = "fuzz_targets/battery_reading.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "nonce"
+path = "fuzz_targets/nonce.rs"
+test = false
+doc = false
+bench = false

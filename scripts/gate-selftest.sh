@@ -283,9 +283,17 @@ violation "$CONST" "a rule cites an enforcer that has been deleted" \
 # failing, so a planted violation would be scored MISSED against a gate that is
 # behaving correctly.
 if git ls-remote --tags --refs https://github.com/actions/checkout >/dev/null 2>&1; then
-  violation "$ACTIONS" "a workflow references a tag the project does not publish" \
-    "does not resolve" \
-    "sed -i 's|uses: actions/checkout@v7|uses: actions/checkout@v999|' .github/workflows/ci.yml"
+  # Unpinning is now the violation. The previous version of this case planted a
+  # tag that does not exist, which stopped being plantable the moment every
+  # reference became a SHA — a case that can no longer be planted is a case that
+  # tests nothing, and the STALE check is what would have said so.
+  violation "$ACTIONS" "a workflow action is unpinned from its commit SHA" \
+    "is not pinned to a commit SHA" \
+    "sed -i -E '0,/uses: actions\\/checkout@[0-9a-f]{40}/s||uses: actions/checkout@v7|' .github/workflows/ci.yml"
+
+  violation "$ACTIONS" "a workflow names a commit SHA that does not exist" \
+    "could not be fetched" \
+    "sed -i -E '0,/uses: actions\\/checkout@[0-9a-f]{40}/s|@[0-9a-f]{40}|@0000000000000000000000000000000000000000|' .github/workflows/ci.yml"
 else
   echo "  --      actions gate cases skipped: no network"
 fi
@@ -315,6 +323,10 @@ violation "$ATTRIB" "a commit is authored by a bot address" \
 violation "$CHARTER" "the CLI crate gains a third-party dependency" \
   "V.5 a crate gained runtime dependencies" \
   "sed -i '/^\\[dependencies\\]/a serde = \"1\"' cli/Cargo.toml"
+
+violation "$CHARTER" "the fuzz harness rejoins the workspace, making its dependency shippable" \
+  "not excluded in the root Cargo.toml" \
+  "sed -i 's|^exclude = \\[\"fuzz\"\\]|exclude = []|' Cargo.toml"
 
 # ── Doctest count ─────────────────────────────────────────────────────────────
 # Checked directly rather than through violation(), which copies the tree

@@ -168,13 +168,27 @@ done
 # dependency lands in the crate beside it — which is precisely the silent pass
 # every gate here exists to catch. A path dependency on another crate in this
 # workspace is not third-party and is allowed; anything else is not.
+# The fuzz harness is the ONE exemption, and it is verified rather than trusted.
+# It carries libfuzzer-sys, and it is allowed to only because nothing it touches
+# ships: it is excluded from the workspace, so no `cargo build` of the binary
+# can reach it. An exemption that merely asserted that would be a hole with a
+# comment over it, so the exclusion is checked here — and if the fuzz crate ever
+# rejoins the workspace, this fails before its dependency does.
+if [ -d fuzz ]; then
+  if grep -qE '^\s*exclude\s*=\s*\[[^]]*"fuzz"' Cargo.toml; then
+    pass "V.5 the fuzz harness is excluded from the workspace, so its dependency never ships"
+  else
+    fail "V.5 fuzz/ exists but is not excluded in the root Cargo.toml, so its third-party dependency is reachable from a build of the binary"
+  fi
+fi
+
 deps=""
 while IFS= read -r manifest; do
   found="$(sed -n '/^\[dependencies\]/,/^\[/p' "$manifest" \
     | grep -vE '^\[|^\s*#|^\s*$' \
     | grep -v 'path *= *"' || true)"
   [ -n "$found" ] && deps="$deps$manifest: $found"$'\n'
-done < <(find . -name Cargo.toml -not -path './target/*' -not -path './.git/*' | sort)
+done < <(find . -name Cargo.toml -not -path './target/*' -not -path './.git/*' -not -path './fuzz/*' | sort)
 
 if [ -z "$deps" ]; then
   pass "V.5 no crate has a third-party runtime dependency"

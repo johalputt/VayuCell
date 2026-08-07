@@ -1,0 +1,57 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Static analysis, as a second opinion.
+#
+# This repository already runs clippy at `-D warnings` with the pedantic set,
+# forbids `unsafe`, and mutation-tests its own guards. None of that is a
+# substitute for an analyser built by people who were not looking at this code:
+# every check here was written by somebody who already believed the code was
+# correct, and that is precisely the belief a second tool does not share.
+#
+# It is also the check a supply-chain scorecard looks for by name, and a project
+# that argues its gates are worth trusting should not be the one refusing an
+# independent analysis because it is confident.
+
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly. New queries ship after the code does, so a repository that only
+    # scans on push stops learning the day the last commit lands.
+    - cron: "37 5 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  analyse:
+    name: "CodeQL · rust"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write   # to upload the results
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: github/codeql-action/init@c4dd10e44af883a891fe31ced449bcb4a6728b9b # v3
+        with:
+          languages: rust
+          # security-extended over the default set. The default trades recall
+          # for noise, and on a crate this size the noise is affordable.
+          queries: security-extended
+
+      - uses: github/codeql-action/autobuild@c4dd10e44af883a891fe31ced449bcb4a6728b9b # v3
+
+      - uses: github/codeql-action/analyze@c4dd10e44af883a891fe31ced449bcb4a6728b9b # v3
+        with:
+          category: "/language:rust"

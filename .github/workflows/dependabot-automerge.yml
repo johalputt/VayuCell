@@ -15,17 +15,25 @@ name: Dependabot auto-merge
 
 on: pull_request
 
-permissions:
-  contents: write
-  pull-requests: write
+# Nothing at the top level. A workflow-wide `contents: write` grants that token
+# to every job it will ever gain, including one added later by somebody who did
+# not read this header — and this workflow runs on `pull_request`, where the
+# branch is proposed by whoever opened it.
+permissions: {}
 
 jobs:
   automerge:
     name: Enable auto-merge for patch and minor bumps
     runs-on: ubuntu-24.04
     if: ${{ github.actor == 'dependabot[bot]' }}
+    # Scoped to the one job that needs it, and to the two scopes it needs.
+    # `contents: write` is what queues the merge; `pull-requests: write` is what
+    # sets auto-merge on the pull request itself.
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
-      - uses: dependabot/fetch-metadata@v2
+      - uses: dependabot/fetch-metadata@21025c705c08248db411dc16f3619e6b5f9ea21a # v2
         id: meta
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}

@@ -509,8 +509,16 @@ otherwise.
 ### `actions` — workflow references resolve
 
 Runs [`scripts/actions-gate.sh`](../scripts/actions-gate.sh), which extracts
-every `uses:` reference from the workflows and confirms each resolves to a real
-tag or branch with `git ls-remote`.
+every `uses:` reference from the workflows and requires **two** things of each:
+that it is pinned to a full 40-character commit SHA, and that the SHA can
+actually be fetched from the repository it names.
+
+Both halves matter. A tag is whatever its owner decides it is tomorrow —
+`actions/checkout@v7` can be repointed at any commit and **no diff appears in
+this repository**, which is the supply-chain attack a project asking people to
+run a binary unattended in their home has no other defence against. And a SHA
+nobody can fetch fails on the first run, while a typo in one looks exactly like
+a legitimate pin.
 
 This gate exists because of a real failure. Two workflows referenced
 `google/osv-scanner-action@v2` and `ossf/scorecard-action@v2` — **neither of
@@ -597,7 +605,7 @@ same day.
 | `freshness` | `cargo outdated --root-deps-only --exit-code 1`. Should stay empty by charter; exists to go red the week that stops being true |
 | `beta-and-nightly` | Advisory, `continue-on-error`. A lint added to nightly is information about work coming, not a defect in code that is correct today |
 | `miri` | The crate forbids unsafe, so this should find nothing — which is the point. It is what makes the `forbid` a verified property rather than a comment |
-| `fuzz` | No targets yet. They are due with the governor: the sysfs and `/proc` parsers read attacker-adjacent text from a vendor kernel, the first input in this project not written by us. The job says so out loud rather than passing silently |
+| `fuzz` | Three targets, on the three places a string this project did not write becomes a decision it acts on: the HTTP request line, a battery reading from a vendor kernel, and a CSP nonce. Sixty seconds per target on a push — not to find bugs, but so a target that stopped compiling cannot sit unnoticed — and five minutes on the weekly run |
 | `gate-selftest` | Repeated on a schedule because this is the check with no natural symptom when it rots |
 
 ---
@@ -607,17 +615,13 @@ same day.
 Stated here rather than left for a reader to discover, on the same principle the
 gates themselves apply.
 
-1. **Actions are pinned to tags, not digests.** `actions/checkout@v4` is a moving
-   reference. Pinning to a commit digest is strictly stronger and is the next
-   hardening step; Dependabot's `github-actions` ecosystem is already configured
-   to keep them current in the meantime.
-2. **Coverage has a floor, not a ratchet.** Nothing stops coverage falling from
+1. **Coverage has a floor, not a ratchet.** Nothing stops coverage falling from
    95 percent to 81.
-3. **No end-to-end test on real hardware.** Every device-facing behaviour is
+2. **No end-to-end test on real hardware.** Every device-facing behaviour is
    exercised through `FakeHost`, which describes handsets nobody here is holding.
    That is the right layer for a unit suite and it is not a substitute for a
    phone on a bench. [ADR-0002](adr/ADR-0002-battery-safety-governor.md) defines
    the physical test gates; they are not automatable in CI and will not be
    claimed as such.
-4. **Four charter articles are human review only** — III.2, III.4, IV.4 and V.4.
+3. **Four charter articles are human review only** — III.2, III.4, IV.4 and V.4.
    The gate prints them on every run.

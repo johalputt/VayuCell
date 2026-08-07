@@ -70,6 +70,31 @@ traffic before it.
   are rendered there, so softening the alarming one — the way status displays
   actually drift — produces a plain-text diff rather than an innocuous-looking
   edit to a Rust file.
+- **Every GitHub Action is pinned to a commit SHA.** Sixty-three references
+  across the workflows were tags — and a tag is whatever its owner repoints it
+  at tomorrow, with no diff appearing in this repository. That is the
+  supply-chain attack a project asking people to run a binary unattended in
+  their home has no other defence against. The actions gate now requires the
+  pin rather than merely resolving the reference, and requires the commit to be
+  fetchable, because a typo in a SHA looks exactly like a legitimate one.
+- **The auto-merge workflow no longer grants write at the top level.** It runs
+  on `pull_request`, where the branch is proposed by whoever opened it, and a
+  workflow-wide `contents: write` hands that token to every job the file will
+  ever gain — including one added later by somebody who did not read the header.
+  Now `permissions: {}` at the top and the two scopes it needs on the one job
+  that needs them.
+- **Static analysis by a tool that did not write this code.** A CodeQL workflow
+  on push, on pull request, and weekly — because new queries ship after the code
+  does, so a repository that only scans on push stops learning the day the last
+  commit lands. Everything already here was written by somebody who believed the
+  code was correct, which is precisely the belief a second analyser does not
+  share.
+- **Fuzzing, on the three places a string this project did not write becomes a
+  decision it acts on:** the HTTP request line, a battery reading from a vendor
+  kernel, and a CSP nonce. The harness carries `libfuzzer-sys` and is therefore
+  excluded from the workspace, so nothing it touches can reach the binary — and
+  the charter gate checks that exclusion rather than trusting the comment
+  explaining it, because an exemption nobody verifies is a hole.
 - **A local-only listener** — the first thing in this project a browser has
   ever spoken to, which makes the CSP and the response headers real rather than
   rendered into a snapshot. `vayucell serve` binds loopback by default; reaching

@@ -30,7 +30,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
       - name: Version consistency and release notes
@@ -66,11 +66,12 @@ jobs:
           - armv7-unknown-linux-gnueabihf
           - x86_64-unknown-linux-gnu
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
         with:
+          toolchain: stable
           targets: ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           key: release-${{ matrix.target }}
       - name: Build
@@ -91,7 +92,7 @@ jobs:
           [ "$found" = "1" ] || { echo "no artefact produced for ${{ matrix.target }}"; exit 1; }
           ( cd dist && sha256sum ./* > "SHA256SUMS-${{ matrix.target }}.txt" )
           cat "dist/SHA256SUMS-${{ matrix.target }}.txt"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: dist-${{ matrix.target }}
           path: dist/
@@ -103,12 +104,18 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    # Job-scoped, and this is the floor rather than a preference: creating a
+    # release IS a write to repository contents, and keyless signing IS the
+    # exchange of an OIDC identity token. A supply-chain scanner will report
+    # both as write permissions and it is right to; the answer is that they are
+    # confined to the one job that publishes, and every other job in this
+    # workflow inherits the top-level `contents: read`.
     permissions:
       contents: write   # to create the release
       id-token: write   # for keyless signing
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: staging
       - name: Flatten and re-checksum
@@ -118,7 +125,7 @@ jobs:
           ( cd dist && sha256sum ./* > SHA256SUMS.txt )
           cat dist/SHA256SUMS.txt
 
-      - uses: sigstore/cosign-installer@v3
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
       - name: Sign the checksum file
         # One signature over the checksum file rather than one per artefact:
         # the checksums already bind every file, and a verifier has one thing to
@@ -158,7 +165,7 @@ jobs:
             echo "private key to steal, and nothing to trust that you cannot check."
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: dist/*
           generate_release_notes: true
