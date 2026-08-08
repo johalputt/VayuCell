@@ -20,6 +20,7 @@
 //! seen from it. No handset has run this binary.
 
 mod args;
+mod enrol;
 mod listen;
 mod report;
 
@@ -38,6 +39,7 @@ use vayucell_core::sampler::Sampler;
 use vayucell_core::shed::{Charge, Shed, ShedPlan, Stage};
 use vayucell_core::site::{Availability, SiteRoot};
 use vayucell_core::sysfs::{detect_mechanism, read_battery, Kind, SysfsCeiling};
+use vayucell_core::vault::{Quota, VaultRoot};
 
 fn main() -> ExitCode {
     let argv: Vec<String> = std::env::args().skip(1).collect();
@@ -62,6 +64,8 @@ fn main() -> ExitCode {
         Command::Status => status(&parsed),
         Command::Serve => serve(&parsed),
         Command::Site => site(&parsed),
+        Command::Vault => vault(&parsed),
+        Command::Enrol => enrol_device(&parsed),
         Command::Run { ticks } => run(&parsed, ticks),
     };
 
@@ -177,6 +181,111 @@ fn site(a: &Args) -> i32 {
     };
 
     match listen::serve_site(&a.bind, &root, &availability) {
+        Ok(()) => 0,
+        Err(e) => {
+            eprintln!("vayucell: {e}");
+            report::EXIT_UNSAFE
+        }
+    }
+}
+
+/// Adds a device to the credential store and shows its secret once.
+fn enrol_device(a: &Args) -> i32 {
+    let Some(device) = a.device.as_deref() else {
+        eprintln!("vayucell: enrol needs --device <NAME>");
+        return report::EXIT_USAGE;
+    };
+    match enrol::enrol(&a.store, device) {
+        Ok(secret) => {
+            let Ok(text) = core::str::from_utf8(secret.expose_for_comparison()) else {
+                eprintln!("vayucell: the minted secret was not text");
+                return report::EXIT_UNSAFE;
+            };
+            println!("Enrolled {device}. Its secret is:\n");
+            println!("    {text}\n");
+            // Said plainly, because the next thing the person does decides
+            // whether this credential survives.
+            println!(
+                "This is the only time it is shown. There is no command that prints \n\
+                 it back — a credential a program will re-display is one that leaks \n\
+                 through a scrollback or a screen share. If you lose it, enrol the \n\
+                 device again; that takes five seconds.\n"
+            );
+            println!("Use it like this:\n");
+            println!(
+                "    curl -T ./report.pdf http://<phone>:8080/report.pdf \\\n         -H 'Authorization: Bearer {text}'\n"
+            );
+            println!("Revoke it by deleting its line from {}.", a.store);
+            0
+        }
+        Err(e) => {
+            eprintln!("vayucell: {e}");
+            report::EXIT_USAGE
+        }
+    }
+}
+
+/// Serves the vault, with the governor consulted on every request.
+fn vault(a: &Args) -> i32 {
+    let host = RealHost;
+    let Some(dir) = a.vault_dir.as_deref() else {
+        eprintln!("vayucell: vault needs --dir <DIR>");
+        return report::EXIT_USAGE;
+    };
+
+    let root = match VaultRoot::open(&host, dir) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("vayucell: {e}");
+            return report::EXIT_USAGE;
+        }
+    };
+
+    // Loaded once at start rather than per request. A credential store that is
+    // re-read on every request is a file opened by anything that can send
+    // traffic, and revocation is already a restart-shaped act.
+    let credentials = match enrol::load(&a.store) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("vayucell: {e}");
+            return report::EXIT_USAGE;
+        }
+    };
+
+    let supply = a.supply_dir.clone();
+    let outage = a.assume_outage;
+    let ladder = Mutex::new(Shed::new(ShedPlan::recommended()));
+    let started = Instant::now();
+
+    let context = move || {
+        let (level, charge) = match read_battery(&RealHost, &supply) {
+            Ok(reading) => {
+                let mut governor = Governor::new(Thresholds::recommended());
+                governor.observe(&reading);
+                (governor.level(), Charge::Measured(reading.capacity))
+            }
+            // A cell nobody could read is not a cell that is fine, and a write
+            // is the last thing to attempt on a device in an unknown state.
+            Err(e) => (Level::Protect, Charge::Unreadable(e.to_string())),
+        };
+        let stage = match outage {
+            None => Stage::Serving,
+            Some(since) => {
+                let mut ladder = ladder.lock().unwrap_or_else(PoisonError::into_inner);
+                ladder.on_tick(since.saturating_add(started.elapsed()), &charge);
+                ladder.stage()
+            }
+        };
+        (level, stage)
+    };
+
+    match listen::serve_vault(
+        &a.bind,
+        &root,
+        &credentials,
+        &context,
+        Quota::new(0, a.quota),
+    ) {
         Ok(()) => 0,
         Err(e) => {
             eprintln!("vayucell: {e}");

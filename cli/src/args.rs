@@ -27,6 +27,10 @@ pub enum Command {
     Serve,
     /// Serve a directory of files as a website.
     Site,
+    /// Serve the vault: authenticated storage.
+    Vault,
+    /// Enrol a device and print its secret once.
+    Enrol,
     /// Print usage.
     Help,
     /// Print the version.
@@ -49,6 +53,14 @@ pub struct Args {
     pub bind: String,
     /// The directory `site` publishes. `None` means none was given.
     pub site_dir: Option<String>,
+    /// The directory `vault` keeps files in. `None` means none was given.
+    pub vault_dir: Option<String>,
+    /// Where the credential store lives.
+    pub store: String,
+    /// The device name `enrol` adds. `None` means none was given.
+    pub device: Option<String>,
+    /// How many bytes the vault may hold.
+    pub quota: u64,
 }
 
 /// Why an invocation was refused.
@@ -63,6 +75,26 @@ impl core::fmt::Display for ArgError {
 
 /// The default power-supply directory.
 pub const DEFAULT_SUPPLY: &str = vayucell_core::sysfs::SUPPLY;
+
+/// How much the vault may hold unless told otherwise: one gibibyte.
+///
+/// A number rather than "the free space on the device". A vault that grows until
+/// the filesystem is full takes the phone down with it, and the governor cannot
+/// help with a disk.
+pub const DEFAULT_QUOTA: u64 = 1024 * 1024 * 1024;
+
+/// Where the credential store lives unless told otherwise.
+///
+/// Beside the binary's own directory rather than anywhere shared. Falls back to
+/// a relative path when `HOME` is unset, so the value is always something the
+/// operator can see in `--help` rather than an empty string.
+#[must_use]
+pub fn default_store() -> String {
+    std::env::var("HOME").map_or_else(
+        |_| ".vayucell/devices".to_owned(),
+        |home| format!("{home}/.vayucell/devices"),
+    )
+}
 
 /// The default ceiling. ADR-0002: 60% is the recommended long-term hold.
 pub const DEFAULT_CEILING: u8 = 60;
@@ -89,6 +121,11 @@ COMMANDS:
     serve               Serve the safety panel over HTTP, local only
     site                Serve a directory of files as a website, under the
                         governor: it stops serving when the cell is in trouble
+    vault               Serve authenticated storage: GET reads a file, PUT
+                        stores one. Every request is checked against the
+                        enrolled devices and against the governor
+    enrol               Add a device to the credential store and print its
+                        secret. It is shown once and never again
     help                Print this
     version             Print the version
 
@@ -103,10 +140,16 @@ OPTIONS:
                         127.0.0.1:8080]. The default is loopback: reaching the
                         rest of your network is something you type, not
                         something you get
-    --dir <DIR>         The directory `site` publishes. Required by `site`.
-                        Hidden names are never served, no directory listing is
-                        ever generated, and a symbolic link pointing outside
-                        this directory is refused
+    --dir <DIR>         The directory `site` or `vault` uses. Required by
+                        both. Hidden names are never served, no directory
+                        listing is ever generated, and a symbolic link pointing
+                        outside this directory is refused
+    --store <FILE>      Credential store for `vault` and `enrol`
+                        [default: ~/.vayucell/devices]. It holds secrets in the
+                        clear, so it must not be readable by anyone else and
+                        both commands refuse it if it is
+    --device <NAME>     The device `enrol` adds. No spaces
+    --quota <BYTES>     How much the vault may hold [default: 1073741824]
 
 EXIT CODES:
     0   the panel reads PROTECTED — every row was checked and held
@@ -134,6 +177,9 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
     let mut assume_outage: Option<Duration> = None;
     let mut bind = DEFAULT_BIND.to_owned();
     let mut site_dir: Option<String> = None;
+    let mut store = default_store();
+    let mut device: Option<String> = None;
+    let mut quota: u64 = DEFAULT_QUOTA;
 
     let mut i = 0;
     while i < argv.len() {
@@ -143,6 +189,8 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
             "run" => set_command(&mut command, Command::Run { ticks: None }, arg)?,
             "serve" => set_command(&mut command, Command::Serve, arg)?,
             "site" => set_command(&mut command, Command::Site, arg)?,
+            "vault" => set_command(&mut command, Command::Vault, arg)?,
+            "enrol" | "enroll" => set_command(&mut command, Command::Enrol, arg)?,
             "help" | "--help" | "-h" => set_command(&mut command, Command::Help, arg)?,
             "version" | "--version" | "-V" => set_command(&mut command, Command::Version, arg)?,
             "--supply-dir" => {
@@ -153,6 +201,18 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
             }
             "--dir" => {
                 site_dir = Some(value_after(argv, &mut i, "--dir")?);
+            }
+            "--store" => {
+                store = value_after(argv, &mut i, "--store")?;
+            }
+            "--device" => {
+                device = Some(value_after(argv, &mut i, "--device")?);
+            }
+            "--quota" => {
+                let raw = value_after(argv, &mut i, "--quota")?;
+                quota = raw
+                    .parse::<u64>()
+                    .map_err(|_| ArgError(format!("--quota is a number of bytes, not {raw:?}")))?;
             }
             "--ceiling" => {
                 let raw = value_after(argv, &mut i, "--ceiling")?;
@@ -204,6 +264,21 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
     // Refused here rather than defaulted to the working directory. A `site`
     // with no --dir that quietly published whatever folder the operator happened
     // to be standing in is the single worst thing this command could do.
+    if command == Command::Vault && site_dir.is_none() {
+        return Err(ArgError(
+            "vault needs --dir <DIR>, the folder to keep files in; there is no \
+             default, because a default would store somebody's files wherever you \
+             happened to be standing"
+                .to_owned(),
+        ));
+    }
+    if command == Command::Enrol && device.is_none() {
+        return Err(ArgError(
+            "enrol needs --device <NAME>, something you will recognise later when \
+             you come to revoke it"
+                .to_owned(),
+        ));
+    }
     if command == Command::Site && site_dir.is_none() {
         return Err(ArgError(
             "site needs --dir <DIR>, the folder to publish; there is no default, \
@@ -218,7 +293,11 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
         ceiling,
         assume_outage,
         bind,
+        vault_dir: site_dir.clone(),
         site_dir,
+        store,
+        device,
+        quota,
     })
 }
 
@@ -267,6 +346,10 @@ mod tests {
                 assume_outage: None,
                 bind: super::DEFAULT_BIND.to_owned(),
                 site_dir: None,
+                vault_dir: None,
+                store: super::default_store(),
+                device: None,
+                quota: super::DEFAULT_QUOTA,
             }
         );
         assert_eq!(DEFAULT_CEILING, 60, "ADR-0002's recommended long-term hold");
@@ -420,5 +503,63 @@ mod tests {
     fn dir_without_a_value_is_refused() {
         let e = parse(&argv(&["site", "--dir"])).expect_err("--dir needs a value");
         assert!(e.0.contains("--dir"), "{}", e.0);
+    }
+
+    #[test]
+    fn vault_without_a_directory_is_refused_rather_than_defaulted() {
+        // The same rule as `site`, for a stronger reason: this one writes.
+        let e = parse(&argv(&["vault"])).expect_err("vault needs --dir");
+        assert!(e.0.contains("--dir"), "{}", e.0);
+        assert!(e.0.contains("standing"), "{}", e.0);
+    }
+
+    #[test]
+    fn enrol_without_a_device_name_is_refused() {
+        let e = parse(&argv(&["enrol"])).expect_err("enrol needs --device");
+        assert!(e.0.contains("--device"), "{}", e.0);
+        assert!(e.0.contains("revoke"), "{}", e.0);
+    }
+
+    #[test]
+    fn enrol_accepts_the_american_spelling_too() {
+        // Nobody should have to guess which spelling a program wanted.
+        for spelling in ["enrol", "enroll"] {
+            let a = parse(&argv(&[spelling, "--device", "laptop"])).expect("parses");
+            assert_eq!(a.command, Command::Enrol, "{spelling}");
+            assert_eq!(a.device.as_deref(), Some("laptop"));
+        }
+    }
+
+    #[test]
+    fn the_vault_takes_a_directory_a_store_and_a_quota() {
+        let a = parse(&argv(&[
+            "vault",
+            "--dir",
+            "/srv/files",
+            "--store",
+            "/tmp/devices",
+            "--quota",
+            "500",
+        ]))
+        .expect("parses");
+        assert_eq!(a.command, Command::Vault);
+        assert_eq!(a.vault_dir.as_deref(), Some("/srv/files"));
+        assert_eq!(a.store, "/tmp/devices");
+        assert_eq!(a.quota, 500);
+    }
+
+    #[test]
+    fn a_quota_that_is_not_a_number_is_refused_rather_than_defaulted() {
+        let e =
+            parse(&argv(&["vault", "--dir", "/d", "--quota", "lots"])).expect_err("not a number");
+        assert!(e.0.contains("--quota"), "{}", e.0);
+    }
+
+    #[test]
+    fn the_vault_binds_loopback_unless_told_otherwise() {
+        // A command that accepts files is the last place a helpful default of
+        // 0.0.0.0 belongs.
+        let a = parse(&argv(&["vault", "--dir", "/d"])).expect("parses");
+        assert_eq!(a.bind, super::DEFAULT_BIND);
     }
 }

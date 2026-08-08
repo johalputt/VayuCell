@@ -111,20 +111,41 @@ fn a_request_line_longer_than_the_bound_is_refused_before_it_is_parsed() {
 }
 
 #[test]
-fn only_the_two_read_verbs_are_implemented() {
-    // Method has no Post, Put or Delete variant, so a route that mutated
-    // something could not be written without first widening the enum in a diff
-    // somebody has to approve.
+fn only_the_three_implemented_verbs_are_accepted() {
+    // This test used to require that PUT be refused, and it was the guard the
+    // module documentation pointed at: a route that mutated something could not
+    // be written without first widening the enum "in a diff somebody has to
+    // approve". ADR-0010 is that diff, and this is where it shows.
+    //
+    // The claim is narrower now rather than gone. PUT names one file and
+    // replaces it, which is idempotent — a retry after a dropped connection is
+    // safe. DELETE destroys somebody's data and deserves its own decision, and
+    // POST has no meaning where nothing is being appended to.
     assert_eq!(
         parse_request_line("HEAD / HTTP/1.1").unwrap().method,
         Method::Head
     );
-    for verb in ["POST", "PUT", "DELETE", "PATCH", "TRACE", "CONNECT"] {
+    assert_eq!(
+        parse_request_line("PUT /a.txt HTTP/1.1").unwrap().method,
+        Method::Put
+    );
+    for verb in ["POST", "DELETE", "PATCH", "TRACE", "CONNECT"] {
         let e = parse_request_line(&format!("{verb} / HTTP/1.1"))
             .expect_err(&format!("{verb} must be refused"));
         assert_eq!(e, BadRequest::UnsupportedMethod(verb.to_owned()));
         assert_eq!(refuse(&e).status, 405);
     }
+}
+
+#[test]
+fn exactly_one_verb_writes() {
+    // Asked of the type rather than of a list, so a verb added later does not
+    // quietly acquire permission it was never granted.
+    let writers: Vec<Method> = [Method::Get, Method::Head, Method::Put]
+        .into_iter()
+        .filter(|m| m.writes())
+        .collect();
+    assert_eq!(writers, [Method::Put]);
 }
 
 #[test]
@@ -408,4 +429,421 @@ fn a_site_serves_bytes_that_are_not_text() {
         "the bytes must survive rendering"
     );
     assert!(String::from_utf8(out).is_err(), "this response is not text");
+}
+
+// ── The vault route ───────────────────────────────────────────────────────────
+
+const VDIR: &str = "/data/vault";
+
+fn vault_host() -> FakeHost {
+    FakeHost::new().with_dir(VDIR)
+}
+
+fn a_secret() -> String {
+    "A".repeat(vayucell_core_secret_chars())
+}
+fn vayucell_core_secret_chars() -> usize {
+    crate::auth::SECRET_CHARS
+}
+
+fn enrolled() -> crate::auth::Credentials {
+    crate::auth::Credentials::new(vec![crate::auth::Credential {
+        device: crate::auth::DeviceName::new("laptop").expect("plain"),
+        secret: crate::auth::Secret::new(&a_secret()).expect("minted"),
+    }])
+}
+
+fn bearer(secret: &str) -> crate::serve::Headers {
+    crate::serve::parse_headers(&[&format!("Authorization: Bearer {secret}")]).expect("valid")
+}
+
+fn put(path: &str) -> Request {
+    Request {
+        method: Method::Put,
+        path: path.to_owned(),
+    }
+}
+
+struct Ctx {
+    creds: crate::auth::Credentials,
+    root: crate::vault::VaultRoot,
+}
+
+fn ctx(host: &FakeHost) -> Ctx {
+    Ctx {
+        creds: enrolled(),
+        root: crate::vault::VaultRoot::open(host, VDIR).expect("the fixture creates it"),
+    }
+}
+
+fn context(c: &Ctx, level: Level, stage: Stage) -> crate::serve::VaultContext<'_> {
+    crate::serve::VaultContext {
+        credentials: &c.creds,
+        root: &c.root,
+        quota: crate::vault::Quota::new(0, 1_000_000),
+        level,
+        stage,
+    }
+}
+
+#[test]
+fn an_unauthenticated_put_is_refused_before_anything_else_is_looked_at() {
+    // The order of the checks is the security property. Checking the name first
+    // tells a stranger which filenames are acceptable; checking the device first
+    // tells them the battery level of a phone that is none of their business.
+    let host = vault_host();
+    let c = ctx(&host);
+    let no_creds = crate::serve::parse_headers(&[]).expect("valid");
+
+    // A halted device, a full disk and an unacceptable name, all at once. The
+    // answer must still be 401 and nothing else.
+    let hostile = crate::serve::VaultContext {
+        credentials: &c.creds,
+        root: &c.root,
+        quota: crate::vault::Quota::new(1000, 1000),
+        level: Level::Halt,
+        stage: Stage::ShuttingDown,
+    };
+    let r = crate::serve::route_vault(
+        &put("/../etc/passwd"),
+        &no_creds,
+        &hostile,
+        b"x",
+        &|_| None,
+        &|_, _| Ok(()),
+    );
+    assert_eq!(r.status, 401);
+    let body = text(&r);
+    assert!(!body.contains("HALT"), "the device state leaked: {body}");
+    assert!(!body.contains("passwd"), "the path was echoed: {body}");
+    assert!(
+        !body.to_lowercase().contains("full"),
+        "the disk leaked: {body}"
+    );
+}
+
+#[test]
+fn a_wrong_secret_is_refused_and_says_only_that() {
+    let host = vault_host();
+    let c = ctx(&host);
+    let wrong = "B".repeat(crate::auth::SECRET_CHARS);
+    let r = crate::serve::route_vault(
+        &put("/a.txt"),
+        &bearer(&wrong),
+        &context(&c, Level::Normal, Stage::Serving),
+        b"x",
+        &|_| None,
+        &|_, _| Ok(()),
+    );
+    assert_eq!(r.status, 401);
+    assert!(!text(&r).contains(&wrong), "the offered secret was echoed");
+}
+
+#[test]
+fn an_enrolled_device_may_store_a_file_and_gets_an_honest_receipt() {
+    let host = vault_host();
+    let c = ctx(&host);
+    let r = crate::serve::route_vault(
+        &put("/report.pdf"),
+        &bearer(&a_secret()),
+        &context(&c, Level::Normal, Stage::Serving),
+        b"hello",
+        &|_| None,
+        &|_, _| Ok(()),
+    );
+    assert_eq!(r.status, 200);
+    let body = text(&r);
+    assert!(body.contains("report.pdf"), "{body}");
+    assert!(body.contains('5'), "{body}");
+    for forbidden in ["saved", "safe", "durable"] {
+        assert!(!body.to_lowercase().contains(forbidden), "{body}");
+    }
+}
+
+#[test]
+fn the_write_is_handed_the_plan_rather_than_a_path_it_invented() {
+    let host = vault_host();
+    let c = ctx(&host);
+    let seen: std::cell::RefCell<Option<(String, String)>> = std::cell::RefCell::new(None);
+    let r = crate::serve::route_vault(
+        &put("/notes.md"),
+        &bearer(&a_secret()),
+        &context(&c, Level::Normal, Stage::Serving),
+        b"abc",
+        &|_| None,
+        &|plan, bytes| {
+            *seen.borrow_mut() = Some((plan.temporary().to_owned(), plan.destination().to_owned()));
+            assert_eq!(bytes, b"abc");
+            Ok(())
+        },
+    );
+    assert_eq!(r.status, 200);
+    let (temporary, destination) = seen.into_inner().expect("the writer ran");
+    assert_eq!(destination, "/data/vault/notes.md");
+    assert_eq!(temporary, "/data/vault/.notes.md.partial");
+}
+
+#[test]
+fn an_authenticated_put_still_obeys_the_governor() {
+    // Authentication is not permission to overheat somebody's phone.
+    let host = vault_host();
+    let c = ctx(&host);
+    for (level, stage) in [
+        (Level::Derated, Stage::Serving),
+        (Level::Halt, Stage::Serving),
+        (Level::Normal, Stage::Announced),
+        (Level::Normal, Stage::Shed),
+    ] {
+        let r = crate::serve::route_vault(
+            &put("/a.txt"),
+            &bearer(&a_secret()),
+            &context(&c, level, stage),
+            b"x",
+            &|_| None,
+            &|_, _| panic!("the write must not be reached"),
+        );
+        assert_eq!(r.status, 503, "{level} {stage:?}");
+    }
+}
+
+#[test]
+fn a_file_that_does_not_fit_is_told_apart_from_a_device_that_will_not_take_it() {
+    // Both are the operator's problem rather than the caller's mistake, and the
+    // caller can tell which from the status without reading prose.
+    let host = vault_host();
+    let c = ctx(&host);
+    let full = crate::serve::VaultContext {
+        credentials: &c.creds,
+        root: &c.root,
+        quota: crate::vault::Quota::new(1000, 1000),
+        level: Level::Normal,
+        stage: Stage::Serving,
+    };
+    let r = crate::serve::route_vault(
+        &put("/a.txt"),
+        &bearer(&a_secret()),
+        &full,
+        b"xxxxx",
+        &|_| None,
+        &|_, _| panic!("the write must not be reached"),
+    );
+    assert_eq!(
+        r.status, 507,
+        "a full disk is not the same as a halted phone"
+    );
+}
+
+#[test]
+fn a_name_that_is_really_a_path_is_refused_after_authentication() {
+    let host = vault_host();
+    let c = ctx(&host);
+    let r = crate::serve::route_vault(
+        &put("/../../etc/passwd"),
+        &bearer(&a_secret()),
+        &context(&c, Level::Normal, Stage::Serving),
+        b"x",
+        &|_| None,
+        &|_, _| panic!("the write must not be reached"),
+    );
+    assert_eq!(r.status, 400);
+}
+
+#[test]
+fn a_failed_write_is_reported_rather_than_reported_as_stored() {
+    let host = vault_host();
+    let c = ctx(&host);
+    let r = crate::serve::route_vault(
+        &put("/a.txt"),
+        &bearer(&a_secret()),
+        &context(&c, Level::Normal, Stage::Serving),
+        b"x",
+        &|_| None,
+        &|_, _| Err("the disk went away".to_owned()),
+    );
+    assert_eq!(r.status, 500);
+    assert!(text(&r).contains("disk went away"), "{}", text(&r));
+}
+
+#[test]
+fn an_enrolled_device_may_read_back_what_it_stored() {
+    let host = vault_host();
+    let c = ctx(&host);
+    let r = crate::serve::route_vault(
+        &get("/a.bin"),
+        &bearer(&a_secret()),
+        &context(&c, Level::Normal, Stage::Serving),
+        b"",
+        &|path| {
+            assert_eq!(path, "/data/vault/a.bin");
+            Some(vec![1, 2, 3])
+        },
+        &|_, _| panic!("a read must not write"),
+    );
+    assert_eq!(r.status, 200);
+    assert_eq!(r.body, vec![1, 2, 3]);
+}
+
+#[test]
+fn a_read_of_something_not_stored_is_a_404() {
+    let host = vault_host();
+    let c = ctx(&host);
+    let r = crate::serve::route_vault(
+        &get("/nope"),
+        &bearer(&a_secret()),
+        &context(&c, Level::Normal, Stage::Serving),
+        b"",
+        &|_| None,
+        &|_, _| panic!("a read must not write"),
+    );
+    assert_eq!(r.status, 404);
+}
+
+#[test]
+fn an_empty_store_refuses_every_device_including_a_well_formed_one() {
+    // The state every installation begins in, reaching the route.
+    let host = vault_host();
+    let root = crate::vault::VaultRoot::open(&host, VDIR).expect("fixture");
+    let empty = crate::auth::Credentials::empty();
+    let c = crate::serve::VaultContext {
+        credentials: &empty,
+        root: &root,
+        quota: crate::vault::Quota::new(0, 1_000_000),
+        level: Level::Normal,
+        stage: Stage::Serving,
+    };
+    let r = crate::serve::route_vault(
+        &put("/a.txt"),
+        &bearer(&a_secret()),
+        &c,
+        b"x",
+        &|_| None,
+        &|_, _| panic!("nothing may be written"),
+    );
+    assert_eq!(r.status, 401);
+    assert!(text(&r).contains("no device is enrolled"), "{}", text(&r));
+}
+
+// ── Headers ───────────────────────────────────────────────────────────────────
+
+#[test]
+fn a_bearer_credential_is_read_whatever_the_case_of_the_field_name() {
+    // A client sending `authorization:` in lower case is using a library, not
+    // mounting an attack.
+    for line in [
+        "Authorization: Bearer abc",
+        "authorization: Bearer abc",
+        "AUTHORIZATION: bearer abc",
+    ] {
+        let h = crate::serve::parse_headers(&[line]).expect("valid");
+        assert_eq!(h.bearer(), Some("abc"), "{line}");
+    }
+}
+
+#[test]
+fn a_scheme_this_does_not_implement_reads_as_nothing_presented() {
+    // Distinguishing "wrong scheme" from "no header" in the response would tell
+    // an unauthenticated stranger which schemes exist.
+    for line in [
+        "Authorization: Basic dXNlcjpwYXNz",
+        "Authorization: Bearer",
+        "Authorization: Bearer ",
+        "Authorization: ",
+    ] {
+        let h = crate::serve::parse_headers(&[line]).expect("valid");
+        assert_eq!(h.bearer(), None, "{line}");
+    }
+}
+
+#[test]
+fn a_body_larger_than_the_limit_is_refused_before_a_byte_of_it_is_read() {
+    // Refusing after reading it is the exhaustion the limit exists to prevent.
+    let too_big = crate::serve::MAX_BODY + 1;
+    let e = crate::serve::parse_headers(&[&format!("Content-Length: {too_big}")])
+        .expect_err("over the limit");
+    assert_eq!(e, BadRequest::BodyTooLarge(too_big));
+    assert_eq!(refuse(&e).status, 413);
+
+    let ok = crate::serve::parse_headers(&[&format!("Content-Length: {}", crate::serve::MAX_BODY)])
+        .expect("exactly the limit");
+    assert_eq!(ok.content_length(), Some(crate::serve::MAX_BODY));
+}
+
+#[test]
+fn a_content_length_that_is_not_a_number_is_refused() {
+    for value in ["abc", "-1", "1.5", ""] {
+        let e = crate::serve::parse_headers(&[&format!("Content-Length: {value}")])
+            .expect_err("{value}");
+        assert_eq!(e, BadRequest::MalformedHeader, "{value}");
+    }
+}
+
+#[test]
+fn more_headers_than_the_limit_are_refused() {
+    let lines: Vec<String> = (0..=crate::serve::MAX_HEADERS)
+        .map(|i| format!("X-Filler-{i}: x"))
+        .collect();
+    let refs: Vec<&str> = lines.iter().map(String::as_str).collect();
+    assert_eq!(
+        crate::serve::parse_headers(&refs).unwrap_err(),
+        BadRequest::TooManyHeaders
+    );
+}
+
+#[test]
+fn a_header_line_with_no_colon_is_refused() {
+    assert_eq!(
+        crate::serve::parse_headers(&["not a header"]).unwrap_err(),
+        BadRequest::MalformedHeader
+    );
+}
+
+#[test]
+fn headers_no_route_reads_are_discarded_rather_than_stored() {
+    // A map of arbitrary headers is a thing that ends up being logged.
+    let h = crate::serve::parse_headers(&[
+        "User-Agent: something/1.0",
+        "Cookie: session=secret",
+        "Authorization: Bearer abc",
+    ])
+    .expect("valid");
+    assert_eq!(h.bearer(), Some("abc"));
+    assert_eq!(h.content_length(), None);
+    assert!(!format!("{h:?}").contains("session"), "{h:?}");
+}
+
+#[test]
+fn put_is_parsed_and_is_the_only_verb_that_writes() {
+    let r = parse_request_line("PUT /a.txt HTTP/1.1").expect("PUT parses");
+    assert_eq!(r.method, Method::Put);
+    assert!(Method::Put.writes());
+    assert!(!Method::Get.writes());
+    assert!(!Method::Head.writes());
+}
+
+#[test]
+fn the_verbs_that_destroy_things_are_still_not_implemented() {
+    // POST has no meaning here and DELETE destroys somebody's data; each
+    // deserves its own decision rather than arriving with this one.
+    for verb in ["DELETE", "POST", "PATCH"] {
+        assert!(matches!(
+            parse_request_line(&format!("{verb} /a.txt HTTP/1.1")),
+            Err(BadRequest::UnsupportedMethod(_))
+        ));
+    }
+}
+
+#[test]
+fn only_head_omits_the_body_and_every_other_verb_carries_it() {
+    // Written as `method == Method::Get` when Get and Head were the only verbs,
+    // this silently swallowed the body of every PUT the moment PUT existed: an
+    // upload confirmed nothing and a 400 explained nothing. The question that
+    // survives a new verb is which one *omits* a body, not which one carries it.
+    let r = Response::text("the receipt\n".to_owned());
+    for method in [Method::Get, Method::Put] {
+        let out = String::from_utf8(r.render(Surface::Site, nonce(), method)).unwrap();
+        assert!(out.ends_with("the receipt\n"), "{method:?} lost its body");
+    }
+    let head = String::from_utf8(r.render(Surface::Site, nonce(), Method::Head)).unwrap();
+    assert!(head.ends_with("\r\n\r\n"), "HEAD must carry no body");
+    assert!(head.contains("Content-Length: 12"), "{head}");
 }

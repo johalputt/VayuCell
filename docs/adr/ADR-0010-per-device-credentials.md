@@ -1,7 +1,8 @@
 # ADR-0010 — Per-device credentials: deciding whose file it is
 
-**Status:** accepted — implemented in `core/src/auth.rs`. No route consults it
-yet; see §6.
+**Status:** accepted — implemented in `core/src/auth.rs`, consulted by
+`serve::route_vault`, with enrolment in `cli/src/enrol.rs`. See §7 for what
+changed after this was first written.
 **Supersedes:** nothing
 **Related:** [ADR-0009](ADR-0009-accepting-a-file.md) (the decision this
 completes), [ADR-0003](ADR-0003-sovereign-ingress.md) §3 (local-only, and why
@@ -134,3 +135,29 @@ operator's Wi-Fi, which is precisely the population a home network's threat mode
 is about.
 
 It has not run on a phone.
+
+## §7. Since this was accepted
+
+§6 said no route consulted this and enrolment was not written. Both now exist.
+
+**`route_vault` checks the credential first** — before the path is parsed, before
+the governor is consulted, before the disk is measured. Every other order leaks
+something to a stranger: the name check tells them which filenames are
+acceptable, and the device check tells them the battery level of a phone that is
+none of their business. A test sends an unauthenticated `PUT` at a halted device
+with a full disk and an illegal path, and asserts the answer is `401` and that
+the body mentions none of the three.
+
+**`vayucell enrol --device <name>`** mints from `/dev/urandom`, appends to the
+store, and prints the secret once. The store is created with mode `0600` *at
+open time* rather than chmod'ed afterwards — a file that was world-readable for
+an instant has been read by anything that was looking. A name already present is
+refused rather than duplicated, because two rows with one name means revoking it
+leaves the other behind and the operator cannot see that.
+
+There is no command that prints a secret back. A credential a program will
+re-display is one that leaks through a scrollback or a screen share, and enrolling
+again takes five seconds.
+
+**A missing store is the empty store**, which accepts nobody — the path that
+turns "no file" into "no authentication" does not exist.

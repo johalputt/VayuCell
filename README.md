@@ -31,7 +31,7 @@
   <a href="deny.toml"><img alt="runtime deps: zero" src="https://img.shields.io/badge/runtime%20deps-zero-success.svg"></a>
   <a href="docs/CI.md"><img alt="coverage: 80.47%" src="https://img.shields.io/badge/coverage-80.47%25-success"></a>
   <a href="GOVERNANCE-CONSTITUTION.md"><img alt="constitution: 110 rules" src="https://img.shields.io/badge/constitution-110%20rules-blueviolet"></a>
-  <a href="scripts/mutation-gate.sh"><img alt="mutations killed: 139/139" src="https://img.shields.io/badge/mutations%20killed-139%2F139-success"></a>
+  <a href="scripts/mutation-gate.sh"><img alt="mutations killed: 144/144" src="https://img.shields.io/badge/mutations%20killed-144%2F144-success"></a>
   <a href="scripts/gate-selftest.sh"><img alt="gates self-tested: 57 plants caught" src="https://img.shields.io/badge/gates%20self--tested-57%20plants%20caught-success"></a>
   <a href="CHARTER.md"><img alt="hardware tested: none yet" src="https://img.shields.io/badge/hardware%20tested-none%20yet-inactive"></a>
 </p>
@@ -93,7 +93,7 @@ and no amount of green rows replaces it.
 | --- | --- |
 | Written | The capability registry, tier detection, the CSP and response security headers, **the battery safety governor** — state machine, verification loop, thresholds, recovery — the sysfs layer it drives, the sampling cadence, the mains-loss shed ladder, **the safety panel**, where a row that could not be checked is not allowed to read as one that was, and **a published website**: a directory served to your own network, refused the moment the governor says the cell is in trouble |
 | Not written | The fleet view, the hardware database itself, the Android shell, **file storage — the site serves files and accepts none** — and **every ingress mode except local-only: an onion and a relay are described and governed in code, but neither is implemented, so nothing here is reachable from outside your own network** |
-| Checked | 289 unit tests and 27 doctests, 80.47% line coverage against an 80% floor, **139 mutations each re-broken and each required to turn its named test red**, and **57 violations planted in a scratch repository that the gates must catch citing the right rule**. None of that is evidence about hardware; all of it is evidence about the code |
+| Checked | 311 unit tests and 27 doctests, 80.47% line coverage against an 80% floor, **144 mutations each re-broken and each required to turn its named test red**, and **57 violations planted in a scratch repository that the gates must catch citing the right rule**. None of that is evidence about hardware; all of it is evidence about the code |
 | Unblocked | [Charter III.1](CHARTER.md) forbids anything serving traffic before the governor. The governor is now **written** — the ordering constraint is met in code, and the gate fails the build if it is ever removed. It is not met on hardware, and nothing serves traffic yet regardless |
 | Never tested on hardware | Everything. Every device-facing behaviour is exercised through a fake host describing handsets nobody here is holding |
 
@@ -378,6 +378,36 @@ the real reason goes to your log. See
 `--dir` has no default. A `site` command that published whatever folder you were
 standing in is the worst thing it could do.
 
+### Storing files on it
+
+```bash
+vayucell enrol --device laptop          # prints a secret, once
+vayucell vault --dir ~/files --bind 0.0.0.0:8080
+```
+
+Then, from the laptop:
+
+```bash
+curl -T ./report.pdf http://<phone>:8080/report.pdf \
+     -H 'Authorization: Bearer <the secret>'
+```
+
+The credential is **minted, never chosen** — 256 bits from the kernel — because
+this project has no dependencies and hand-rolling a password hash under that rule
+would be the worst possible use of it. It is shown once; there is no command that
+prints it back. Revoking a device is deleting its line from the store.
+
+**An empty store refuses everything.** "Nobody enrolled" never means
+"authentication off", and that is the state every installation starts in.
+
+A write is refused *earlier* than a read: the website keeps serving at `DERATED`,
+the vault does not, and the outage ladder stops accepting uploads one rung before
+it stops serving pages. A refused upload costs one retry; a half-written file
+outlives the event. Nothing is written under its real name until it has been
+flushed and renamed, and **no receipt ever says "saved"** — see
+[ADR-0009](docs/adr/ADR-0009-accepting-a-file.md) and
+[ADR-0010](docs/adr/ADR-0010-per-device-credentials.md).
+
 `status` exits **0** only when every row was checked and held, **1** when
 something could not be checked, and **2** when something was checked and does
 not hold — the verdict in the one form a monitor can read without parsing prose.
@@ -449,8 +479,8 @@ scripts/release-gate.sh        # the version says the same thing everywhere
 cargo test --workspace
 ```
 
-A full run exercises **289 unit tests and 27 doctests** (2 ignored — the two
-snapshot regenerators), kills **139 mutations**, catches **57 planted violations**,
+A full run exercises **311 unit tests and 27 doctests** (2 ignored — the two
+snapshot regenerators), kills **144 mutations**, catches **57 planted violations**,
 and measures **80.47% line coverage** against a floor of 80. That is a suite that
 has been shown to fail when the code is wrong — the mutation gate is the proof,
 and it asserts its own match count so a mutation that failed to apply cannot be
@@ -668,7 +698,7 @@ and has no other symptom.
 | --- | --- |
 | **Charter** | A serving capability registered while the governor is gone. `Capability::verify` demoted to an `Option`, so a control with no read-back would compile. A generic success variant that would absorb "not checked". `Absent` and `Unverified` collapsing into one answer. A tier detector that defaults to T0. Telemetry, a treasury, a kill switch, a remote wipe, a dependency on a host this project runs. A `[dependencies]` section with anything in it. An edit to Article III or V whose SHA-256 no longer matches `.charter-digests` |
 | **Gate self-test** | A gate that has only ever been observed passing. **Fifty-seven violations** planted in a scratch copy — the governor deleted, `verify` made optional, telemetry added, a third-party dependency added to the CLI crate, a bot-authored commit, a workflow tag that resolves to nothing — each of which the matching gate must catch **citing the right rule**. A plant that changed nothing is scored `STALE`, not `caught`: the sandbox is fingerprinted before and after |
-| **Mutation** | **One hundred and thirty-nine** safety and honesty guards, each re-broken in turn, each required to turn its named test red. A green suite proves the code passes its tests; this proves the tests would notice if the code were wrong. Every mutation asserts its own match count, because one that failed to apply would otherwise be reported as one the code survived |
+| **Mutation** | **One hundred and forty-four** safety and honesty guards, each re-broken in turn, each required to turn its named test red. A green suite proves the code passes its tests; this proves the tests would notice if the code were wrong. Every mutation asserts its own match count, because one that failed to apply would otherwise be reported as one the code survived |
 | **Doctests** | A `compile_fail` proof that stopped being collected. The count is asserted **exactly, in both directions** — too few means a proof moved onto a private item, where rustdoc runs zero tests and still prints `ok`; too many means somebody added a proof without raising the number |
 | **Rust** | Unformatted code, a `clippy::pedantic` warning at `-D warnings` over all targets, a failed build or test, a broken intra-doc link, and the removal of *either* `#![forbid(unsafe_code)]` or `unsafe_code = "deny"` — either alone can be dropped in a diff that looks unrelated |
 | **Coverage** | Production line coverage below **80%** (measured: 80.47%), with test files excluded so the figure is not inflated by the coverage of the tests themselves. A missing coverage tool is a failure, never a pass |

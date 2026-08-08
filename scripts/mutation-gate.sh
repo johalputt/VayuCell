@@ -854,7 +854,7 @@ mutate "$SV" percent_encoding_is_refused_rather_than_decoded \
   "    if path.contains('%') || path.contains('\\\\') || path.contains('\\0') {" \
   "    if false {"
 
-mutate "$SV" only_the_two_read_verbs_are_implemented \
+mutate "$SV" only_the_three_implemented_verbs_are_accepted \
   "any verb is accepted as a read" \
   "        other => return Err(BadRequest::UnsupportedMethod(other.to_owned()))," \
   "        _ => Method::Get,"
@@ -881,7 +881,7 @@ mutate "$SV" a_request_line_longer_than_the_bound_is_refused_before_it_is_parsed
 
 mutate "$SV" a_head_request_omits_the_body_but_still_states_its_length \
   "a HEAD response carries a body" \
-  "        if method == Method::Get {" \
+  "        if method != Method::Head {" \
   "        if true {"
 
 # ── The published site: the first surface here serving strangers ─────────────
@@ -949,6 +949,45 @@ mutate "$LI" a_symlink_pointing_out_of_the_root_is_refused \
   "a symbolic link may lead out of the site directory" \
   "    if !real_file.starts_with(&real_root) {" \
   "    if false {"
+
+# ── The vault route, and the verbs it added ──────────────────────────────────
+
+mutate "$SV" only_head_omits_the_body_and_every_other_verb_carries_it \
+  "every verb but GET loses its body again, so a receipt confirms nothing" \
+  "        if method != Method::Head {" \
+  "        if method == Method::Get {"
+
+mutate "$SV" a_scheme_this_does_not_implement_reads_as_nothing_presented \
+  "any authorization scheme is treated as a bearer credential" \
+  "    if !scheme.eq_ignore_ascii_case(\"bearer\") {
+        return None;
+    }" \
+  "    if false {
+        return None;
+    }"
+
+mutate "$SV" a_body_larger_than_the_limit_is_refused_before_a_byte_of_it_is_read \
+  "a body of any declared size is accepted, and allocated" \
+  "                if n > MAX_BODY {
+                    return Err(BadRequest::BodyTooLarge(n));
+                }" \
+  "                if false {
+                    return Err(BadRequest::BodyTooLarge(n));
+                }"
+
+mutate "$SV" a_file_that_does_not_fit_is_told_apart_from_a_device_that_will_not_take_it \
+  "a full disk is reported as the device refusing, so nobody knows to free space" \
+  "                let status = if matches!(admission, Admission::Refusing(Refused::Full(_))) {
+                    507
+                } else {
+                    503
+                };" \
+  "                let status = 503;"
+
+mutate "$SV" an_unauthenticated_put_is_refused_before_anything_else_is_looked_at \
+  "the credential stops being checked first, so a stranger learns the device state" \
+  "    let verdict = ctx.credentials.verify(headers.bearer());" \
+  "    let verdict = Verdict::Authenticated(crate::auth::DeviceName::new(\"anyone\").expect(\"plain\"));"
 
 # ── Credentials ──────────────────────────────────────────────────────────────
 

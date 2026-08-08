@@ -21,7 +21,8 @@ use std::time::Duration;
 use vayucell_core::csp::Nonce;
 use vayucell_core::host::RealHost;
 use vayucell_core::serve::{
-    parse_request_line, refuse, route, route_site, Method, Response, Surface, MAX_REQUEST_LINE,
+    parse_headers, parse_request_line, refuse, route, route_site, route_vault, BadRequest, Headers,
+    Method, Request, Response, Surface, VaultContext, MAX_HEADERS, MAX_REQUEST_LINE,
 };
 use vayucell_core::site::{Availability, SiteRoot};
 
@@ -47,7 +48,9 @@ pub fn serve(addr: &str, panel: &dyn Fn() -> String) -> Result<(), String> {
     // that this is not on the open network needs the real answer.
     println!("vayucell: serving the panel on http://{bound}/ (local only)");
 
-    accept_loop(&listener, Surface::Control, &|r| route(r, &panel()))
+    accept_loop(&listener, Surface::Control, &|r, _headers, _body| {
+        route(r, &panel())
+    })
 }
 
 /// Serves a directory of files, under the governor.
@@ -75,11 +78,104 @@ pub fn serve_site(
 
     println!("vayucell: serving {} on http://{bound}/", root.dir());
 
-    accept_loop(&listener, Surface::Site, &|r| {
+    accept_loop(&listener, Surface::Site, &|r, _headers, _body| {
         route_site(r, root, &RealHost, availability(), &|path| {
             read_contained(root.dir(), path)
         })
     })
+}
+
+/// Serves the vault: authenticated reads and writes of stored files.
+///
+/// `context` is called per request for the same reason the site's availability
+/// is — the governor's answer goes stale, and stale always fails in the
+/// reassuring direction.
+///
+/// # Errors
+///
+/// Returns the reason the listener could not be established.
+pub fn serve_vault(
+    addr: &str,
+    root: &vayucell_core::vault::VaultRoot,
+    credentials: &vayucell_core::auth::Credentials,
+    context: &dyn Fn() -> (vayucell_core::governor::Level, vayucell_core::shed::Stage),
+    quota: vayucell_core::vault::Quota,
+) -> Result<(), String> {
+    let listener = TcpListener::bind(addr).map_err(|e| format!("{addr}: {e}"))?;
+    let bound = listener
+        .local_addr()
+        .map_err(|e| format!("the socket would not say what it bound: {e}"))?;
+
+    println!(
+        "vayucell: vault at {} on http://{bound}/ — {} device(s) enrolled",
+        root.dir(),
+        credentials.len()
+    );
+    if credentials.is_empty() {
+        // Not a warning to scroll past: in this state the vault answers 401 to
+        // everything, which is correct and is also not what the operator wanted.
+        println!(
+            "vayucell: no device is enrolled, so every request will be refused.\n\
+             \x20         Enrol one with: vayucell enrol --device <name>"
+        );
+    }
+
+    accept_loop(&listener, Surface::Site, &|request, headers, body| {
+        let (level, stage) = context();
+        let ctx = VaultContext {
+            credentials,
+            root,
+            quota,
+            level,
+            stage,
+        };
+        route_vault(
+            request,
+            headers,
+            &ctx,
+            body,
+            &|path| read_contained(root.dir(), path),
+            &|plan, bytes| write_durably(plan, bytes),
+        )
+    })
+}
+
+/// Performs the ordering in a [`vayucell_core::vault::WritePlan`], in that order.
+///
+/// The plan is data and this is the only place that acts on it. Every step is
+/// here, including the directory flush, which is the one that is invisible until
+/// a real power cut.
+fn write_durably(plan: &vayucell_core::vault::WritePlan, bytes: &[u8]) -> Result<(), String> {
+    use std::fs::{File, OpenOptions};
+
+    // 1. Write every byte to a temporary beside the destination.
+    let mut temporary = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(plan.temporary())
+        .map_err(|e| format!("{}: {e}", plan.temporary()))?;
+    temporary
+        .write_all(bytes)
+        .map_err(|e| format!("{}: {e}", plan.temporary()))?;
+
+    // 2. Ask the device to put the file's own bytes on the medium.
+    temporary
+        .sync_all()
+        .map_err(|e| format!("{}: {e}", plan.temporary()))?;
+    drop(temporary);
+
+    // 3. The one atomic step.
+    std::fs::rename(plan.temporary(), plan.destination()).map_err(|e| {
+        // Leaving the temporary behind would be debris nobody recognises.
+        let _ = std::fs::remove_file(plan.temporary());
+        format!("{} -> {}: {e}", plan.temporary(), plan.destination())
+    })?;
+
+    // 4. The step everyone forgets: without it the rename is what is lost.
+    File::open(plan.directory())
+        .and_then(|d| d.sync_all())
+        .map_err(|e| format!("{}: {e}", plan.directory()))
 }
 
 /// Reads a file, having first confirmed against the real filesystem that it is
@@ -116,10 +212,13 @@ fn read_contained(root: &str, path: &str) -> Option<Vec<u8>> {
     }
 }
 
+/// Answers one parsed request. The body is empty for every read surface.
+type Responder<'a> = dyn Fn(&Request, &Headers, &[u8]) -> Response + 'a;
+
 fn accept_loop(
     listener: &TcpListener,
     surface: Surface,
-    respond: &dyn Fn(&vayucell_core::serve::Request) -> Response,
+    respond: &Responder<'_>,
 ) -> Result<(), String> {
     for stream in listener.incoming() {
         match stream {
@@ -134,11 +233,7 @@ fn accept_loop(
     Ok(())
 }
 
-fn handle(
-    stream: TcpStream,
-    surface: Surface,
-    respond: &dyn Fn(&vayucell_core::serve::Request) -> Response,
-) -> Result<(), String> {
+fn handle(stream: TcpStream, surface: Surface, respond: &Responder<'_>) -> Result<(), String> {
     stream
         .set_read_timeout(Some(READ_TIMEOUT))
         .map_err(|e| format!("could not set a read timeout: {e}"))?;
@@ -164,7 +259,10 @@ fn handle(
         return Ok(());
     } else {
         match parse_request_line(&line) {
-            Ok(r) => (respond(&r), r.method),
+            Ok(r) => match read_headers_and_body(&mut reader) {
+                Ok((headers, body)) => (respond(&r, &headers, &body), r.method),
+                Err(bad) => (refuse(&bad), Method::Get),
+            },
             Err(bad) => (refuse(&bad), Method::Get),
         }
     };
@@ -174,6 +272,59 @@ fn handle(
     out.write_all(&body.render(surface, nonce()?, method))
         .map_err(|e| format!("could not write the response: {e}"))?;
     out.flush().map_err(|e| format!("could not flush: {e}"))
+}
+
+/// Reads the header block and, if one was declared, the body.
+///
+/// Bounded at every step. The header count is capped by
+/// [`vayucell_core::serve::MAX_HEADERS`], each line by
+/// [`vayucell_core::serve::MAX_REQUEST_LINE`], and the body by the
+/// `Content-Length` the header parser has already refused if it was too large —
+/// so nothing here allocates on a number a stranger chose without that number
+/// having passed a check first.
+///
+/// The body is read to exactly the declared length rather than to end of
+/// stream. A client that declares ten bytes and sends a hundred gets ten stored
+/// and the rest ignored; a client that declares a hundred and sends ten hits the
+/// read timeout rather than storing a truncated file as though it were whole.
+fn read_headers_and_body(
+    reader: &mut BufReader<TcpStream>,
+) -> Result<(Headers, Vec<u8>), BadRequest> {
+    let mut lines: Vec<String> = Vec::new();
+    loop {
+        let mut line = String::new();
+        let read = reader
+            .take(MAX_REQUEST_LINE as u64)
+            .read_line(&mut line)
+            .map_err(|_| BadRequest::MalformedHeader)?;
+        // End of stream, or the blank line that ends the header block.
+        if read == 0 || line.trim_end_matches(['\r', '\n']).is_empty() {
+            break;
+        }
+        if lines.len() >= MAX_HEADERS {
+            return Err(BadRequest::TooManyHeaders);
+        }
+        lines.push(line);
+    }
+
+    let refs: Vec<&str> = lines.iter().map(String::as_str).collect();
+    let headers = parse_headers(&refs)?;
+
+    let body = match headers.content_length() {
+        None | Some(0) => Vec::new(),
+        Some(n) => {
+            // usize on a 32-bit phone is 32 bits, and MAX_BODY fits. The
+            // conversion is checked rather than cast, because a silent
+            // truncation here would read the wrong number of bytes.
+            let n = usize::try_from(n).map_err(|_| BadRequest::BodyTooLarge(n))?;
+            let mut body = vec![0u8; n];
+            reader
+                .read_exact(&mut body)
+                .map_err(|_| BadRequest::Malformed)?;
+            body
+        }
+    };
+    Ok((headers, body))
 }
 
 /// A fresh nonce for one response.
@@ -196,7 +347,10 @@ fn nonce() -> Result<Nonce, String> {
 }
 
 /// Base64url, no padding. Twenty lines rather than a dependency.
-fn base64url(bytes: &[u8]) -> String {
+///
+/// Public because [`crate::enrol`] mints secrets with it too, and two encoders
+/// is one more than can be checked against the known vectors below.
+pub fn base64url(bytes: &[u8]) -> String {
     const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
     let mut out = String::new();
     for chunk in bytes.chunks(3) {

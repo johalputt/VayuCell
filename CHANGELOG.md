@@ -15,51 +15,42 @@ traffic before it.
 
 ### Added
 
-- **Per-device credentials** (ADR-0010) — `core/src/auth.rs`, the answer to
-  *whose* file it is. ADR-0009 settled whether the device is fit to take a file
-  and said outright that shipping that without this would be worse than shipping
-  neither.
-
-  **The human never picks the secret, and that decision is the whole design.**
-  Charter V.5 forbids third-party runtime dependencies, so there is no `argon2`
-  and no `bcrypt` here — and hand-rolling a memory-hard derivation under a rule
-  that exists to keep unreviewed code out of the build would be the worst
-  possible use of that rule. A chosen password needs one; 256 bits of kernel
-  randomness needs nothing. `Secret::new("hunter2")` is a `WrongLength` error and
-  a test asserts it, so no cryptography is implemented in this file.
-
-  **An empty store refuses everything.** The most dangerous thing this module
-  could do is treat "nobody enrolled" as "authentication off" — the state every
-  installation begins in. `StoreEmpty` is also kept distinct from
-  `NotRecognised`, so an operator who has enrolled nothing is told that rather
-  than sent looking for a typo that is not there.
-
-  **Every entry is compared, every time.** Returning on the first match would
-  answer sooner for a device enrolled early than one enrolled late.
-  `constant_time_eq` accumulates a difference instead of returning at the first
-  mismatching byte, because `==` on a secret leaks how many leading bytes were
-  right — enough to recover it one byte at a time. It is checked exhaustively
-  against the language's own `==` over every input up to three bytes.
-
-  **A secret never prints.** `Secret` does not derive `Debug`; a derived one
-  reaches every `{:?}`, every `unwrap` panic and every log line that formats a
-  structure containing it, and none of those call sites reads like a disclosure.
-  Tests assert the value is absent from the debug output of the secret, of the
-  credential, of the whole store, and of the parse error raised on a line that
-  contained one.
-
-  **The store holds secrets rather than hashes**, deliberately: anyone who can
-  read it is already the same user, on the same filesystem, as the vault it
-  guards, so hashing would defend the credential and lose the files in the same
-  breath. That makes the file's mode the whole of the protection, so
-  `readable_by_others` checks it rather than assuming it.
-
-  A malformed line refuses the whole store by line number rather than loading
-  what it can — a partially loaded store is a device that stopped working for a
-  reason nobody connects to the edit.
-
-  No route consults this yet, and enrolment is not written. `serve::Method` still
-  has only `Get` and `Head`.
+- **Storage that works end to end.** `vayucell enrol --device <name>` mints a
+  credential and prints it once; `vayucell vault --dir <DIR>` serves it. A
+  `PUT` with a bearer credential stores a file, a `GET` reads it back. Verified
+  against a running binary, not only in tests: an unauthenticated `PUT` answers
+  `401`, an authenticated one stores the file and returns a receipt, a `60 °C`
+  device answers `503` and stores nothing, and a `.env` or a `sub/dir.txt` is
+  refused with a sentence that says which rule it broke.
+- **`serve::Method` gained `Put`.** This is the widening both ADR-0008 and
+  ADR-0009 said would have to arrive "in a diff somebody has to approve", and
+  the test that guarded the boundary changed with it rather than being deleted.
+  `Put` and only `Put`: it names one file and replaces it, so a retry after a
+  dropped connection is safe. `Delete` destroys data and still deserves its own
+  decision; `Post` has no meaning where nothing is appended to.
+- **`serve::route_vault` checks the credential first** — before the path is
+  parsed, before the governor is consulted, before the disk is measured. Every
+  other order leaks something: the name check tells a stranger which filenames
+  are acceptable, and the device check tells them the battery level of a phone
+  that is none of their business. A test sends an unauthenticated `PUT` at a
+  halted device with a full disk and an illegal path, and requires the answer to
+  be `401` mentioning none of the three.
+- **Header parsing**, bounded at every step: at most 64 header lines, each
+  capped at the request-line limit, and a `Content-Length` over 64 MiB refused
+  *before a byte of the body is read*. Only `Authorization` and `Content-Length`
+  are retained — a map of arbitrary headers is a thing that ends up in a log. An
+  `Authorization` scheme this does not implement reads as nothing presented,
+  rather than as a different refusal that would tell a stranger which schemes
+  exist.
+- **`cli/src/enrol.rs`**: the store is created mode `0600` *at open time*, not
+  chmod'ed afterwards — a file that was world-readable for an instant has been
+  read by whatever was looking. A store others can read is refused with the
+  `chmod` that fixes it. A missing store is the empty store, which accepts
+  nobody. A name already enrolled is refused rather than duplicated, because two
+  rows with one name means revoking it leaves the other behind.
+- **`write_durably`** in the listener is the one place that acts on a
+  `WritePlan`, and it performs all four steps — including the directory flush,
+  the one whose absence is invisible until a real power cut.
 
 - **The vault** (ADR-0009) — `core/src/vault.rs`, the decision layer for
   accepting a file. It is the first thing in this project that takes rather than
@@ -147,6 +138,55 @@ traffic before it.
 - `Host::is_file`, and `FakeHost::with_dir` beside it — see below for why.
 
 ### Fixed
+
+- **Every `PUT` response had an empty body.** `Response::render` suppressed the
+  body for any method that was not `GET`, which was correct when `Get` and
+  `Head` were the only verbs and silently wrong the moment `Put` existed: an
+  upload confirmed nothing and a `400` explained nothing. The condition now asks
+  which verb *omits* a body, which is the form that stays correct when a verb is
+  added. Found by running an upload, not by reading the diff.
+- **Two mutations had gone stale** against the renamed verb test and the line
+  above, and the mutation gate reported one as `SURVIVED` rather than passing
+  quietly — a test name that no longer exists matches nothing and passes
+  vacuously, which is the exact failure the gate exists to catch.
+- **Per-device credentials** (ADR-0010) — `core/src/auth.rs`, the answer to
+  *whose* file it is. ADR-0009 settled whether the device is fit to take a file
+  and said outright that shipping that without this would be worse than shipping
+  neither.
+  **The human never picks the secret, and that decision is the whole design.**
+  Charter V.5 forbids third-party runtime dependencies, so there is no `argon2`
+  and no `bcrypt` here — and hand-rolling a memory-hard derivation under a rule
+  that exists to keep unreviewed code out of the build would be the worst
+  possible use of that rule. A chosen password needs one; 256 bits of kernel
+  randomness needs nothing. `Secret::new("hunter2")` is a `WrongLength` error and
+  a test asserts it, so no cryptography is implemented in this file.
+  **An empty store refuses everything.** The most dangerous thing this module
+  could do is treat "nobody enrolled" as "authentication off" — the state every
+  installation begins in. `StoreEmpty` is also kept distinct from
+  `NotRecognised`, so an operator who has enrolled nothing is told that rather
+  than sent looking for a typo that is not there.
+  **Every entry is compared, every time.** Returning on the first match would
+  answer sooner for a device enrolled early than one enrolled late.
+  `constant_time_eq` accumulates a difference instead of returning at the first
+  mismatching byte, because `==` on a secret leaks how many leading bytes were
+  right — enough to recover it one byte at a time. It is checked exhaustively
+  against the language's own `==` over every input up to three bytes.
+  **A secret never prints.** `Secret` does not derive `Debug`; a derived one
+  reaches every `{:?}`, every `unwrap` panic and every log line that formats a
+  structure containing it, and none of those call sites reads like a disclosure.
+  Tests assert the value is absent from the debug output of the secret, of the
+  credential, of the whole store, and of the parse error raised on a line that
+  contained one.
+  **The store holds secrets rather than hashes**, deliberately: anyone who can
+  read it is already the same user, on the same filesystem, as the vault it
+  guards, so hashing would defend the credential and lose the files in the same
+  breath. That makes the file's mode the whole of the protection, so
+  `readable_by_others` checks it rather than assuming it.
+  A malformed line refuses the whole store by line number rather than loading
+  what it can — a partially loaded store is a device that stopped working for a
+  reason nobody connects to the edit.
+  No route consults this yet, and enrolment is not written. `serve::Method` still
+  has only `Get` and `Head`.
 
 - **A directory resolved as though it were a page.** `resolve` asked
   `Host::exists`, which cannot tell a folder from a file, so `/blog` resolved to

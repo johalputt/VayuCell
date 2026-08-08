@@ -25,22 +25,46 @@
 //! authentication — because there is nothing to authorise. A panel is what the
 //! owner of the device can already see by picking it up.
 
+use crate::auth::{Credentials, Verdict};
 use crate::csp::{control_surface, published_site, Nonce, Policy};
+use crate::governor::Level;
 use crate::headers::SecurityHeaders;
 use crate::host::Host;
+use crate::shed::Stage;
 use crate::site::{resolve, status_for, Availability, Refusal, Resolved, SiteRoot};
+use crate::vault::{Admission, Name, Quota, Receipt, Refused, VaultRoot, WritePlan};
 
 /// What was asked for.
 ///
-/// Only the two verbs a read-only surface needs. There is no `Post`, no `Put`
-/// and no `Delete` variant, so a route that mutated something could not be
-/// written without first widening this enum in a diff somebody has to approve.
+/// This enum is the project's write surface, expressed as a type. It carried
+/// only `Get` and `Head` until the vault existed, and the comment then said that
+/// a route which mutated something could not be written without first widening
+/// it in a diff somebody has to approve. This is that diff.
+///
+/// `Put` was added and `Post` and `Delete` were not, deliberately. `Put` names
+/// one file and replaces it, which is the whole of what a vault needs and is
+/// idempotent — a retry after a dropped connection is safe. `Delete` destroys
+/// somebody's data and deserves its own decision; `Post` has no meaning here at
+/// all, since nothing is being appended to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Method {
     /// A read.
     Get,
     /// A read with the body suppressed.
     Head,
+    /// Store the body under the named file, replacing what was there.
+    Put,
+}
+
+impl Method {
+    /// Whether this verb changes anything.
+    ///
+    /// Used so a route can refuse a write without enumerating verbs, which is
+    /// how a verb added later quietly acquires permission it was never granted.
+    #[must_use]
+    pub const fn writes(self) -> bool {
+        matches!(self, Method::Put)
+    }
 }
 
 /// A parsed request.
@@ -67,6 +91,12 @@ pub enum BadRequest {
     Traversal,
     /// The path was not a valid target.
     BadPath,
+    /// More header lines than [`MAX_HEADERS`].
+    TooManyHeaders,
+    /// A header line was not `Name: value`.
+    MalformedHeader,
+    /// A declared body larger than [`MAX_BODY`].
+    BodyTooLarge(u64),
 }
 
 impl core::fmt::Display for BadRequest {
@@ -78,6 +108,15 @@ impl core::fmt::Display for BadRequest {
             }
             BadRequest::Traversal => f.write_str("the path tried to leave the document root"),
             BadRequest::BadPath => f.write_str("the path was not a valid target"),
+            BadRequest::TooManyHeaders => {
+                write!(f, "more than {MAX_HEADERS} header lines were sent")
+            }
+            BadRequest::MalformedHeader => f.write_str("a header line was not understood"),
+            BadRequest::BodyTooLarge(n) => write!(
+                f,
+                "the body is {n} bytes and the limit is {MAX_BODY}; refused before any \
+                 of it was read"
+            ),
         }
     }
 }
@@ -109,6 +148,7 @@ pub fn parse_request_line(line: &str) -> Result<Request, BadRequest> {
     let method = match verb {
         "GET" => Method::Get,
         "HEAD" => Method::Head,
+        "PUT" => Method::Put,
         other => return Err(BadRequest::UnsupportedMethod(other.to_owned())),
     };
 
@@ -120,6 +160,111 @@ pub fn parse_request_line(line: &str) -> Result<Request, BadRequest> {
         method,
         path: normalise(path)?,
     })
+}
+
+/// The most header lines this will read before giving up.
+///
+/// A client that sends headers forever otherwise holds a connection and a
+/// growing allocation, on a phone whose battery this project exists to protect.
+pub const MAX_HEADERS: usize = 64;
+
+/// The largest body this will accept, in bytes.
+///
+/// A bound the vault's quota does not replace: the quota describes the disk, and
+/// this describes what may be held while deciding whether it fits. Sixty-four
+/// mebibytes is comfortably more than a document and comfortably less than a
+/// phone's memory.
+pub const MAX_BODY: u64 = 64 * 1024 * 1024;
+
+/// The two headers any route here actually reads.
+///
+/// Everything else is discarded rather than stored, for the same reason the
+/// query string is: a parser for values no route consults is an attack surface
+/// maintained for nobody, and a map of arbitrary headers is a thing that ends up
+/// being logged.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Headers {
+    bearer: Option<String>,
+    content_length: Option<u64>,
+}
+
+impl Headers {
+    /// The bearer credential presented, if any.
+    ///
+    /// `None` covers both "no `Authorization` header" and "an `Authorization`
+    /// header this does not understand". Both mean the same thing to a caller —
+    /// nothing was presented that could be checked — and distinguishing them in
+    /// the response would tell an unauthenticated stranger which schemes exist.
+    #[must_use]
+    pub fn bearer(&self) -> Option<&str> {
+        self.bearer.as_deref()
+    }
+
+    /// The declared body length, if one was declared.
+    #[must_use]
+    pub const fn content_length(&self) -> Option<u64> {
+        self.content_length
+    }
+}
+
+/// Parses the header block.
+///
+/// # Errors
+///
+/// Returns why it was refused. A body longer than [`MAX_BODY`] is refused here,
+/// before a single byte of it is read — refusing after reading it is the
+/// resource exhaustion the limit exists to prevent.
+pub fn parse_headers(lines: &[&str]) -> Result<Headers, BadRequest> {
+    if lines.len() > MAX_HEADERS {
+        return Err(BadRequest::TooManyHeaders);
+    }
+    let mut headers = Headers::default();
+    for line in lines {
+        let line = line.trim_end_matches(['\r', '\n']);
+        if line.is_empty() {
+            continue;
+        }
+        let Some((name, value)) = line.split_once(':') else {
+            return Err(BadRequest::MalformedHeader);
+        };
+        let value = value.trim();
+        // Field names are case-insensitive per RFC 9110, and a client that sends
+        // `authorization:` in lower case is not making an attack — it is using a
+        // library.
+        match name.to_ascii_lowercase().as_str() {
+            "authorization" => {
+                // Only Bearer. A scheme this does not implement is treated as
+                // nothing presented, rather than as a different kind of refusal.
+                if let Some(rest) = strip_bearer(value) {
+                    headers.bearer = Some(rest.to_owned());
+                }
+            }
+            "content-length" => {
+                let n: u64 = value.parse().map_err(|_| BadRequest::MalformedHeader)?;
+                if n > MAX_BODY {
+                    return Err(BadRequest::BodyTooLarge(n));
+                }
+                headers.content_length = Some(n);
+            }
+            _ => {}
+        }
+    }
+    Ok(headers)
+}
+
+/// The credential out of `Bearer <credential>`, with the scheme matched
+/// case-insensitively and the separator required.
+fn strip_bearer(value: &str) -> Option<&str> {
+    let (scheme, rest) = value.split_once(' ')?;
+    if !scheme.eq_ignore_ascii_case("bearer") {
+        return None;
+    }
+    let rest = rest.trim();
+    if rest.is_empty() {
+        None
+    } else {
+        Some(rest)
+    }
 }
 
 /// Rejects anything that could leave the document root.
@@ -251,7 +396,13 @@ impl Response {
         head.push_str("Connection: close\r\n\r\n");
 
         let mut out = head.into_bytes();
-        if method == Method::Get {
+        // Suppressed for HEAD and for nothing else. This was written as
+        // `== Method::Get` when those were the only two verbs, and the day PUT
+        // arrived it silently swallowed every receipt and every error message a
+        // PUT could produce — a 400 with no body, an upload with no
+        // confirmation. Asking which verb *omits* a body is the question that
+        // stays correct when a verb is added.
+        if method != Method::Head {
             out.extend_from_slice(&self.body);
         }
         out
@@ -325,6 +476,105 @@ pub fn route_site(
     }
 }
 
+/// Reads a stored file, or `None` if it cannot be read for any reason.
+///
+/// Named rather than written inline so the two callbacks the vault route takes
+/// are distinguishable at a glance — swapping a reader for a writer is a
+/// mistake the type system should catch and a reviewer should never have to.
+pub type ReadFile<'a> = dyn Fn(&str) -> Option<Vec<u8>> + 'a;
+
+/// Performs the ordering in a [`WritePlan`], or says why it could not.
+pub type WriteFile<'a> = dyn Fn(&WritePlan, &[u8]) -> Result<(), String> + 'a;
+
+/// Everything the vault route needs to know about the device and its owner.
+///
+/// Bundled rather than passed as seven arguments, so a caller that forgets one
+/// fails to compile instead of getting a default.
+#[derive(Debug, Clone, Copy)]
+pub struct VaultContext<'a> {
+    /// The devices enrolled on this cell.
+    pub credentials: &'a Credentials,
+    /// The directory files are kept in.
+    pub root: &'a VaultRoot,
+    /// How much room there is.
+    pub quota: Quota,
+    /// The governor's level.
+    pub level: Level,
+    /// The outage ladder's rung.
+    pub stage: Stage,
+}
+
+/// Routes a request against the vault.
+///
+/// # The order of the checks is the security property
+///
+/// Authentication runs **first**, before the path is looked at, before the
+/// governor is consulted and before the disk is measured. Every other order
+/// leaks something to a stranger: checking the name first tells them which
+/// filenames are acceptable, and checking the device state first tells them the
+/// battery level of a phone they have no business knowing about. An
+/// unauthenticated caller learns exactly one thing — that they are not enrolled.
+///
+/// `read` and `write` are passed in, so every decision here is testable without
+/// a filesystem. `write` performs the ordering in [`WritePlan`]; this module
+/// decides *whether*, never *how*.
+#[must_use]
+pub fn route_vault(
+    request: &Request,
+    headers: &Headers,
+    ctx: &VaultContext<'_>,
+    body: &[u8],
+    read: &ReadFile<'_>,
+    write: &WriteFile<'_>,
+) -> Response {
+    let verdict = ctx.credentials.verify(headers.bearer());
+    let Verdict::Authenticated(_device) = verdict else {
+        let Verdict::Refused(why) = verdict else {
+            unreachable!("Verdict has exactly two variants")
+        };
+        return Response::refused(401, "Unauthorized", &why.to_string());
+    };
+
+    // The path is one name, never a tree. The vault is flat on purpose: a
+    // directory structure is a second thing to validate and a second place for a
+    // traversal to hide.
+    let name = match Name::new(request.path.trim_start_matches('/')) {
+        Ok(n) => n,
+        Err(e) => return Response::refused(400, "Bad Request", &e.to_string()),
+    };
+
+    match request.method {
+        Method::Get | Method::Head => match read(&format!("{}/{}", ctx.root.dir(), name)) {
+            Some(bytes) => Response::bytes(bytes, "application/octet-stream"),
+            None => Response::refused(404, "Not Found", "nothing is stored under that name"),
+        },
+        Method::Put => {
+            let offered = body.len() as u64;
+            let admission = Admission::of(ctx.level, ctx.stage, ctx.quota, offered);
+            let Some(plan) = admission.plan(ctx.root, &name) else {
+                // 503 for the device's condition, 507 for the disk. Both are the
+                // operator's problem rather than the caller's mistake, and the
+                // caller can tell which from the status without reading prose.
+                let status = if matches!(admission, Admission::Refusing(Refused::Full(_))) {
+                    507
+                } else {
+                    503
+                };
+                return Response::refused(status, "Service Unavailable", &admission.describe());
+            };
+            match write(&plan, body) {
+                Ok(()) => {
+                    let receipt = Receipt::new(name, offered);
+                    Response::text(format!("{}\n", receipt.describe()))
+                }
+                // The plan was sound and the device agreed; the write itself
+                // failed. That is the operator's to fix and theirs to see.
+                Err(why) => Response::refused(500, "Internal Server Error", &why),
+            }
+        }
+    }
+}
+
 /// The response for a request that could not be parsed.
 #[must_use]
 pub fn refuse(bad: &BadRequest) -> Response {
@@ -333,8 +583,12 @@ pub fn refuse(bad: &BadRequest) -> Response {
             Response::refused(405, "Method Not Allowed", &bad.to_string())
         }
         BadRequest::Traversal => Response::refused(403, "Forbidden", &bad.to_string()),
-        BadRequest::Malformed | BadRequest::BadPath => {
-            Response::refused(400, "Bad Request", &bad.to_string())
+        BadRequest::BodyTooLarge(_) => {
+            Response::refused(413, "Content Too Large", &bad.to_string())
         }
+        BadRequest::Malformed
+        | BadRequest::BadPath
+        | BadRequest::TooManyHeaders
+        | BadRequest::MalformedHeader => Response::refused(400, "Bad Request", &bad.to_string()),
     }
 }

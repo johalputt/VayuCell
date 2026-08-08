@@ -1,7 +1,8 @@
 # ADR-0009 — Accepting a file: the first surface that takes rather than gives
 
-**Status:** accepted — the decision layer is implemented in `core/src/vault.rs`.
-No network route accepts an upload yet; see §6.
+**Status:** accepted — implemented in `core/src/vault.rs`, with the route in
+`serve::route_vault` and the write itself in `cli/src/listen.rs::write_durably`.
+See §7 for what changed after this was first written.
 **Supersedes:** nothing
 **Related:** [ADR-0002](ADR-0002-battery-safety-governor.md) (the governor this
 obeys), [ADR-0004](ADR-0004-storage-durability.md) §0 and §1 (why no receipt may
@@ -130,3 +131,25 @@ it is is not, and shipping the first without the second would be worse than
 shipping neither.
 
 It has not run on a phone.
+
+## §7. Since this was accepted
+
+§6 said there was no upload route and that adding one required authentication
+first. [ADR-0010](ADR-0010-per-device-credentials.md) settled the authentication;
+`serve::Method` then gained `Put`, and `serve::route_vault` is the route.
+
+`Put` and only `Put`. It names one file and replaces it, so it is idempotent and
+a retry after a dropped connection is safe. `Delete` destroys somebody's data and
+still deserves its own decision. `Post` has no meaning where nothing is appended
+to.
+
+`cli/src/listen.rs::write_durably` is the one place that acts on a `WritePlan`,
+and it performs all four steps including the directory flush.
+
+**One defect this found, recorded because it generalises.** `Response::render`
+suppressed the body for any method that was not `GET` — correct when `Get` and
+`Head` were the only verbs, and silently wrong the moment `Put` existed. Every
+receipt and every error message a `PUT` produced arrived empty: an upload that
+confirmed nothing, a refusal that explained nothing. The condition now asks which
+verb *omits* a body, which is the form that stays correct when a verb is added.
+It was found by running an upload, not by reading the diff.
