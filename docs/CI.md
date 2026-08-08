@@ -662,14 +662,19 @@ gates themselves apply.
 4. **Four supply-chain scorecard findings are not fixable by a commit**, and are
    recorded here rather than left for a reader to rediscover:
 
-   | Finding | Why it stands |
-   | --- | --- |
-   | **Branch-Protection** | A repository setting, not a file. Requiring a review on a project with one active maintainer produces a rule nobody can satisfy — it was tried, it deadlocked, and it was removed |
-   | **Code-Review** | `0/29 approved changesets`, because changes are pushed directly to `main` by design. This is a real limitation and it is the one behind the gates: nothing here has had a second pair of eyes, which is precisely why the machine checks are written to be adversarial |
-   | **Maintained** | The repository is younger than 90 days. Only time fixes this, and a project claiming otherwise would be claiming a history it does not have |
-   | **CII-Best-Practices** | Requires registering with an external programme. Worth doing; it is a person signing up, not a change to this tree |
+   | Finding | Scorecard's exact words | Why it stands, and what would close it |
+   | --- | --- | --- |
+   | **Branch-Protection** | `branch protection not enabled for branch 'main'` | A repository setting, not a file. **Partly fixable without changing how anything is pushed:** blocking force-pushes and blocking deletion of `main` are protections that do not require a review, cost nothing on a one-maintainer project, and score. Requiring a *reviewer* is the part that deadlocks — it was tried and removed. Applying either needs repository-admin rights, which the automation here does not have: the API answers `403 Resource not accessible by integration` to a plain read of `branches/main/protection`, never mind a write |
+   | **Code-Review** | `Found 0/30 approved changesets` | Changes are pushed directly to `main` by design. Closing this means adopting pull requests, which is a decision about how the project is run rather than a defect to repair. It is a real limitation and it is the one standing behind every gate here: nothing in this tree has had a second pair of eyes |
+   | **Maintained** | `project was created within the last 90 days` | Only time fixes this. A project claiming otherwise would be claiming a history it does not have |
+   | **CII-Best-Practices** | `no effort to earn an OpenSSF best practices badge detected` | Requires registering the project with an external programme. The check queries that programme's API by repository URL — **adding a badge image to the README would not move it, and would be asserting a certification nobody has awarded.** It is a person signing up, not a change to this tree |
 
-   The first two are the honest cost of a single-maintainer project, and neither
-   is closed by pretending. They are the reason the mutation gate, the gate
-   self-test and the fuzz harness exist at all — a machine that tries to break
-   the code is what stands in for the reviewer who is not there.
+   Code-Review and Maintained are the honest cost of a young single-maintainer
+   project, and neither is closed by pretending. They are the reason the mutation
+   gate, the gate self-test and the fuzz harness exist at all — a machine that
+   tries to break the code is what stands in for the reviewer who is not there.
+
+   **None of these is suppressed.** Filtering them out of the uploaded SARIF
+   would empty the dashboard in an afternoon, and a security page that is clean
+   because the findings were removed is exactly the failure mode this repository
+   is built against. They stay visible, and this table is why.
