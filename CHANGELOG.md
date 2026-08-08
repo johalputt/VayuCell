@@ -83,6 +83,20 @@ traffic before it.
   within seconds — an ordinary filename. The oracle was wrong, not the parser,
   and it now checks per segment, which is what the parser actually guarantees.
   An over-strict fuzz oracle costs exactly as much attention as a real bug.
+- **The schema validator is pinned by hash, not just by name.** Three workflows
+  ran `pip install jsonschema`, which resolves to whatever the index serves at
+  that moment — the same moving-reference problem the action tags had, in the
+  job that decides whether a device profile is valid. `requirements/schema.txt`
+  now pins every package and every published artefact hash, installed with
+  `--require-hashes` so pip refuses when anything in the resolved set lacks one.
+  All 116 of rpds-py's per-platform wheels are listed, because a hash set
+  covering only the machine that generated it fails on every other runner.
+- **`SECURITY.md` says how to report and what to expect back.** It described two
+  kinds of defect and never named a route or a timeframe. It now points at
+  private vulnerability reporting and commits to acknowledgement in 7 days,
+  assessment in 14, and a fix or a stated refusal within 90 — with an escalation
+  path if those pass in silence, because a disclosure process nobody answers is
+  worse than none: it persuades a reporter to stay quiet.
 - **Every GitHub Action is pinned to a commit SHA.** Sixty-three references
   across the workflows were tags — and a tag is whatever its owner repoints it
   at tomorrow, with no diff appearing in this repository. That is the

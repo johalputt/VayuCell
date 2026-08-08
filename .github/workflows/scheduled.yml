@@ -154,5 +154,5 @@ jobs:
         # with no natural symptom when it rots: a gate whose patterns stopped
         # matching goes on printing ok indefinitely.
         run: |
-          python3 -m pip install --quiet --disable-pip-version-check jsonschema
+          python3 -m pip install --quiet --disable-pip-version-check --require-hashes -r requirements/schema.txt
           bash scripts/gate-selftest.sh

@@ -507,7 +507,7 @@ enforces the sentence attached to it. No script can read a sentence and confirm
 that. It prints that limitation on every run rather than letting the tick imply
 otherwise.
 
-### `actions` — workflow references resolve
+### `actions` — workflow references and package installs are pinned
 
 Runs [`scripts/actions-gate.sh`](../scripts/actions-gate.sh), which extracts
 every `uses:` reference from the workflows and requires **two** things of each:
@@ -626,3 +626,17 @@ gates themselves apply.
    claimed as such.
 3. **Four charter articles are human review only** — III.2, III.4, IV.4 and V.4.
    The gate prints them on every run.
+4. **Four supply-chain scorecard findings are not fixable by a commit**, and are
+   recorded here rather than left for a reader to rediscover:
+
+   | Finding | Why it stands |
+   | --- | --- |
+   | **Branch-Protection** | A repository setting, not a file. Requiring a review on a project with one active maintainer produces a rule nobody can satisfy — it was tried, it deadlocked, and it was removed |
+   | **Code-Review** | `0/28 approved changesets`, because changes are pushed directly to `main` by design. This is a real limitation and it is the one behind the gates: nothing here has had a second pair of eyes, which is precisely why the machine checks are written to be adversarial |
+   | **Maintained** | The repository is younger than 90 days. Only time fixes this, and a project claiming otherwise would be claiming a history it does not have |
+   | **CII-Best-Practices** | Requires registering with an external programme. Worth doing; it is a person signing up, not a change to this tree |
+
+   The first two are the honest cost of a single-maintainer project, and neither
+   is closed by pretending. They are the reason the mutation gate, the gate
+   self-test and the fuzz harness exist at all — a machine that tries to break
+   the code is what stands in for the reviewer who is not there.

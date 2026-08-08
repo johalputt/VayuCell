@@ -57,7 +57,7 @@ jobs:
       # stops matching would report the charter as upheld forever.
       - name: Gate self-test — every check must actually fire
         run: |
-          python3 -m pip install --quiet --disable-pip-version-check jsonschema
+          python3 -m pip install --quiet --disable-pip-version-check --require-hashes -r requirements/schema.txt
           bash scripts/gate-selftest.sh
 
   # ── Attribution ─────────────────────────────────────────────────────────────
@@ -168,7 +168,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Install the schema validator
-        run: python3 -m pip install --quiet --disable-pip-version-check jsonschema
+        run: python3 -m pip install --quiet --disable-pip-version-check --require-hashes -r requirements/schema.txt
       - name: Hardware gate
         # The gate reports UNVERIFIED rather than failing when the validator is
         # absent, which is right for a laptop and wrong for the authoritative

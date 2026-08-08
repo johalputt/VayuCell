@@ -94,6 +94,25 @@ for entry in "${REFS[@]}"; do
   rm -rf "$tmp"
 done
 
+# ── Package installs are pinned too ───────────────────────────────────────────
+# Pinning the actions and then installing an unpinned package inside one of them
+# closes the front door and leaves the side door open: `pip install jsonschema`
+# resolves to whatever the index serves at that moment, in the job that decides
+# whether a device profile is valid.
+#
+# So every pip install in a workflow must go through --require-hashes. That flag
+# is the load-bearing part rather than the pinned version: it makes pip refuse
+# when ANY package in the resolved set lacks a hash, so an unpinned transitive
+# dependency fails the install instead of slipping through.
+while IFS= read -r line; do
+  file="${line%%:*}"
+  rest="${line#*:}"
+  case "$rest" in
+    *--require-hashes*) pass "pip install in ${file##*/} is hash-pinned" ;;
+    *) fail "${file##*/} installs a package without --require-hashes: ${rest## }" ;;
+  esac
+done < <(grep -rn 'pip install' .github/workflows/ 2>/dev/null || true)
+
 echo
 if [ "$FAILED" -ne 0 ]; then
   echo "ACTIONS GATE FAILED — a workflow reference is unpinned or unreachable."
