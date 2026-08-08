@@ -29,6 +29,8 @@ jobs:
     name: "Release · Preflight"
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -38,17 +40,33 @@ jobs:
         # tag-time requirement, not a push-time one: notes accumulate there
         # between releases, and a gate forbidding that makes the section useless.
         run: bash scripts/release-gate.sh --releasing
-      - name: The tag must match .release-version
-        # A tag that does not match the tree is a release whose artefacts cannot
-        # be matched back to their source.
+      - name: Settle on one version, from the tree
+        id: version
+        # `.release-version` is the single source of truth in both directions.
+        #
+        # On a tag push the ref must agree with it — a tag that does not match
+        # the tree is a release whose artefacts cannot be matched back to their
+        # source. On a manual dispatch there is no tag yet, so the version comes
+        # from the file and the publish step creates the tag from it; the two
+        # then agree by construction rather than by anybody remembering. The
+        # manual path is not a convenience: pushing a tag is not always available
+        # to the person cutting the release, and a release process with exactly
+        # one route is a release process that stops when that route closes.
         run: |
-          tag="${GITHUB_REF_NAME}"
+          set -euo pipefail
           file="$(tr -d '\n' < .release-version)"
-          [ "$tag" = "$file" ] || {
-            echo "tag $tag does not match .release-version $file"
-            exit 1
-          }
-          echo "tag and .release-version agree at $tag"
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            [ "$GITHUB_REF_NAME" = "$file" ] || {
+              echo "tag $GITHUB_REF_NAME does not match .release-version $file"
+              exit 1
+            }
+            echo "tag and .release-version agree at $file"
+          else
+            # The release gate already refused to run if this tag exists, so
+            # reaching here means the version has not been published before.
+            echo "manual dispatch; releasing $file from the tree"
+          fi
+          echo "version=$file" >> "$GITHUB_OUTPUT"
 
   # ── Build every target the project claims to support ───────────────────────
   build:
@@ -159,7 +177,7 @@ jobs:
   # ── Sign and publish ───────────────────────────────────────────────────────
   publish:
     name: "Release · Sign and publish"
-    needs: build
+    needs: [preflight, build]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     # Job-scoped, and this is the floor rather than a preference: creating a
@@ -225,6 +243,10 @@ jobs:
 
       - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
+          # Named explicitly rather than inherited from the ref, so the tag-push
+          # and manual-dispatch paths publish under exactly the same name. On a
+          # dispatch this is what creates the tag, at the commit that was built.
+          tag_name: ${{ needs.preflight.outputs.version }}
           files: dist/*
           generate_release_notes: true
           fail_on_unmatched_files: true
