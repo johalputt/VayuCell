@@ -134,10 +134,54 @@ pub fn serve_vault(
             headers,
             &ctx,
             body,
-            &|path| read_contained(root.dir(), path),
-            &|plan, bytes| write_durably(plan, bytes),
+            &RealVaultIo { root: root.dir() },
         )
     })
+}
+
+/// The real filesystem, containment-checked.
+///
+/// Every path this touches goes through [`read_contained`] or through a
+/// [`vayucell_core::vault::WritePlan`], both of which are anchored to the vault
+/// directory. Nothing here joins a caller's string to a root.
+struct RealVaultIo<'a> {
+    root: &'a str,
+}
+
+impl vayucell_core::serve::VaultIo for RealVaultIo<'_> {
+    fn read(&self, path: &str) -> Option<Vec<u8>> {
+        read_contained(self.root, path)
+    }
+
+    fn write(&self, plan: &vayucell_core::vault::WritePlan, bytes: &[u8]) -> Result<(), String> {
+        write_durably(plan, bytes)
+    }
+
+    fn remove(&self, path: &str) -> Result<bool, String> {
+        // Canonicalised first, for the same reason a read is: a symbolic link
+        // inside the vault pointing at something outside it would otherwise let
+        // a delete reach a file that was never stored here.
+        let Ok(real_root) = std::fs::canonicalize(self.root) else {
+            return Err(format!("{}: the vault directory went away", self.root));
+        };
+        let Ok(real_file) = std::fs::canonicalize(path) else {
+            // Absent, which is not an error — the caller wanted it gone.
+            return Ok(false);
+        };
+        if !real_file.starts_with(&real_root) {
+            eprintln!(
+                "vayucell: refusing to delete {path} — it resolves to {}, outside {}",
+                real_file.display(),
+                real_root.display()
+            );
+            return Ok(false);
+        }
+        match std::fs::remove_file(&real_file) {
+            Ok(()) => Ok(true),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+            Err(e) => Err(format!("{path}: {e}")),
+        }
+    }
 }
 
 /// Performs the ordering in a [`vayucell_core::vault::WritePlan`], in that order.
@@ -287,9 +331,7 @@ fn handle(stream: TcpStream, surface: Surface, respond: &Responder<'_>) -> Resul
 /// stream. A client that declares ten bytes and sends a hundred gets ten stored
 /// and the rest ignored; a client that declares a hundred and sends ten hits the
 /// read timeout rather than storing a truncated file as though it were whole.
-fn read_headers_and_body(
-    reader: &mut BufReader<TcpStream>,
-) -> Result<(Headers, Vec<u8>), BadRequest> {
+fn read_headers_and_body(reader: &mut impl BufRead) -> Result<(Headers, Vec<u8>), BadRequest> {
     let mut lines: Vec<String> = Vec::new();
     loop {
         let mut line = String::new();
@@ -508,6 +550,51 @@ mod containment_tests {
     }
 
     #[test]
+    fn a_delete_cannot_reach_through_a_symlink_out_of_the_vault() {
+        // The same gap as a read, on the one operation with no undo. A link
+        // inside the vault pointing at something outside it must not let a
+        // DELETE remove a file that was never stored here.
+        use vayucell_core::serve::VaultIo as _;
+        let s = Scratch::new("delete-symlink");
+        let root = s.path("vault");
+        std::fs::create_dir_all(&root).expect("the root");
+        let outside = s.write("precious.txt", "KEEP");
+
+        let link = root.join("bait.txt");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&outside, &link).expect("a symlink");
+        #[cfg(not(unix))]
+        return;
+
+        let io = super::RealVaultIo {
+            root: root.to_str().expect("utf-8"),
+        };
+        assert_eq!(
+            io.remove(link.to_str().expect("utf-8")),
+            Ok(false),
+            "a link out of the vault was followed"
+        );
+        assert!(outside.exists(), "the file outside the vault was deleted");
+    }
+
+    #[test]
+    fn a_delete_of_something_inside_the_vault_removes_it() {
+        use vayucell_core::serve::VaultIo as _;
+        let s = Scratch::new("delete-inside");
+        let root = s.path("vault");
+        std::fs::create_dir_all(&root).expect("the root");
+        let file = s.write("vault/a.txt", "bytes");
+
+        let io = super::RealVaultIo {
+            root: root.to_str().expect("utf-8"),
+        };
+        assert_eq!(io.remove(file.to_str().expect("utf-8")), Ok(true));
+        assert!(!file.exists());
+        // And again, which must be Ok(false) rather than an error.
+        assert_eq!(io.remove(file.to_str().expect("utf-8")), Ok(false));
+    }
+
+    #[test]
     fn a_path_that_does_not_exist_is_none_rather_than_a_panic() {
         let s = Scratch::new("missing");
         let root = s.path("site");
@@ -539,5 +626,187 @@ mod containment_tests {
             None,
             "a sibling sharing a name prefix is not inside the root"
         );
+    }
+}
+
+#[cfg(test)]
+mod reading_tests {
+    use super::read_headers_and_body;
+    use std::io::BufReader;
+    use vayucell_core::serve::{BadRequest, MAX_BODY, MAX_HEADERS};
+
+    fn read(raw: &str) -> Result<(vayucell_core::serve::Headers, Vec<u8>), BadRequest> {
+        read_headers_and_body(&mut BufReader::new(raw.as_bytes()))
+    }
+
+    #[test]
+    fn the_header_block_ends_at_the_blank_line_and_the_body_follows() {
+        let (headers, body) = read("Content-Length: 5\r\n\r\nhello").expect("valid");
+        assert_eq!(headers.content_length(), Some(5));
+        assert_eq!(body, b"hello");
+    }
+
+    #[test]
+    fn a_request_with_no_headers_at_all_reads_as_no_headers_and_no_body() {
+        let (headers, body) = read("\r\n").expect("valid");
+        assert_eq!(headers.bearer(), None);
+        assert!(body.is_empty());
+    }
+
+    #[test]
+    fn the_body_is_read_to_the_declared_length_and_not_past_it() {
+        // A client that declares ten bytes and sends a hundred gets ten stored.
+        // Reading to end of stream instead would store whatever it felt like
+        // sending, which is the bound the Content-Length check exists to set.
+        let (_, body) = read("Content-Length: 3\r\n\r\nabcdefghij").expect("valid");
+        assert_eq!(body, b"abc");
+    }
+
+    #[test]
+    fn a_body_shorter_than_declared_is_refused_rather_than_stored_truncated() {
+        // Storing a short read as though it were whole is how a file becomes
+        // silently damaged, which is the thing the whole vault is built against.
+        let e = read("Content-Length: 10\r\n\r\nshort").expect_err("short body");
+        assert_eq!(e, BadRequest::Malformed);
+    }
+
+    #[test]
+    fn a_declared_length_of_zero_produces_no_body_and_no_read() {
+        let (_, body) = read("Content-Length: 0\r\n\r\n").expect("valid");
+        assert!(body.is_empty());
+    }
+
+    #[test]
+    fn an_oversized_declaration_is_refused_before_the_body_is_touched() {
+        let e =
+            read(&format!("Content-Length: {}\r\n\r\n", MAX_BODY + 1)).expect_err("over the limit");
+        assert_eq!(e, BadRequest::BodyTooLarge(MAX_BODY + 1));
+    }
+
+    #[test]
+    fn more_header_lines_than_the_limit_stop_the_read_rather_than_growing_it() {
+        let mut raw = String::new();
+        for i in 0..=MAX_HEADERS {
+            raw.push_str(&format!("X-Filler-{i}: x\r\n"));
+        }
+        raw.push_str("\r\n");
+        assert_eq!(read(&raw).unwrap_err(), BadRequest::TooManyHeaders);
+    }
+
+    #[test]
+    fn the_bearer_credential_survives_the_read() {
+        let (headers, _) = read("Authorization: Bearer abc123\r\n\r\n").expect("valid");
+        assert_eq!(headers.bearer(), Some("abc123"));
+    }
+
+    #[test]
+    fn a_stream_that_ends_without_a_blank_line_is_not_an_error() {
+        // A client that closes after its headers has sent a complete request as
+        // far as this is concerned; there is simply no body.
+        let (headers, body) = read("Authorization: Bearer abc123\r\n").expect("valid");
+        assert_eq!(headers.bearer(), Some("abc123"));
+        assert!(body.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod durable_write_tests {
+    use super::write_durably;
+    use vayucell_core::vault::{Admission, Name, Quota, VaultRoot};
+
+    struct Scratch(std::path::PathBuf);
+    impl Scratch {
+        fn new(name: &str) -> Self {
+            let d = std::env::temp_dir().join(format!("vayucell-write-{name}"));
+            let _ = std::fs::remove_dir_all(&d);
+            std::fs::create_dir_all(&d).expect("scratch");
+            Self(d)
+        }
+        fn dir(&self) -> String {
+            self.0.to_string_lossy().into_owned()
+        }
+    }
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn plan_for(dir: &str, name: &str) -> vayucell_core::vault::WritePlan {
+        let host = vayucell_core::host::RealHost;
+        let root = VaultRoot::open(&host, dir).expect("the scratch exists");
+        Admission::of(
+            vayucell_core::governor::Level::Normal,
+            vayucell_core::shed::Stage::Serving,
+            Quota::new(0, 1_000_000),
+            10,
+        )
+        .plan(&root, &Name::new(name).expect("plain"))
+        .expect("accepted")
+    }
+
+    #[test]
+    fn a_write_lands_under_the_real_name_and_leaves_no_temporary() {
+        let s = Scratch::new("lands");
+        let plan = plan_for(&s.dir(), "report.txt");
+        write_durably(&plan, b"the bytes").expect("writes");
+
+        assert_eq!(
+            std::fs::read(plan.destination()).expect("exists"),
+            b"the bytes"
+        );
+        assert!(
+            !std::path::Path::new(plan.temporary()).exists(),
+            "the temporary survived the rename"
+        );
+    }
+
+    #[test]
+    fn a_second_write_replaces_the_first_rather_than_appending() {
+        // PUT names one file and replaces it. Appending would make a retry after
+        // a dropped connection double the file.
+        let s = Scratch::new("replace");
+        let plan = plan_for(&s.dir(), "a.txt");
+        write_durably(&plan, b"first").expect("writes");
+        write_durably(&plan, b"second").expect("writes");
+        assert_eq!(
+            std::fs::read(plan.destination()).expect("exists"),
+            b"second"
+        );
+    }
+
+    #[test]
+    fn the_temporary_is_hidden_so_a_site_would_never_serve_a_half_written_file() {
+        let s = Scratch::new("hidden");
+        let plan = plan_for(&s.dir(), "photo.jpg");
+        let leaf = plan
+            .temporary()
+            .rsplit_once('/')
+            .expect("has a parent")
+            .1
+            .to_owned();
+        assert!(leaf.starts_with('.'), "{leaf}");
+        // And core refuses that leaf as a name, which is what stops the site
+        // serving it — two modules, one property.
+        assert!(Name::new(&leaf).is_err());
+    }
+
+    #[test]
+    fn an_empty_body_is_a_real_file_rather_than_a_skipped_write() {
+        // Storing nothing is a thing somebody can mean, and the result must be
+        // an empty file rather than no file.
+        let s = Scratch::new("empty");
+        let plan = plan_for(&s.dir(), "empty.txt");
+        write_durably(&plan, b"").expect("writes");
+        assert_eq!(std::fs::read(plan.destination()).expect("exists"), b"");
+    }
+
+    #[test]
+    fn a_write_into_a_directory_that_went_away_fails_rather_than_reporting_success() {
+        let s = Scratch::new("gone");
+        let plan = plan_for(&s.dir(), "a.txt");
+        std::fs::remove_dir_all(&s.0).expect("removes the directory");
+        let e = write_durably(&plan, b"x").expect_err("nowhere to write");
+        assert!(!e.is_empty(), "the failure explained nothing");
     }
 }

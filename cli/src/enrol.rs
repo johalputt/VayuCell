@@ -135,6 +135,71 @@ pub fn enrol(path: &str, name: &str) -> Result<Secret, String> {
     Ok(secret)
 }
 
+/// Removes a device from the store, answering whether it was there.
+///
+/// The rest of the file is preserved line for line, comments included: an
+/// operator annotates a credential store with which laptop is which, and a
+/// revocation that rewrote the file from parsed data would throw that away.
+///
+/// The replacement is written through the same sequence a vault write uses —
+/// temporary, flush, rename, flush the directory — because a credential store
+/// truncated by a power cut is every device locked out at once.
+///
+/// # Errors
+///
+/// Returns why the store could not be rewritten.
+pub fn revoke(path: &str, name: &str) -> Result<bool, String> {
+    let device = DeviceName::new(name).map_err(|e| format!("{name:?}: {e}"))?;
+    // Permissions are checked here too: rewriting a store anyone can read would
+    // preserve the exposure it is being edited to fix.
+    load(path)?;
+
+    let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
+    let mut kept = String::new();
+    let mut removed = false;
+    for line in text.lines() {
+        let first = line.split_whitespace().next();
+        if first == Some(device.as_str()) && !line.trim_start().starts_with('#') {
+            removed = true;
+            continue;
+        }
+        kept.push_str(line);
+        kept.push('\n');
+    }
+    if !removed {
+        return Ok(false);
+    }
+
+    let temporary = format!("{path}.partial");
+    write_private(&temporary, kept.as_bytes())?;
+    std::fs::rename(&temporary, path).map_err(|e| {
+        let _ = std::fs::remove_file(&temporary);
+        format!("{temporary} -> {path}: {e}")
+    })?;
+    if let Some(parent) = std::path::Path::new(path).parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::File::open(parent)
+                .and_then(|d| d.sync_all())
+                .map_err(|e| format!("{}: {e}", parent.display()))?;
+        }
+    }
+    Ok(true)
+}
+
+/// Writes bytes to a path that only the owner can read, and flushes them.
+fn write_private(path: &str, bytes: &[u8]) -> Result<(), String> {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.mode(STORE_MODE);
+    }
+    let mut file = options.open(path).map_err(|e| format!("{path}: {e}"))?;
+    file.write_all(bytes).map_err(|e| format!("{path}: {e}"))?;
+    file.sync_all().map_err(|e| format!("{path}: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{enrol, load, mint, STORE_MODE};
@@ -249,6 +314,78 @@ mod tests {
             // appended to a file everyone can read.
             assert!(enrol(&s.store(), "phone").is_err());
         }
+    }
+
+    #[test]
+    fn revoking_a_device_stops_its_secret_working_and_leaves_the_others() {
+        let s = Scratch::new("revoke");
+        let laptop = enrol(&s.store(), "laptop").expect("enrols");
+        let phone = enrol(&s.store(), "phone").expect("enrols");
+
+        assert!(super::revoke(&s.store(), "laptop").expect("revokes"));
+
+        let creds = load(&s.store()).expect("loads");
+        assert_eq!(creds.len(), 1);
+        let gone = core::str::from_utf8(laptop.expose_for_comparison()).expect("text");
+        let kept = core::str::from_utf8(phone.expose_for_comparison()).expect("text");
+        assert!(
+            !creds.verify(Some(gone)).is_authenticated(),
+            "still accepted"
+        );
+        assert!(
+            creds.verify(Some(kept)).is_authenticated(),
+            "wrongly removed"
+        );
+    }
+
+    #[test]
+    fn revoking_a_device_that_was_never_enrolled_says_so_rather_than_failing() {
+        let s = Scratch::new("revoke-absent");
+        enrol(&s.store(), "laptop").expect("enrols");
+        assert!(!super::revoke(&s.store(), "phone").expect("no error"));
+        assert_eq!(load(&s.store()).expect("loads").len(), 1);
+    }
+
+    #[test]
+    fn revoking_keeps_the_comments_an_operator_wrote() {
+        // Somebody annotates a credential store with which laptop is which. A
+        // revocation that rewrote the file from parsed data would throw it away.
+        let s = Scratch::new("revoke-comments");
+        enrol(&s.store(), "laptop").expect("enrols");
+        enrol(&s.store(), "phone").expect("enrols");
+        let with_note = format!(
+            "# the one in the kitchen\n{}",
+            std::fs::read_to_string(s.store()).expect("reads")
+        );
+        std::fs::write(s.store(), with_note).expect("writes");
+
+        super::revoke(&s.store(), "laptop").expect("revokes");
+        let after = std::fs::read_to_string(s.store()).expect("reads");
+        assert!(after.contains("# the one in the kitchen"), "{after}");
+        assert!(!after.contains("laptop"), "{after}");
+        assert!(after.contains("phone"), "{after}");
+    }
+
+    #[test]
+    fn revoking_leaves_the_store_private_and_leaves_no_debris() {
+        let s = Scratch::new("revoke-mode");
+        enrol(&s.store(), "laptop").expect("enrols");
+        enrol(&s.store(), "phone").expect("enrols");
+        super::revoke(&s.store(), "laptop").expect("revokes");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            let mode = std::fs::metadata(s.store())
+                .expect("exists")
+                .permissions()
+                .mode()
+                & 0o777;
+            assert_eq!(mode, STORE_MODE, "mode was {mode:04o}");
+        }
+        assert!(
+            !std::path::Path::new(&format!("{}.partial", s.store())).exists(),
+            "the temporary was left behind"
+        );
     }
 
     #[test]

@@ -8,6 +8,7 @@
 use crate::csp::Nonce;
 use crate::governor::Level;
 use crate::host::FakeHost;
+use crate::serve::VaultIo as _;
 use crate::serve::{
     parse_request_line, refuse, route, route_site, BadRequest, Method, Request, Response, Surface,
     MAX_REQUEST_LINE,
@@ -111,7 +112,7 @@ fn a_request_line_longer_than_the_bound_is_refused_before_it_is_parsed() {
 }
 
 #[test]
-fn only_the_three_implemented_verbs_are_accepted() {
+fn only_the_four_implemented_verbs_are_accepted() {
     // This test used to require that PUT be refused, and it was the guard the
     // module documentation pointed at: a route that mutated something could not
     // be written without first widening the enum "in a diff somebody has to
@@ -129,7 +130,11 @@ fn only_the_three_implemented_verbs_are_accepted() {
         parse_request_line("PUT /a.txt HTTP/1.1").unwrap().method,
         Method::Put
     );
-    for verb in ["POST", "DELETE", "PATCH", "TRACE", "CONNECT"] {
+    assert_eq!(
+        parse_request_line("DELETE /a.txt HTTP/1.1").unwrap().method,
+        Method::Delete
+    );
+    for verb in ["POST", "PATCH", "TRACE", "CONNECT"] {
         let e = parse_request_line(&format!("{verb} / HTTP/1.1"))
             .expect_err(&format!("{verb} must be refused"));
         assert_eq!(e, BadRequest::UnsupportedMethod(verb.to_owned()));
@@ -138,14 +143,14 @@ fn only_the_three_implemented_verbs_are_accepted() {
 }
 
 #[test]
-fn exactly_one_verb_writes() {
+fn exactly_the_two_changing_verbs_write() {
     // Asked of the type rather than of a list, so a verb added later does not
-    // quietly acquire permission it was never granted.
-    let writers: Vec<Method> = [Method::Get, Method::Head, Method::Put]
+    // quietly acquire a permission nobody granted it.
+    let writers: Vec<Method> = [Method::Get, Method::Head, Method::Put, Method::Delete]
         .into_iter()
         .filter(|m| m.writes())
         .collect();
-    assert_eq!(writers, [Method::Put]);
+    assert_eq!(writers, [Method::Put, Method::Delete]);
 }
 
 #[test]
@@ -486,6 +491,67 @@ fn context(c: &Ctx, level: Level, stage: Stage) -> crate::serve::VaultContext<'_
     }
 }
 
+/// A filesystem the tests describe rather than inhabit.
+struct FakeIo {
+    stored: std::cell::RefCell<std::collections::BTreeMap<String, Vec<u8>>>,
+    write_fails: Option<String>,
+    seen_plan: std::cell::RefCell<Option<(String, String)>>,
+}
+
+impl FakeIo {
+    fn new() -> Self {
+        Self {
+            stored: std::cell::RefCell::new(std::collections::BTreeMap::new()),
+            write_fails: None,
+            seen_plan: std::cell::RefCell::new(None),
+        }
+    }
+    fn with(self, path: &str, bytes: &[u8]) -> Self {
+        self.stored
+            .borrow_mut()
+            .insert(path.to_owned(), bytes.to_vec());
+        self
+    }
+    fn failing(mut self, why: &str) -> Self {
+        self.write_fails = Some(why.to_owned());
+        self
+    }
+}
+
+impl crate::serve::VaultIo for FakeIo {
+    fn read(&self, path: &str) -> Option<Vec<u8>> {
+        self.stored.borrow().get(path).cloned()
+    }
+    fn write(&self, plan: &crate::vault::WritePlan, bytes: &[u8]) -> Result<(), String> {
+        *self.seen_plan.borrow_mut() =
+            Some((plan.temporary().to_owned(), plan.destination().to_owned()));
+        if let Some(why) = &self.write_fails {
+            return Err(why.clone());
+        }
+        self.stored
+            .borrow_mut()
+            .insert(plan.destination().to_owned(), bytes.to_vec());
+        Ok(())
+    }
+    fn remove(&self, path: &str) -> Result<bool, String> {
+        Ok(self.stored.borrow_mut().remove(path).is_some())
+    }
+}
+
+/// An io that panics on every call, for the paths that must not reach it.
+struct NeverIo;
+impl crate::serve::VaultIo for NeverIo {
+    fn read(&self, _: &str) -> Option<Vec<u8>> {
+        panic!("the filesystem must not be touched")
+    }
+    fn write(&self, _: &crate::vault::WritePlan, _: &[u8]) -> Result<(), String> {
+        panic!("the filesystem must not be touched")
+    }
+    fn remove(&self, _: &str) -> Result<bool, String> {
+        panic!("the filesystem must not be touched")
+    }
+}
+
 #[test]
 fn an_unauthenticated_put_is_refused_before_anything_else_is_looked_at() {
     // The order of the checks is the security property. Checking the name first
@@ -509,8 +575,7 @@ fn an_unauthenticated_put_is_refused_before_anything_else_is_looked_at() {
         &no_creds,
         &hostile,
         b"x",
-        &|_| None,
-        &|_, _| Ok(()),
+        &FakeIo::new(),
     );
     assert_eq!(r.status, 401);
     let body = text(&r);
@@ -532,8 +597,7 @@ fn a_wrong_secret_is_refused_and_says_only_that() {
         &bearer(&wrong),
         &context(&c, Level::Normal, Stage::Serving),
         b"x",
-        &|_| None,
-        &|_, _| Ok(()),
+        &FakeIo::new(),
     );
     assert_eq!(r.status, 401);
     assert!(!text(&r).contains(&wrong), "the offered secret was echoed");
@@ -548,8 +612,7 @@ fn an_enrolled_device_may_store_a_file_and_gets_an_honest_receipt() {
         &bearer(&a_secret()),
         &context(&c, Level::Normal, Stage::Serving),
         b"hello",
-        &|_| None,
-        &|_, _| Ok(()),
+        &FakeIo::new(),
     );
     assert_eq!(r.status, 200);
     let body = text(&r);
@@ -564,21 +627,21 @@ fn an_enrolled_device_may_store_a_file_and_gets_an_honest_receipt() {
 fn the_write_is_handed_the_plan_rather_than_a_path_it_invented() {
     let host = vault_host();
     let c = ctx(&host);
-    let seen: std::cell::RefCell<Option<(String, String)>> = std::cell::RefCell::new(None);
+    let io = FakeIo::new();
     let r = crate::serve::route_vault(
         &put("/notes.md"),
         &bearer(&a_secret()),
         &context(&c, Level::Normal, Stage::Serving),
         b"abc",
-        &|_| None,
-        &|plan, bytes| {
-            *seen.borrow_mut() = Some((plan.temporary().to_owned(), plan.destination().to_owned()));
-            assert_eq!(bytes, b"abc");
-            Ok(())
-        },
+        &io,
     );
     assert_eq!(r.status, 200);
-    let (temporary, destination) = seen.into_inner().expect("the writer ran");
+    assert_eq!(
+        io.read("/data/vault/notes.md").as_deref(),
+        Some(&b"abc"[..]),
+        "the bytes reached the writer unchanged"
+    );
+    let (temporary, destination) = io.seen_plan.into_inner().expect("the writer ran");
     assert_eq!(destination, "/data/vault/notes.md");
     assert_eq!(temporary, "/data/vault/.notes.md.partial");
 }
@@ -599,8 +662,7 @@ fn an_authenticated_put_still_obeys_the_governor() {
             &bearer(&a_secret()),
             &context(&c, level, stage),
             b"x",
-            &|_| None,
-            &|_, _| panic!("the write must not be reached"),
+            &NeverIo,
         );
         assert_eq!(r.status, 503, "{level} {stage:?}");
     }
@@ -624,8 +686,7 @@ fn a_file_that_does_not_fit_is_told_apart_from_a_device_that_will_not_take_it() 
         &bearer(&a_secret()),
         &full,
         b"xxxxx",
-        &|_| None,
-        &|_, _| panic!("the write must not be reached"),
+        &NeverIo,
     );
     assert_eq!(
         r.status, 507,
@@ -642,8 +703,7 @@ fn a_name_that_is_really_a_path_is_refused_after_authentication() {
         &bearer(&a_secret()),
         &context(&c, Level::Normal, Stage::Serving),
         b"x",
-        &|_| None,
-        &|_, _| panic!("the write must not be reached"),
+        &NeverIo,
     );
     assert_eq!(r.status, 400);
 }
@@ -657,8 +717,7 @@ fn a_failed_write_is_reported_rather_than_reported_as_stored() {
         &bearer(&a_secret()),
         &context(&c, Level::Normal, Stage::Serving),
         b"x",
-        &|_| None,
-        &|_, _| Err("the disk went away".to_owned()),
+        &FakeIo::new().failing("the disk went away"),
     );
     assert_eq!(r.status, 500);
     assert!(text(&r).contains("disk went away"), "{}", text(&r));
@@ -673,11 +732,7 @@ fn an_enrolled_device_may_read_back_what_it_stored() {
         &bearer(&a_secret()),
         &context(&c, Level::Normal, Stage::Serving),
         b"",
-        &|path| {
-            assert_eq!(path, "/data/vault/a.bin");
-            Some(vec![1, 2, 3])
-        },
-        &|_, _| panic!("a read must not write"),
+        &FakeIo::new().with("/data/vault/a.bin", &[1, 2, 3]),
     );
     assert_eq!(r.status, 200);
     assert_eq!(r.body, vec![1, 2, 3]);
@@ -692,8 +747,7 @@ fn a_read_of_something_not_stored_is_a_404() {
         &bearer(&a_secret()),
         &context(&c, Level::Normal, Stage::Serving),
         b"",
-        &|_| None,
-        &|_, _| panic!("a read must not write"),
+        &FakeIo::new(),
     );
     assert_eq!(r.status, 404);
 }
@@ -711,14 +765,7 @@ fn an_empty_store_refuses_every_device_including_a_well_formed_one() {
         level: Level::Normal,
         stage: Stage::Serving,
     };
-    let r = crate::serve::route_vault(
-        &put("/a.txt"),
-        &bearer(&a_secret()),
-        &c,
-        b"x",
-        &|_| None,
-        &|_, _| panic!("nothing may be written"),
-    );
+    let r = crate::serve::route_vault(&put("/a.txt"), &bearer(&a_secret()), &c, b"x", &NeverIo);
     assert_eq!(r.status, 401);
     assert!(text(&r).contains("no device is enrolled"), "{}", text(&r));
 }
@@ -821,15 +868,115 @@ fn put_is_parsed_and_is_the_only_verb_that_writes() {
 }
 
 #[test]
-fn the_verbs_that_destroy_things_are_still_not_implemented() {
-    // POST has no meaning here and DELETE destroys somebody's data; each
-    // deserves its own decision rather than arriving with this one.
-    for verb in ["DELETE", "POST", "PATCH"] {
+fn post_has_no_meaning_here_and_is_not_implemented() {
+    // DELETE arrived with its own decision, which is what this test used to
+    // require. POST did not, and will not while nothing is appended to.
+    for verb in ["POST", "PATCH"] {
         assert!(matches!(
             parse_request_line(&format!("{verb} /a.txt HTTP/1.1")),
             Err(BadRequest::UnsupportedMethod(_))
         ));
     }
+}
+
+// ── Deleting ──────────────────────────────────────────────────────────────────
+
+fn delete(path: &str) -> Request {
+    Request {
+        method: Method::Delete,
+        path: path.to_owned(),
+    }
+}
+
+#[test]
+fn an_enrolled_device_may_remove_what_it_stored() {
+    let host = vault_host();
+    let c = ctx(&host);
+    let io = FakeIo::new().with("/data/vault/a.txt", b"gone soon");
+    let r = crate::serve::route_vault(
+        &delete("/a.txt"),
+        &bearer(&a_secret()),
+        &context(&c, Level::Normal, Stage::Serving),
+        b"",
+        &io,
+    );
+    assert_eq!(r.status, 200);
+    assert!(io.read("/data/vault/a.txt").is_none(), "it is still there");
+}
+
+#[test]
+fn deleting_something_already_gone_is_a_404_rather_than_an_error() {
+    // A retry after a dropped connection lands exactly here, and it is the
+    // outcome the caller wanted either way.
+    let host = vault_host();
+    let c = ctx(&host);
+    let r = crate::serve::route_vault(
+        &delete("/never.txt"),
+        &bearer(&a_secret()),
+        &context(&c, Level::Normal, Stage::Serving),
+        b"",
+        &FakeIo::new(),
+    );
+    assert_eq!(r.status, 404);
+}
+
+#[test]
+fn an_unauthenticated_delete_never_reaches_the_filesystem() {
+    let host = vault_host();
+    let c = ctx(&host);
+    let r = crate::serve::route_vault(
+        &delete("/a.txt"),
+        &crate::serve::parse_headers(&[]).expect("valid"),
+        &context(&c, Level::Normal, Stage::Serving),
+        b"",
+        &NeverIo,
+    );
+    assert_eq!(r.status, 401);
+}
+
+#[test]
+fn a_delete_obeys_the_governor_exactly_as_a_write_does() {
+    // Removing a file is a change, and a device in trouble is not the place to
+    // be making changes to somebody's data.
+    let host = vault_host();
+    let c = ctx(&host);
+    for (level, stage) in [
+        (Level::Derated, Stage::Serving),
+        (Level::Halt, Stage::Serving),
+        (Level::Normal, Stage::Announced),
+    ] {
+        let r = crate::serve::route_vault(
+            &delete("/a.txt"),
+            &bearer(&a_secret()),
+            &context(&c, level, stage),
+            b"",
+            &NeverIo,
+        );
+        assert_eq!(r.status, 503, "{level} {stage:?}");
+    }
+}
+
+#[test]
+fn a_full_disk_never_refuses_the_request_that_would_free_some() {
+    // The perverse case: refusing a delete because there is no room is refusing
+    // the one thing that would make room. It falls out of offering zero bytes
+    // rather than being special-cased, and this is the test that says so.
+    let host = vault_host();
+    let c = ctx(&host);
+    let full = crate::serve::VaultContext {
+        credentials: &c.creds,
+        root: &c.root,
+        quota: crate::vault::Quota::new(1000, 1000),
+        level: Level::Normal,
+        stage: Stage::Serving,
+    };
+    let io = FakeIo::new().with("/data/vault/big.bin", b"takes up room");
+    let r = crate::serve::route_vault(&delete("/big.bin"), &bearer(&a_secret()), &full, b"", &io);
+    assert_eq!(
+        r.status, 200,
+        "a full disk refused the delete that would free it"
+    );
+    assert!(io.read("/data/vault/big.bin").is_none());
 }
 
 #[test]

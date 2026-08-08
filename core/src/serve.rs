@@ -41,11 +41,15 @@ use crate::vault::{Admission, Name, Quota, Receipt, Refused, VaultRoot, WritePla
 /// a route which mutated something could not be written without first widening
 /// it in a diff somebody has to approve. This is that diff.
 ///
-/// `Put` was added and `Post` and `Delete` were not, deliberately. `Put` names
-/// one file and replaces it, which is the whole of what a vault needs and is
-/// idempotent — a retry after a dropped connection is safe. `Delete` destroys
-/// somebody's data and deserves its own decision; `Post` has no meaning here at
-/// all, since nothing is being appended to.
+/// `Put` and `Delete` are here; `Post` is not. `Put` names one file and replaces
+/// it, and `Delete` names one file and removes it — both idempotent, so a retry
+/// after a dropped connection is safe. `Post` has no meaning where nothing is
+/// appended to, and a verb with no meaning is a verb whose route nobody can
+/// reason about.
+///
+/// `Delete` arrived after `Put` and on purpose: removing somebody's file is the
+/// one action here with no undo, and it deserved its own decision rather than
+/// riding along with the one that stores.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Method {
     /// A read.
@@ -54,16 +58,19 @@ pub enum Method {
     Head,
     /// Store the body under the named file, replacing what was there.
     Put,
+    /// Remove the named file.
+    Delete,
 }
 
 impl Method {
     /// Whether this verb changes anything.
     ///
-    /// Used so a route can refuse a write without enumerating verbs, which is
-    /// how a verb added later quietly acquires permission it was never granted.
+    /// Asked of the type so a route can refuse a write without enumerating
+    /// verbs, which is how a verb added later quietly acquires a permission
+    /// nobody granted it.
     #[must_use]
     pub const fn writes(self) -> bool {
-        matches!(self, Method::Put)
+        matches!(self, Method::Put | Method::Delete)
     }
 }
 
@@ -149,6 +156,7 @@ pub fn parse_request_line(line: &str) -> Result<Request, BadRequest> {
         "GET" => Method::Get,
         "HEAD" => Method::Head,
         "PUT" => Method::Put,
+        "DELETE" => Method::Delete,
         other => return Err(BadRequest::UnsupportedMethod(other.to_owned())),
     };
 
@@ -476,15 +484,38 @@ pub fn route_site(
     }
 }
 
-/// Reads a stored file, or `None` if it cannot be read for any reason.
+/// The filesystem, as the vault route needs it.
 ///
-/// Named rather than written inline so the two callbacks the vault route takes
-/// are distinguishable at a glance — swapping a reader for a writer is a
-/// mistake the type system should catch and a reviewer should never have to.
-pub type ReadFile<'a> = dyn Fn(&str) -> Option<Vec<u8>> + 'a;
+/// A trait rather than three closures. With two it was a pair of arguments a
+/// caller could transpose; with three it is a shape somebody would get wrong
+/// silently, and a reader and a remover swapped is not a mistake anybody should
+/// be relying on review to catch.
+///
+/// Every method returns rather than performing anything the route decided
+/// against: the route settles *whether*, and this settles *how*.
+pub trait VaultIo {
+    /// The bytes stored under `path`, or `None` for any reason it could not be
+    /// read — absent, unreadable, or refused by a containment check.
+    fn read(&self, path: &str) -> Option<Vec<u8>>;
 
-/// Performs the ordering in a [`WritePlan`], or says why it could not.
-pub type WriteFile<'a> = dyn Fn(&WritePlan, &[u8]) -> Result<(), String> + 'a;
+    /// Performs the ordering in a [`WritePlan`], in that order.
+    ///
+    /// # Errors
+    ///
+    /// Returns what went wrong, for the operator's log.
+    fn write(&self, plan: &WritePlan, bytes: &[u8]) -> Result<(), String>;
+
+    /// Removes `path`, answering whether anything was there.
+    ///
+    /// `Ok(false)` for a path that did not exist is deliberately not an error:
+    /// deleting something already gone is the outcome the caller wanted, and a
+    /// retry after a dropped connection lands there.
+    ///
+    /// # Errors
+    ///
+    /// Returns what went wrong, for the operator's log.
+    fn remove(&self, path: &str) -> Result<bool, String>;
+}
 
 /// Everything the vault route needs to know about the device and its owner.
 ///
@@ -524,8 +555,7 @@ pub fn route_vault(
     headers: &Headers,
     ctx: &VaultContext<'_>,
     body: &[u8],
-    read: &ReadFile<'_>,
-    write: &WriteFile<'_>,
+    io: &dyn VaultIo,
 ) -> Response {
     let verdict = ctx.credentials.verify(headers.bearer());
     let Verdict::Authenticated(_device) = verdict else {
@@ -543,8 +573,10 @@ pub fn route_vault(
         Err(e) => return Response::refused(400, "Bad Request", &e.to_string()),
     };
 
+    let stored = format!("{}/{}", ctx.root.dir(), name);
+
     match request.method {
-        Method::Get | Method::Head => match read(&format!("{}/{}", ctx.root.dir(), name)) {
+        Method::Get | Method::Head => match io.read(&stored) {
             Some(bytes) => Response::bytes(bytes, "application/octet-stream"),
             None => Response::refused(404, "Not Found", "nothing is stored under that name"),
         },
@@ -552,17 +584,9 @@ pub fn route_vault(
             let offered = body.len() as u64;
             let admission = Admission::of(ctx.level, ctx.stage, ctx.quota, offered);
             let Some(plan) = admission.plan(ctx.root, &name) else {
-                // 503 for the device's condition, 507 for the disk. Both are the
-                // operator's problem rather than the caller's mistake, and the
-                // caller can tell which from the status without reading prose.
-                let status = if matches!(admission, Admission::Refusing(Refused::Full(_))) {
-                    507
-                } else {
-                    503
-                };
-                return Response::refused(status, "Service Unavailable", &admission.describe());
+                return refused_admission(&admission);
             };
-            match write(&plan, body) {
+            match io.write(&plan, body) {
                 Ok(()) => {
                     let receipt = Receipt::new(name, offered);
                     Response::text(format!("{}\n", receipt.describe()))
@@ -572,7 +596,41 @@ pub fn route_vault(
                 Err(why) => Response::refused(500, "Internal Server Error", &why),
             }
         }
+        Method::Delete => {
+            // Nothing is offered, so the quota always admits it. That falls out
+            // rather than being special-cased, and it is the right answer: a
+            // full disk must never be a reason to refuse the one request that
+            // would free some.
+            let admission = Admission::of(ctx.level, ctx.stage, ctx.quota, 0);
+            if !admission.is_accepting() {
+                return refused_admission(&admission);
+            }
+            match io.remove(&stored) {
+                Ok(true) => Response::text(format!("{name} is no longer stored here\n")),
+                // Not an error. Deleting something already gone is the outcome
+                // the caller wanted, and a retry after a dropped connection
+                // lands exactly here.
+                Ok(false) => {
+                    Response::refused(404, "Not Found", "nothing is stored under that name")
+                }
+                Err(why) => Response::refused(500, "Internal Server Error", &why),
+            }
+        }
     }
+}
+
+/// The response for a device that will not take a write.
+///
+/// 503 for the device's condition, 507 for the disk. Both are the operator's
+/// problem rather than the caller's mistake, and the caller can tell which from
+/// the status without reading prose.
+fn refused_admission(admission: &Admission) -> Response {
+    let status = if matches!(admission, Admission::Refusing(Refused::Full(_))) {
+        507
+    } else {
+        503
+    };
+    Response::refused(status, "Service Unavailable", &admission.describe())
 }
 
 /// The response for a request that could not be parsed.

@@ -20,6 +20,7 @@
 //! seen from it. No handset has run this binary.
 
 mod args;
+mod device;
 mod enrol;
 mod listen;
 mod report;
@@ -36,9 +37,9 @@ use vayucell_core::governor::{Governor, Level, Thresholds};
 use vayucell_core::host::RealHost;
 use vayucell_core::runtime::{Clock, Power, RealClock, Supervisor};
 use vayucell_core::sampler::Sampler;
-use vayucell_core::shed::{Charge, Shed, ShedPlan, Stage};
+use vayucell_core::shed::{Shed, ShedPlan, Stage};
 use vayucell_core::site::{Availability, SiteRoot};
-use vayucell_core::sysfs::{detect_mechanism, read_battery, Kind, SysfsCeiling};
+use vayucell_core::sysfs::{detect_mechanism, Kind, SysfsCeiling};
 use vayucell_core::vault::{Quota, VaultRoot};
 
 fn main() -> ExitCode {
@@ -66,6 +67,8 @@ fn main() -> ExitCode {
         Command::Site => site(&parsed),
         Command::Vault => vault(&parsed),
         Command::Enrol => enrol_device(&parsed),
+        Command::Devices => list_devices(&parsed),
+        Command::Revoke => revoke_device(&parsed),
         Command::Run { ticks } => run(&parsed, ticks),
     };
 
@@ -145,21 +148,7 @@ fn site(a: &Args) -> i32 {
     let started = Instant::now();
 
     let availability = move || {
-        // A fresh governor per request, observing a fresh reading. It carries no
-        // history, so it cannot latch — right here and wrong for `run`: this
-        // decides whether to answer one request from what the cell says now,
-        // while `run` owns the escalation that has to survive a cool reading.
-        let (level, charge) = match read_battery(&RealHost, &supply) {
-            Ok(reading) => {
-                let mut governor = Governor::new(Thresholds::recommended());
-                governor.observe(&reading);
-                (governor.level(), Charge::Measured(reading.capacity))
-            }
-            // A cell nobody could read is not a cell that is fine. The site is
-            // withheld rather than served on the strength of a reading nobody
-            // took — absence is never protection.
-            Err(e) => (Level::Protect, Charge::Unreadable(e.to_string())),
-        };
+        let (level, charge) = device::observe(&RealHost, &supply);
 
         let stage = match outage {
             // Mains detection is not implemented anywhere in this project — see
@@ -225,6 +214,59 @@ fn enrol_device(a: &Args) -> i32 {
     }
 }
 
+/// Lists the devices enrolled here. Never prints a secret.
+fn list_devices(a: &Args) -> i32 {
+    let creds = match enrol::load(&a.store) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("vayucell: {e}");
+            return report::EXIT_USAGE;
+        }
+    };
+    if creds.is_empty() {
+        // Said as a state with a consequence, not as an empty list. In this
+        // condition the vault refuses everything, which is correct and is also
+        // not what somebody who just started it wanted.
+        println!("No device is enrolled, so the vault will refuse every request.");
+        println!("Enrol one with: vayucell enrol --device <name>");
+        return 0;
+    }
+    println!("{} device(s) enrolled in {}:\n", creds.len(), a.store);
+    for device in creds.devices() {
+        println!("    {device}");
+    }
+    println!("\nRevoke one with: vayucell revoke --device <name>");
+    println!("Secrets are never printed back; enrol again if one is lost.");
+    0
+}
+
+/// Removes a device, so its credential stops working.
+fn revoke_device(a: &Args) -> i32 {
+    let Some(device) = a.device.as_deref() else {
+        eprintln!("vayucell: revoke needs --device <NAME>");
+        return report::EXIT_USAGE;
+    };
+    match enrol::revoke(&a.store, device) {
+        Ok(true) => {
+            println!("Revoked {device}. Its credential no longer works.");
+            // The vault reads the store once at start, so a running one is still
+            // holding the old list. Said plainly rather than left to surprise.
+            println!("A vault already running still holds the old list; restart it.");
+            0
+        }
+        Ok(false) => {
+            eprintln!(
+                "vayucell: {device} is not enrolled. Run `vayucell devices` to see which are."
+            );
+            report::EXIT_USAGE
+        }
+        Err(e) => {
+            eprintln!("vayucell: {e}");
+            report::EXIT_USAGE
+        }
+    }
+}
+
 /// Serves the vault, with the governor consulted on every request.
 fn vault(a: &Args) -> i32 {
     let host = RealHost;
@@ -258,16 +300,7 @@ fn vault(a: &Args) -> i32 {
     let started = Instant::now();
 
     let context = move || {
-        let (level, charge) = match read_battery(&RealHost, &supply) {
-            Ok(reading) => {
-                let mut governor = Governor::new(Thresholds::recommended());
-                governor.observe(&reading);
-                (governor.level(), Charge::Measured(reading.capacity))
-            }
-            // A cell nobody could read is not a cell that is fine, and a write
-            // is the last thing to attempt on a device in an unknown state.
-            Err(e) => (Level::Protect, Charge::Unreadable(e.to_string())),
-        };
+        let (level, charge) = device::observe(&RealHost, &supply);
         let stage = match outage {
             None => Stage::Serving,
             Some(since) => {

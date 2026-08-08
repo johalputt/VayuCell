@@ -15,6 +15,44 @@ traffic before it.
 
 ### Added
 
+- **`DELETE`, `vayucell devices` and `vayucell revoke`** — the three things that
+  turn the vault from a thing that accepts files into a thing somebody can
+  actually run.
+
+  `Method` gained `Delete`, and it arrived on its own rather than riding along
+  with `Put`, because removing somebody's file is the one action here with no
+  undo. It obeys the governor exactly as a write does — a device in trouble is
+  not the place to be changing somebody's data — and deleting something already
+  gone is a `404` rather than an error, so a retry after a dropped connection
+  lands where the caller wanted. A **full disk never refuses a delete**: nothing
+  is offered, so the quota admits it, and refusing the one request that would
+  free space would have been perverse. That falls out of the design rather than
+  being special-cased, and a test says so.
+
+  `devices` lists what is enrolled and **never prints a secret**; `revoke`
+  removes one. Revocation rewrites the store through the same
+  temporary-flush-rename-flush sequence a vault write uses, because a credential
+  store truncated by a power cut locks out every device at once, and it keeps the
+  operator's comments line for line — somebody annotates a store with which
+  laptop is which, and rewriting from parsed data would throw that away.
+- **`cli/src/device.rs`** — `site` and `vault` each carried their own copy of
+  "read the cell, ask the governor". Two copies of a safety decision is one more
+  than can be kept in step, and the copy that drifts is the one nobody is
+  looking at. It also moved that logic out of `main.rs`, which is the one file
+  no test reaches.
+- **The durable write and the bounded header reader are now tested.** They were
+  the most important untested code in the binary: the four-step write that a
+  power cut is supposed to survive, and the parser that decides how many bytes a
+  stranger may make this device allocate. `read_headers_and_body` takes any
+  `BufRead` rather than a socket, so the bounds are exercised without one — and
+  the test that matters most is that a body **shorter** than its declared length
+  is refused rather than stored truncated, because storing a short read as
+  though it were whole is how a file becomes silently damaged.
+- **`serve::VaultIo`**, replacing three loose closures. With two they were a pair
+  of arguments a caller could transpose; with three it became a shape somebody
+  would get wrong silently, and a reader and a remover swapped is not a mistake
+  worth relying on review to catch.
+
 - **Storage that works end to end.** `vayucell enrol --device <name>` mints a
   credential and prints it once; `vayucell vault --dir <DIR>` serves it. A
   `PUT` with a bearer credential stores a file, a `GET` reads it back. Verified

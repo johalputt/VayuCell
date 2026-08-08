@@ -133,6 +133,7 @@ ST=core/src/site.rs
 VA=core/src/vault.rs
 AU=core/src/auth.rs
 LI=cli/src/listen.rs
+EN=cli/src/enrol.rs
 
 mutate "$T" a_guest_that_cannot_see_the_phone_reports_unverified_rather_than_guessing \
   "a bare VM is promoted to T2 without the shell's assertion" \
@@ -854,7 +855,7 @@ mutate "$SV" percent_encoding_is_refused_rather_than_decoded \
   "    if path.contains('%') || path.contains('\\\\') || path.contains('\\0') {" \
   "    if false {"
 
-mutate "$SV" only_the_three_implemented_verbs_are_accepted \
+mutate "$SV" only_the_four_implemented_verbs_are_accepted \
   "any verb is accepted as a read" \
   "        other => return Err(BadRequest::UnsupportedMethod(other.to_owned()))," \
   "        _ => Method::Get,"
@@ -947,8 +948,12 @@ mutate "$SV" a_file_that_resolved_but_cannot_be_read_answers_exactly_like_a_typo
 
 mutate "$LI" a_symlink_pointing_out_of_the_root_is_refused \
   "a symbolic link may lead out of the site directory" \
-  "    if !real_file.starts_with(&real_root) {" \
-  "    if false {"
+  "    if !real_file.starts_with(&real_root) {
+        eprintln!(
+            \"vayucell: refusing {} — it resolves to {}, which is outside {}\"," \
+  "    if false {
+        eprintln!(
+            \"vayucell: refusing {} — it resolves to {}, which is outside {}\","
 
 # ── The vault route, and the verbs it added ──────────────────────────────────
 
@@ -977,17 +982,65 @@ mutate "$SV" a_body_larger_than_the_limit_is_refused_before_a_byte_of_it_is_read
 
 mutate "$SV" a_file_that_does_not_fit_is_told_apart_from_a_device_that_will_not_take_it \
   "a full disk is reported as the device refusing, so nobody knows to free space" \
-  "                let status = if matches!(admission, Admission::Refusing(Refused::Full(_))) {
-                    507
-                } else {
-                    503
-                };" \
-  "                let status = 503;"
+  "    let status = if matches!(admission, Admission::Refusing(Refused::Full(_))) {
+        507
+    } else {
+        503
+    };" \
+  "    let status = 503;"
 
 mutate "$SV" an_unauthenticated_put_is_refused_before_anything_else_is_looked_at \
   "the credential stops being checked first, so a stranger learns the device state" \
   "    let verdict = ctx.credentials.verify(headers.bearer());" \
   "    let verdict = Verdict::Authenticated(crate::auth::DeviceName::new(\"anyone\").expect(\"plain\"));"
+
+mutate "$SV" exactly_the_two_changing_verbs_write \
+  "DELETE stops counting as a verb that changes anything" \
+  "        matches!(self, Method::Put | Method::Delete)" \
+  "        matches!(self, Method::Put)"
+
+mutate "$SV" a_delete_obeys_the_governor_exactly_as_a_write_does \
+  "a delete stops obeying the governor, so a halted phone still loses files" \
+  "            let admission = Admission::of(ctx.level, ctx.stage, ctx.quota, 0);
+            if !admission.is_accepting() {
+                return refused_admission(&admission);
+            }" \
+  "            let admission = Admission::of(ctx.level, ctx.stage, ctx.quota, 0);
+            if false {
+                return refused_admission(&admission);
+            }"
+
+mutate "$SV" a_full_disk_never_refuses_the_request_that_would_free_some \
+  "a delete is charged against the quota, so a full disk refuses the fix" \
+  "            let admission = Admission::of(ctx.level, ctx.stage, ctx.quota, 0);
+            if !admission.is_accepting() {" \
+  "            let admission = Admission::of(ctx.level, ctx.stage, ctx.quota, 1);
+            if !admission.is_accepting() {"
+
+mutate "$LI" a_delete_cannot_reach_through_a_symlink_out_of_the_vault \
+  "a delete follows a symbolic link out of the vault" \
+  "        if !real_file.starts_with(&real_root) {
+            eprintln!(
+                \"vayucell: refusing to delete {path} — it resolves to {}, outside {}\"," \
+  "        if false {
+            eprintln!(
+                \"vayucell: refusing to delete {path} — it resolves to {}, outside {}\","
+
+mutate "$EN" revoking_leaves_the_store_private_and_leaves_no_debris \
+  "a revoked store is rewritten world-readable" \
+  "        options.mode(STORE_MODE);
+    }
+    let mut file = options.open(path).map_err(|e| format!(\"{path}: {e}\"))?;
+    file.write_all(bytes).map_err(|e| format!(\"{path}: {e}\"))?;" \
+  "        options.mode(0o644);
+    }
+    let mut file = options.open(path).map_err(|e| format!(\"{path}: {e}\"))?;
+    file.write_all(bytes).map_err(|e| format!(\"{path}: {e}\"))?;"
+
+mutate "$EN" revoking_a_device_stops_its_secret_working_and_leaves_the_others \
+  "revocation removes every device rather than the named one" \
+  "        if first == Some(device.as_str()) && !line.trim_start().starts_with('#') {" \
+  "        if true {"
 
 # ── Credentials ──────────────────────────────────────────────────────────────
 

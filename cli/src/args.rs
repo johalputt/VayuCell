@@ -31,6 +31,10 @@ pub enum Command {
     Vault,
     /// Enrol a device and print its secret once.
     Enrol,
+    /// List the devices enrolled on this cell.
+    Devices,
+    /// Remove a device from the credential store.
+    Revoke,
     /// Print usage.
     Help,
     /// Print the version.
@@ -126,6 +130,8 @@ COMMANDS:
                         enrolled devices and against the governor
     enrol               Add a device to the credential store and print its
                         secret. It is shown once and never again
+    devices             List the devices enrolled here. Never prints a secret
+    revoke              Remove a device, so its credential stops working
     help                Print this
     version             Print the version
 
@@ -191,6 +197,8 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
             "site" => set_command(&mut command, Command::Site, arg)?,
             "vault" => set_command(&mut command, Command::Vault, arg)?,
             "enrol" | "enroll" => set_command(&mut command, Command::Enrol, arg)?,
+            "devices" => set_command(&mut command, Command::Devices, arg)?,
+            "revoke" => set_command(&mut command, Command::Revoke, arg)?,
             "help" | "--help" | "-h" => set_command(&mut command, Command::Help, arg)?,
             "version" | "--version" | "-V" => set_command(&mut command, Command::Version, arg)?,
             "--supply-dir" => {
@@ -269,6 +277,13 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
             "vault needs --dir <DIR>, the folder to keep files in; there is no \
              default, because a default would store somebody's files wherever you \
              happened to be standing"
+                .to_owned(),
+        ));
+    }
+    if command == Command::Revoke && device.is_none() {
+        return Err(ArgError(
+            "revoke needs --device <NAME>; run `vayucell devices` to see which \
+             names are enrolled"
                 .to_owned(),
         ));
     }
@@ -553,6 +568,20 @@ mod tests {
         let e =
             parse(&argv(&["vault", "--dir", "/d", "--quota", "lots"])).expect_err("not a number");
         assert!(e.0.contains("--quota"), "{}", e.0);
+    }
+
+    #[test]
+    fn revoke_without_a_device_name_is_refused_and_says_how_to_find_one() {
+        let e = parse(&argv(&["revoke"])).expect_err("revoke needs --device");
+        assert!(e.0.contains("--device"), "{}", e.0);
+        assert!(e.0.contains("vayucell devices"), "{}", e.0);
+    }
+
+    #[test]
+    fn devices_needs_nothing_but_the_store() {
+        let a = parse(&argv(&["devices", "--store", "/tmp/d"])).expect("parses");
+        assert_eq!(a.command, Command::Devices);
+        assert_eq!(a.store, "/tmp/d");
     }
 
     #[test]
