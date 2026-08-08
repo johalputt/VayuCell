@@ -13,8 +13,44 @@ traffic before it.
 
 ## [Unreleased]
 
+## [0.0.2] — 2026-08-08
+
+The first release with something a person can actually download and run.
+
+### Fixed
+
+- **The release published library files, not a program.** Every tagged release
+  would have collected `libvayucell-<target>.rlib` — a Rust static library,
+  which nobody can run — so `install.sh` would never have found a usable build
+  and *every* install would have silently fallen back to compiling from source
+  on the phone. Twenty minutes, on a device chosen for being old, for a download
+  that should have taken seconds. The build was green the entire time, because
+  nothing connected the name the release writes to the name the installer asks
+  for. The release now cross-links a real binary for all five targets — the
+  Android ones against the NDK at API 24, which is the same Android 7 floor
+  `docs/INSTALL.md` promises — and publishes `vayucell-<target>.tar.gz` with a
+  fixed mtime and sorted entries so the tarball stays reproducible.
+- **`scripts/install-gate.sh` now checks the two names agree**, in both
+  directions: every target the installer downloads must be one the release
+  matrix builds, and the release must publish a runnable binary under the name
+  the installer asks for. This is the check that would have caught the above.
+- **The release gate checked one manifest out of two.** It compared
+  `core/Cargo.toml` against `.release-version` and never looked at
+  `cli/Cargo.toml` or at the `vayucell-core = { version = "…" }` pin between
+  them — so a version bump left the CLI behind, pinning a version of the core
+  that no longer existed. That is a release which fails at dependency
+  resolution *after* the tag is public. Manifests are now discovered rather than
+  listed, so a crate added later is not exempt by never having been named.
+- **Two self-test plants had gone stale by hardcoding `0.0.1`.** They were
+  scored `STALE` and `MISSED` on the first release the project ever cut — the
+  moment they mattered most. Both are now version-agnostic. The harness caught
+  this itself; that is what the fingerprint check is for.
+
 ### Added
 
+- The installer now resolves a full Rust target triple rather than a bare
+  processor name, because the triple is the string the release names its
+  artefacts with and a friendly name is one translation step where drift hides.
 - **A one-command installer for a phone** (`install.sh`) and
   [`docs/INSTALL.md`](docs/INSTALL.md), written for somebody who has never
   opened a terminal. It names the battery risk and waits for an explicit `yes`

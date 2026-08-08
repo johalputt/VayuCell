@@ -74,22 +74,80 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           key: release-${{ matrix.target }}
-      - name: Build
+      - name: Cross-linker for this target
+        # Until this step existed the release built the *library* and shipped
+        # `.rlib` files. An rlib is not something a person can run, so the
+        # installer never found a usable build and every single install fell
+        # back to compiling from source on the phone — twenty minutes, on a
+        # device chosen for being old. Producing a binary means linking, and
+        # linking for a target that is not this runner means a cross-linker.
+        run: |
+          set -euo pipefail
+          case "${{ matrix.target }}" in
+            *-linux-android*)
+              # Preinstalled on the runner image. Discovered rather than
+              # hardcoded, because the NDK revision moves and a stale path
+              # would fail deep inside cargo with a linker error nobody can read.
+              ndk="${ANDROID_NDK_ROOT:-${ANDROID_NDK_LATEST_HOME:-}}"
+              [ -n "$ndk" ] || { echo "no Android NDK on this runner"; exit 1; }
+              bin="$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin"
+              [ -d "$bin" ] || { echo "NDK present but no prebuilt toolchain at $bin"; exit 1; }
+              # API 24 is Android 7, which is what docs/INSTALL.md asks for. The
+              # two numbers have to agree or the guide promises a phone the
+              # binary refuses to start on.
+              case "${{ matrix.target }}" in
+                aarch64-linux-android)   cc="$bin/aarch64-linux-android24-clang" ;;
+                armv7-linux-androideabi) cc="$bin/armv7a-linux-androideabi24-clang" ;;
+                *) echo "unhandled android target"; exit 1 ;;
+              esac
+              [ -x "$cc" ] || { echo "no such linker: $cc"; ls "$bin" | head -40; exit 1; }
+              ;;
+            aarch64-unknown-linux-gnu)
+              sudo apt-get update -qq
+              sudo apt-get install -y gcc-aarch64-linux-gnu
+              cc=aarch64-linux-gnu-gcc
+              ;;
+            armv7-unknown-linux-gnueabihf)
+              sudo apt-get update -qq
+              sudo apt-get install -y gcc-arm-linux-gnueabihf
+              cc=arm-linux-gnueabihf-gcc
+              ;;
+            x86_64-unknown-linux-gnu)
+              cc=cc
+              ;;
+            *) echo "unhandled target ${{ matrix.target }}"; exit 1 ;;
+          esac
+          # CARGO_TARGET_<TRIPLE>_LINKER, with the triple upper-cased and dashes
+          # turned into underscores.
+          var="CARGO_TARGET_$(printf '%s' '${{ matrix.target }}' | tr 'a-z-' 'A-Z_')_LINKER"
+          echo "$var=$cc" >> "$GITHUB_ENV"
+          echo "linking ${{ matrix.target }} with $cc"
+
+      - name: Build the binary
         # --locked so the release resolves exactly the dependency graph that was
         # reviewed, and remapped paths so the build directory does not leak into
         # the artefact and break reproducibility.
         env:
           RUSTFLAGS: "-D warnings --remap-path-prefix=${{ github.workspace }}=/build"
-        run: cargo build --workspace --release --locked --target ${{ matrix.target }}
-      - name: Collect and checksum
+        run: cargo build --release --locked -p vayucell --target ${{ matrix.target }}
+
+      - name: Package and checksum
+        # One tarball per target, named for the target, because that name is the
+        # contract install.sh downloads against. scripts/install-gate.sh checks
+        # the two agree — this pair drifting apart is what shipped rlibs.
         run: |
+          set -euo pipefail
+          bin="target/${{ matrix.target }}/release/vayucell"
+          [ -f "$bin" ] || { echo "no binary produced for ${{ matrix.target }}"; exit 1; }
+          file "$bin"
           mkdir -p dist
-          found=0
-          while IFS= read -r f; do
-            cp "$f" "dist/$(basename "${f%.rlib}")-${{ matrix.target }}.rlib"
-            found=1
-          done < <(find "target/${{ matrix.target }}/release" -maxdepth 1 -name 'libvayucell*.rlib')
-          [ "$found" = "1" ] || { echo "no artefact produced for ${{ matrix.target }}"; exit 1; }
+          # Fixed mtime and sorted entries: a tarball carrying the build time is
+          # a tarball that cannot be reproduced, and reproducibility is a claim
+          # this project makes out loud.
+          tar --sort=name --owner=0 --group=0 --numeric-owner \
+              --mtime='UTC 2020-01-01' \
+              -czf "dist/vayucell-${{ matrix.target }}.tar.gz" \
+              -C "target/${{ matrix.target }}/release" vayucell
           ( cd dist && sha256sum ./* > "SHA256SUMS-${{ matrix.target }}.txt" )
           cat "dist/SHA256SUMS-${{ matrix.target }}.txt"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

@@ -80,6 +80,34 @@ else
   pass "core/Cargo.toml agrees at $cv"
 fi
 
+# Every other crate, and every internal pin between them. The gate checked
+# core/Cargo.toml alone, so a bump left cli/Cargo.toml at the old number and
+# left its `vayucell-core = { version = "…" }` pin naming a version that no
+# longer existed. That is a release which fails at dependency resolution — after
+# the tag is pushed and public, in the one job whose whole purpose is to be
+# trustworthy. Manifests are found rather than listed, so a crate added later is
+# not exempt from the rule by never having been named.
+while IFS= read -r m; do
+  mver="$(grep -m1 '^version = ' "$m" | cut -d'"' -f2)"
+  [ -n "$mver" ] || continue
+  if [ "v$mver" != "$rv" ]; then
+    fail "$m is $mver but .release-version is $rv"
+  else
+    pass "$m agrees at $mver"
+  fi
+done < <(find . -mindepth 2 -maxdepth 2 -name Cargo.toml -not -path './fuzz/*' -not -path './target/*' | sort)
+
+bad_pin=""
+while IFS= read -r pin; do
+  [ "$pin" = "${rv#v}" ] || bad_pin="$bad_pin $pin"
+done < <(grep -rhoE 'vayucell-core = \{[^}]*version = "[^"]+"' ./*/Cargo.toml 2>/dev/null \
+           | grep -oE 'version = "[^"]+"' | cut -d'"' -f2)
+if [ -n "$bad_pin" ]; then
+  fail "an internal dependency pins vayucell-core at:$bad_pin, not ${rv#v}"
+else
+  pass "every internal pin on vayucell-core names ${rv#v}"
+fi
+
 if [ ! -f CHANGELOG.md ]; then
   fail "CHANGELOG.md is missing"
 elif [ -n "$rv" ] && ! grep -q "^## \[${rv#v}\]" CHANGELOG.md; then

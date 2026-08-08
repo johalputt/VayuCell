@@ -64,13 +64,24 @@ else
       "If this is a phone, install Termux from F-Droid and run this inside it. See $RAW/blob/main/docs/INSTALL.md"
 fi
 
+# The Rust target triple, not a friendly name. It is the exact string the
+# release workflow names its tarballs with, so the two cannot drift apart
+# silently — scripts/install-gate.sh checks every triple named here is one the
+# release matrix actually builds.
 case "$(uname -m)" in
-  aarch64|arm64) ARCH="aarch64" ;;
-  armv7l|armv8l) ARCH="armv7"   ;;
-  x86_64|amd64)  ARCH="x86_64"  ;;
+  aarch64|arm64) ARCH="aarch64"; TARGET="aarch64-linux-android"   ;;
+  armv7l|armv8l) ARCH="armv7";   TARGET="armv7-linux-androideabi" ;;
+  x86_64|amd64)  ARCH="x86_64";  TARGET=""                        ;;
   *) die "the processor type '$(uname -m)' is not one VayuCell builds for" \
          "Open an issue saying which device this is — new processor types are usually easy to add" ;;
 esac
+if [ "$IS_TERMUX" != "1" ]; then
+  case "$ARCH" in
+    aarch64) TARGET="aarch64-unknown-linux-gnu"      ;;
+    armv7)   TARGET="armv7-unknown-linux-gnueabihf"  ;;
+    x86_64)  TARGET="x86_64-unknown-linux-gnu"       ;;
+  esac
+fi
 good "Processor: $ARCH"
 
 # ── The one thing a phone owner must be told before anything is installed ─────
@@ -132,12 +143,12 @@ mkdir -p "$PREFIX/bin" \
 
 step "Fetching VayuCell"
 
-ASSET="vayucell-$ARCH-linux-android.tar.gz"
-[ "$IS_TERMUX" = "1" ] || ASSET="vayucell-$ARCH-unknown-linux-gnu.tar.gz"
+ASSET=""
+[ -n "$TARGET" ] && ASSET="vayucell-$TARGET.tar.gz"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-if curl -fsSL -o "$TMP/$ASSET" \
+if [ -n "$ASSET" ] && curl -fsSL -o "$TMP/$ASSET" \
      "$RAW/releases/latest/download/$ASSET" 2>/dev/null; then
   good "Downloaded a published build"
 

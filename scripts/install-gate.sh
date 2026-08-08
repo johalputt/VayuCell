@@ -56,6 +56,28 @@ grep -q 'face-down on a flat table' install.sh \
   && pass "the physical inspection instruction is in the installer" \
   || fail "the installer must name physical inspection — Charter III.4"
 
+# The installer downloads `vayucell-<triple>.tar.gz`; the release workflow names
+# its tarballs from its own matrix. Nothing connected those two strings, and for
+# the whole life of the release workflow they did not match: it packaged `.rlib`
+# library files, so no install ever found a usable build and every one of them
+# silently fell back to a twenty-minute source build on an old phone. The build
+# was green throughout. This is the check that would have caught it.
+missing=""
+for t in $(grep -oE '(aarch64|armv7|x86_64)-[a-z0-9-]*(android|androideabi|gnu|gnueabihf)' install.sh | sort -u); do
+  grep -qE "^ *- +$t\$" .github/workflows/release.yml || missing="$missing $t"
+done
+if [ -z "$missing" ]; then
+  pass "every target the installer downloads is one the release actually builds"
+else
+  fail "the installer downloads targets the release does not build:$missing"
+fi
+
+# And the reverse direction of the same bug: a release that publishes something
+# other than a runnable program.
+grep -q 'vayucell-\${{ matrix.target }}.tar.gz' .github/workflows/release.yml \
+  && pass "the release publishes a runnable binary under the name the installer asks for" \
+  || fail "the release does not publish vayucell-<target>.tar.gz — the installer will never find a build"
+
 # It must not quietly acquire privileges.
 grep -qE '^\s*sudo |^\s*su ' install.sh \
   && fail "the installer escalates privileges" \

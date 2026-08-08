@@ -256,11 +256,11 @@ violation "$DOCS" "a rule is added without updating the enforcement table" \
 # ── Release gate ──────────────────────────────────────────────────────────────
 violation "$RELEASE" "the crate version drifts from .release-version" \
   "but .release-version is" \
-  "sed -i 's/^version = \"0.0.1\"/version = \"0.0.2\"/' core/Cargo.toml"
+  "sed -i '0,/^version = /s/^version = .*/version = \"9.9.9\"/' core/Cargo.toml"
 
 violation "$RELEASE" "a release has no changelog section" \
   "no '## \[" \
-  "sed -i 's/^## \[0.0.1\].*/## [0.0.9] - later/' CHANGELOG.md"
+  "sed -i '/^## \[[0-9]/d' CHANGELOG.md"
 
 # The tag-time form. Between releases this content is expected and the gate says
 # so; only --releasing makes it a defect, and both directions need proving.
@@ -359,6 +359,22 @@ violation "$INSTALL" "the physical-inspection instruction is dropped from the in
 violation "$INSTALL" "the installer starts asking for root" \
   "escalates privileges" \
   "printf '\nsudo pkg install rust\n' >> install.sh"
+
+violation "$INSTALL" "the release stops building a target the installer downloads" \
+  "the release does not build" \
+  "sed -i '/^          - aarch64-linux-android\$/d' .github/workflows/release.yml"
+
+violation "$INSTALL" "the release publishes something other than a runnable binary" \
+  "will never find a build" \
+  "sed -i '/-czf \"dist\\/vayucell-/d' .github/workflows/release.yml"
+
+violation "$RELEASE" "a crate is left behind at the previous version" \
+  "cli/Cargo.toml is 0.0.0" \
+  "sed -i '0,/^version = /s/^version = .*/version = \"0.0.0\"/' cli/Cargo.toml"
+
+violation "$RELEASE" "an internal dependency pins a version that no longer exists" \
+  "pins vayucell-core at" \
+  "sed -i 's|version = \"[^\"]*\" }|version = \"0.0.0\" }|' cli/Cargo.toml"
 
 # ── Doctest count ─────────────────────────────────────────────────────────────
 # Checked directly rather than through violation(), which copies the tree

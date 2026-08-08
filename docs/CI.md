@@ -553,6 +553,8 @@ What it checks:
 | The battery warning appears **before the first write to disk** | Consent that arrives after the install has started is not consent. The check compares line numbers rather than trusting the order to stay put |
 | The physical-inspection instruction is present | [Charter III.4](../CHARTER.md). No sensor detects a swelling cell; the person looking at it does, and the installer has to say so |
 | It never invokes `sudo` or `su` | An installer that quietly escalates is one nobody can reason about afterwards |
+| Every triple the installer downloads is one the release matrix builds | Nothing connected the name `install.sh` fetches to the name `release.yml` writes, and for the whole life of the release workflow they did not match: it packaged `.rlib` **library** files, which nobody can run. Every install would have fallen back to a twenty-minute source build on an old phone, with a green build the entire time |
+| The release publishes `vayucell-<target>.tar.gz` | The other direction of the same bug |
 | It installs from a clean `HOME`, and the installed program runs | A successful install that produces a program which does not start is a failure that reports success |
 | Running it a **second** time succeeds | A half-finished install that cannot be re-run strands somebody somewhere they cannot describe |
 
@@ -568,8 +570,9 @@ device was involved.
 ### `release-meta`
 
 Runs [`scripts/release-gate.sh`](../scripts/release-gate.sh) on **every push**,
-not only at tag time: `.release-version`, `core/Cargo.toml` and `CHANGELOG.md`
-must agree, `.release-version` must carry no trailing newline, nothing may be
+not only at tag time: `.release-version`, **every crate manifest** and
+`CHANGELOG.md` must agree, and every internal `vayucell-core = { version = "…" }`
+pin must name the version being released, `.release-version` must carry no trailing newline, nothing may be
 stranded under `[Unreleased]`, and the tag must not already exist.
 
 Checking it continuously is the point. A version that has been inconsistent for
