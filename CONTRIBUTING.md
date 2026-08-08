@@ -5,6 +5,30 @@
 Read `CHARTER.md`. It is short, and it constrains what may be built here — in
 particular Article III, which puts safety of persons ahead of every schedule.
 
+## How a change lands
+
+**Every change goes through a pull request, including a maintainer's own.**
+
+That was not always true here. For the first stretch of this project changes
+were pushed straight to `main`, and the supply-chain scan said so plainly:
+`0/29 approved changesets`. The gates were built to be adversarial precisely
+because nothing had a second pair of eyes — which is a reason to want review,
+not a substitute for it. A machine that tries to break the code stands in for
+the reviewer who is not there; it does not replace one who could be.
+
+    git switch -c <branch>
+    # ... work, with scripts/local-ci.sh green ...
+    git push -u origin <branch>
+    # open a pull request; CODEOWNERS requests the review
+
+The full gate set runs on the pull request, so nothing merges that has not
+passed the same checks a release does. A maintainer approving their own work is
+weaker than a second person doing it, and it is stronger than nobody looking —
+the point is that the diff is read before it lands, not who reads it.
+
+Direct pushes to `main` remain possible and are reserved for reverting a broken
+`main`. Anything else, including a one-line fix, goes through the same door.
+
 ## Sign your work
 
     git commit -s
