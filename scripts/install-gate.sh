@@ -92,6 +92,19 @@ else
   if HOME="$work" VAYUCELL_ASSUME_YES=1 VAYUCELL_PREFIX="$work/.vayucell" \
        bash install.sh >"$work/out" 2>&1; then
     pass "installs from a clean HOME"
+    # Which path it took matters and is not obvious from a green tick. Once a
+    # release exists this exercises the download-and-verify path against the
+    # *published* build, which is what a person gets — but it is then no longer
+    # a test of the working tree, and saying so is cheaper than someone assuming
+    # otherwise.
+    if grep -q 'Downloaded a published build' "$work/out"; then
+      printf '  --    it took the download path; the tree itself was not compiled here\n'
+      grep -q 'Checksum matches' "$work/out" \
+        && pass "the download was checked against its published checksum" \
+        || fail "the installer accepted a download it did not verify"
+    else
+      printf '  --    no published build for this platform; it compiled from source\n'
+    fi
     if "$work/.vayucell/bin/vayucell" version >/dev/null 2>&1; then
       pass "the installed program runs"
     else

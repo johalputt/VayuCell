@@ -379,11 +379,21 @@ Piping a script into a shell means trusting whatever the server sends;
 [`docs/INSTALL.md`](docs/INSTALL.md) gives the download-then-read form, and is
 written for somebody who has never opened a terminal.
 
-Two things to expect. There is **no published release yet**, so the installer
-builds from source — ten to twenty minutes on a phone, once. And `vayucell
-status` will very likely say `UNSAFE`, which is the correct answer: an ordinary
-unrooted phone has no supported way to stop charging at 60%, so that row stays
-red permanently because it is permanently true.
+It downloads a **signed, checksummed build** — seconds, not a compile — and
+refuses to install one whose checksum does not match. Builds are published for
+64- and 32-bit Android and for three Linux targets; anything else falls back to
+building from source and says so first. The checksum file is signed with a
+keyless certificate bound to the release workflow, so you can check it yourself:
+
+```bash
+cosign verify-blob --certificate SHA256SUMS.txt.pem --signature SHA256SUMS.txt.sig \
+  --certificate-identity-regexp 'https://github.com/johalputt/VayuCell/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com SHA256SUMS.txt
+```
+
+Expect `vayucell status` to say `UNSAFE`. That is the correct answer: an
+ordinary unrooted phone has no supported way to stop charging at 60%, so that
+row stays red permanently because it is permanently true.
 
 **No handset has run it.** To run the gates instead — exactly what CI runs:
 

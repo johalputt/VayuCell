@@ -29,7 +29,7 @@ If you want a file store or a website **today**, this is not that yet.
 | A phone | Android 7 or newer. It does not need to be unlocked, rooted, or wiped |
 | A charger | It stays plugged in |
 | Wi-Fi | The same network as the computer or phone you will read the page from |
-| Time | About 20 minutes, most of it waiting |
+| Time | About five minutes |
 
 You do **not** need: root, a computer, a cable, a Google account, a domain
 name, or any payment.
@@ -86,11 +86,15 @@ The installer will:
 - **show you a safety warning about the battery, and wait for you to type
   `yes`** — read it, it is short and it matters
 - install anything missing
-- fetch or build VayuCell
+- download the build for your phone and **refuse it if the checksum does not
+  match** — a download nobody verified is just a download
 - check the program actually runs before claiming success
 
-The first install builds from source and takes **10–20 minutes**. Leave the
-screen on and the phone plugged in. It only happens once.
+This takes **under a minute** on a normal connection: the installer downloads a
+published build for your phone and checks it against a signed checksum before
+trusting it. If no build exists for your processor it says so and compiles from
+source instead, which takes 10–20 minutes — leave the screen on and the phone
+plugged in if that happens.
 
 ---
 

@@ -13,6 +13,18 @@ traffic before it.
 
 ## [Unreleased]
 
+## [0.0.3] — 2026-08-08
+
+### Changed
+
+- `v0.0.2` is published, so `install.sh` now downloads a signed, checksummed
+  build in seconds instead of compiling on the phone. README and
+  `docs/INSTALL.md` said the opposite — they were written before a release
+  existed and were left saying "no published release yet", which stopped being
+  true the moment one was cut. Both now describe the download-and-verify path,
+  and the install gate prints which path it actually took rather than letting a
+  green tick stand for either.
+
 ## [0.0.2] — 2026-08-08
 
 The first release with something a person can actually download and run.
