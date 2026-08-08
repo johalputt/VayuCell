@@ -632,7 +632,7 @@ gates themselves apply.
    | Finding | Why it stands |
    | --- | --- |
    | **Branch-Protection** | A repository setting, not a file. Requiring a review on a project with one active maintainer produces a rule nobody can satisfy — it was tried, it deadlocked, and it was removed |
-   | **Code-Review** | `0/28 approved changesets`, because changes are pushed directly to `main` by design. This is a real limitation and it is the one behind the gates: nothing here has had a second pair of eyes, which is precisely why the machine checks are written to be adversarial |
+   | **Code-Review** | `0/29 approved changesets`, because changes are pushed directly to `main` by design. This is a real limitation and it is the one behind the gates: nothing here has had a second pair of eyes, which is precisely why the machine checks are written to be adversarial |
    | **Maintained** | The repository is younger than 90 days. Only time fixes this, and a project claiming otherwise would be claiming a history it does not have |
    | **CII-Best-Practices** | Requires registering with an external programme. Worth doing; it is a person signing up, not a change to this tree |
 
