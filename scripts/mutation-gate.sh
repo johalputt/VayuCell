@@ -130,6 +130,7 @@ DU=core/src/durability.rs
 IN=core/src/ingress.rs
 SV=core/src/serve.rs
 ST=core/src/site.rs
+VA=core/src/vault.rs
 LI=cli/src/listen.rs
 
 mutate "$T" a_guest_that_cannot_see_the_phone_reports_unverified_rather_than_guessing \
@@ -947,6 +948,76 @@ mutate "$LI" a_symlink_pointing_out_of_the_root_is_refused \
   "a symbolic link may lead out of the site directory" \
   "    if !real_file.starts_with(&real_root) {" \
   "    if false {"
+
+# ── The vault: the first surface here that accepts rather than serves ────────
+
+mutate "$VA" a_name_that_is_really_a_path_is_refused \
+  "a filename may be a path, so a write escapes the vault directory" \
+  "        if raw.contains('/') || raw.contains('\\\\') {
+            return Err(NameError::Separator);
+        }" \
+  "        if false {
+            return Err(NameError::Separator);
+        }"
+
+mutate "$VA" a_hidden_name_is_refused_as_a_class \
+  "a dotfile may be written into the vault" \
+  "        if raw.starts_with('.') {
+            return Err(NameError::Hidden);
+        }" \
+  "        if false {
+            return Err(NameError::Hidden);
+        }"
+
+mutate "$VA" the_length_limit_counts_bytes_rather_than_characters \
+  "the name limit counts characters, so a kilobyte of emoji is accepted" \
+  "        if raw.len() > Self::MAX_BYTES {" \
+  "        if raw.chars().count() > Self::MAX_BYTES {"
+
+mutate "$VA" a_quota_already_over_its_limit_reports_no_free_space_rather_than_wrapping \
+  "free space underflows once usage passes the limit, admitting anything" \
+  "        self.limit.saturating_sub(self.used)" \
+  "        self.limit.wrapping_sub(self.used)"
+
+mutate "$VA" a_derated_device_refuses_a_write_even_though_it_would_still_serve_a_site \
+  "a derated device starts taking uploads again" \
+  "            Level::Derated | Level::Protect | Level::Halt => {" \
+  "            Level::Protect | Level::Halt => {"
+
+mutate "$VA" the_announced_rung_refuses_because_an_upload_is_new_work \
+  "the rung that stopped accepting new work starts accepting uploads" \
+  "            Stage::Announced | Stage::Shed | Stage::Quiesced | Stage::ShuttingDown => {" \
+  "            Stage::Shed | Stage::Quiesced | Stage::ShuttingDown => {"
+
+mutate "$VA" the_steps_are_the_only_order_that_survives_a_power_cut \
+  "the file is renamed before its bytes are flushed" \
+  "            Step::WriteTemporary,
+            Step::FlushFile,
+            Step::RenameOverDestination,
+            Step::FlushDirectory," \
+  "            Step::WriteTemporary,
+            Step::RenameOverDestination,
+            Step::FlushFile,
+            Step::FlushDirectory,"
+
+mutate "$VA" a_refused_write_yields_no_plan \
+  "a plan is handed back for a write the device refused" \
+  "        if !self.is_accepting() {
+            return None;
+        }" \
+  "        if false {
+            return None;
+        }"
+
+mutate "$VA" the_temporary_is_hidden_so_debris_is_recognisable_as_debris \
+  "the partial file is not hidden, so the site could serve a half-written upload" \
+  "            temporary: format!(\"{}/.{}.partial\", root.dir(), name.as_str())," \
+  "            temporary: format!(\"{}/{}.partial\", root.dir(), name.as_str()),"
+
+mutate "$VA" a_receipt_never_claims_the_file_is_durable \
+  "a receipt tells somebody their file is saved" \
+  "            \"{} — {} bytes are on this device and on nothing else. {} This device \\" \
+  "            \"{} — {} bytes saved. {} This device \\"
 
 mutate "$B" a_charge_full_near_the_integer_limit_does_not_crash_the_reading \
   "a charge_full near the integer limit overflows the health calculation again" \

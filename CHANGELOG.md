@@ -15,6 +15,53 @@ traffic before it.
 
 ### Added
 
+- **The vault** (ADR-0009) — `core/src/vault.rs`, the decision layer for
+  accepting a file. It is the first thing in this project that takes rather than
+  gives, and the two failures that matter have no counterpart in a reader: a
+  write that half-lands, and a write that lands when the device was in no
+  condition to take it.
+
+  It performs **no I/O**. It validates the name, checks the room, asks the
+  governor, and returns the *ordering* a caller must follow — so every
+  interesting case is reachable in a test with no filesystem.
+
+  **A write is refused earlier than a read, and the asymmetry is the point.** The
+  site keeps serving at `DERATED`; the vault refuses there. A refused upload
+  costs one retry; a half-written file outlives the event that interrupted it.
+  `Stage::Announced` refuses too, and that is not a new policy — that rung's own
+  obligation is "stopped accepting new work", and an upload is new work. Exactly
+  one of the twenty combinations of level and rung accepts anything, asserted
+  exhaustively so a level added later cannot fall through to a default that takes
+  files.
+
+  `WritePlan::steps()` returns the only order that survives a power cut: write a
+  temporary, flush the file, rename, **flush the directory** — the last being the
+  step everybody forgets, whose absence is undetectable until a real power cut.
+  The temporary sits beside the destination, because a rename across filesystems
+  is a copy and a copy is not atomic, and it is hidden, so a partial upload can
+  never be served by the site — which refuses hidden names as a class. Two
+  modules, one property, neither relying on the other's discipline.
+
+  `Admission::plan` returns `None` when the vault is refusing, so a caller cannot
+  obtain a plan for a write the device declined. Splitting "may I" from "how" is
+  how a check gets skipped by somebody in a hurry.
+
+  **No receipt says the file is safe.** `Receipt` has no `Durable` variant and
+  will not get one: ADR-0004 §0 established that nothing on a sealed phone can
+  tell a flash that honoured a flush from one that acknowledged it and did
+  nothing. The class is fixed rather than passed in — a caller able to choose it
+  is a caller able to choose a flattering one. A test asserts the rendered text
+  contains none of *saved*, *safe*, *durable*, *guaranteed* or *backed up*.
+
+  There is **no upload route**: `serve::Method` still has only `Get` and `Head`.
+  Adding one requires authentication, and shipping a network write surface
+  without it would be worse than shipping neither.
+- `Name` refuses a filename that is really a path, a hidden name, control
+  characters, a trailing space or dot — which several filesystems strip silently,
+  so the file asked for and the file that exists differ — and anything over 255
+  **bytes**, counted in bytes because a filesystem's limit is, and 255 emoji is
+  about a kilobyte.
+
 - **A published website** (ADR-0008). `vayucell site --dir <DIR>` serves a
   directory of files to the operator's own network — the first surface in this
   project that exists for somebody other than the device's owner.

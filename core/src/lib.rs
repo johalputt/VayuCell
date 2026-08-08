@@ -31,6 +31,7 @@ pub mod shed;
 pub mod site;
 pub mod sysfs;
 pub mod tier;
+pub mod vault;
 
 #[cfg(test)]
 mod capability_test;
@@ -60,3 +61,5 @@ mod site_test;
 mod sysfs_test;
 #[cfg(test)]
 mod tier_test;
+#[cfg(test)]
+mod vault_test;
