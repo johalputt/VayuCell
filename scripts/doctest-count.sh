@@ -23,7 +23,7 @@ set -uo pipefail
 
 cd "$(dirname "$0")/.." || exit 1
 
-EXPECTED="${1:-25}"
+EXPECTED="${1:-27}"
 
 out="$(cargo test --workspace --doc 2>&1)"
 rc=$?

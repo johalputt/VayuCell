@@ -131,6 +131,7 @@ IN=core/src/ingress.rs
 SV=core/src/serve.rs
 ST=core/src/site.rs
 VA=core/src/vault.rs
+AU=core/src/auth.rs
 LI=cli/src/listen.rs
 
 mutate "$T" a_guest_that_cannot_see_the_phone_reports_unverified_rather_than_guessing \
@@ -948,6 +949,67 @@ mutate "$LI" a_symlink_pointing_out_of_the_root_is_refused \
   "a symbolic link may lead out of the site directory" \
   "    if !real_file.starts_with(&real_root) {" \
   "    if false {"
+
+# ── Credentials ──────────────────────────────────────────────────────────────
+
+mutate "$AU" an_empty_store_accepts_nothing \
+  "a store with nobody enrolled stops being a closed door" \
+  "        if self.entries.is_empty() {
+            return Verdict::Refused(Refusal::StoreEmpty);
+        }" \
+  "        if false {
+            return Verdict::Refused(Refusal::StoreEmpty);
+        }"
+
+mutate "$AU" a_prefix_of_an_enrolled_secret_is_refused \
+  "the comparison stops at the shorter input, so a one-character secret matches" \
+  "    if a.len() != b.len() {
+        return false;
+    }" \
+  "    if false {
+        return false;
+    }"
+
+mutate "$AU" the_comparison_is_exhaustively_right_on_short_inputs \
+  "the difference accumulator stops accumulating" \
+  "        difference |= x ^ y;" \
+  "        difference &= x ^ y;"
+
+mutate "$AU" a_memorable_secret_cannot_be_enrolled \
+  "a secret somebody chose can be enrolled, with nothing to make guessing slow" \
+  "        if raw.chars().count() != SECRET_CHARS {
+            return Err(SecretError::WrongLength(raw.chars().count()));
+        }" \
+  "        if false {
+            return Err(SecretError::WrongLength(raw.chars().count()));
+        }"
+
+mutate "$AU" a_secret_never_appears_in_its_own_debug_output \
+  "the secret is printed by every debug format that touches it" \
+  "        f.write_str(\"Secret(hidden)\")" \
+  "        f.write_str(\&self.0)"
+
+mutate "$AU" a_store_readable_by_anyone_else_is_reported_as_such \
+  "a store the whole machine can read is reported as private" \
+  "    mode & 0o077 != 0" \
+  "    mode & 0o007 != 0"
+
+mutate "$AU" a_bad_line_refuses_the_whole_store_rather_than_loading_part_of_it \
+  "a malformed line is skipped, silently unenrolling a device" \
+  "        let secret = Secret::new(secret).map_err(|e| StoreError {
+            line: line_number,
+            why: StoreProblem::Secret(e),
+        })?;" \
+  "        let Ok(secret) = Secret::new(secret) else { continue };"
+
+mutate "$AU" a_device_name_may_not_carry_whitespace_because_the_store_separates_on_it \
+  "a device name may carry a space, so the store's two fields become three" \
+  "        if raw.chars().any(char::is_whitespace) {
+            return Err(DeviceError::Whitespace);
+        }" \
+  "        if false {
+            return Err(DeviceError::Whitespace);
+        }"
 
 # ── The vault: the first surface here that accepts rather than serves ────────
 

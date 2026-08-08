@@ -15,6 +15,7 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs, clippy::pedantic)]
 
+pub mod auth;
 pub mod battery;
 pub mod capability;
 pub mod csp;
@@ -33,6 +34,8 @@ pub mod sysfs;
 pub mod tier;
 pub mod vault;
 
+#[cfg(test)]
+mod auth_test;
 #[cfg(test)]
 mod capability_test;
 #[cfg(test)]
