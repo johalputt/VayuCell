@@ -149,6 +149,17 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # The self-test runs every gate on a clean tree before planting
+          # anything, and one of those gates reads commit history. A shallow
+          # clone made that pre-flight fail on a pull request — the checkout
+          # leaves HEAD at a merge commit GitHub synthesises, and at depth 1 its
+          # parents are absent, so the gate could not step off it.
+          #
+          # It is also what the attribution gate needs to mean what it says. It
+          # claims to check the full history; at depth 1 it would pass by
+          # checking almost none of it.
+          fetch-depth: 0
       - name: Every gate must still catch what it claims to
         # Also run on every push, but repeated here because this is the check
         # with no natural symptom when it rots: a gate whose patterns stopped
