@@ -10,10 +10,19 @@
 #
 # Scope: tracked files and commit messages. Both are pushed artefacts.
 #
-# Usage: scripts/attribution-gate.sh [base-ref]
+# Usage: scripts/attribution-gate.sh [base-ref] [head-ref]
 #   base-ref  Only inspect commits after this ref. Defaults to the whole history
 #             on a local run; CI passes the merge base so a pull request is
 #             judged on its own commits.
+#   head-ref  Where to stop. Defaults to HEAD.
+#
+# The head-ref exists because of a false positive this gate produced the first
+# time the project used a pull request. On a `pull_request` event, actions/checkout
+# leaves HEAD at a MERGE COMMIT that GitHub synthesises for the run — and that
+# commit is authored with the `@users.noreply.github.com` address, which this gate
+# rejects. It is not a bot hiding its identity and it never enters the history;
+# it is an artefact of the checkout. Ending the range at the pull request's own
+# head commit judges the commits somebody actually wrote.
 set -uo pipefail
 
 # Without -e a failed cd would leave the gate running against whatever
@@ -67,12 +76,43 @@ fi
 
 # ── Commit messages ───────────────────────────────────────────────────────────
 BASE="${1:-}"
+TIP="${2:-}"
+
+# With no explicit tip, step off GitHub's synthetic pull-request merge commit.
+#
+# On a `pull_request` event actions/checkout leaves HEAD at a merge commit that
+# GitHub creates for the run — authored with an `@users.noreply.github.com`
+# address, which the bot-author check below rejects. It is not a bot hiding its
+# identity and it never enters the history: it is an artefact of the checkout,
+# discarded when the run ends.
+#
+# Detected structurally rather than by matching the address, because the address
+# is exactly the thing worth rejecting everywhere else. The signature is: this is
+# a pull_request event AND HEAD has two parents. `HEAD^2` is then the pull
+# request's own head — the commits somebody actually wrote.
+#
+# This has to work with no arguments, because the gate self-test runs every gate
+# bare on a clean tree before planting anything, and a gate that fails there
+# stops the whole self-test rather than just itself.
+if [ -z "$TIP" ]; then
+  TIP="HEAD"
+  if [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ] \
+     && [ "$(git rev-list --no-walk --parents -1 HEAD 2>/dev/null | wc -w)" -ge 3 ] \
+     && git rev-parse --verify --quiet 'HEAD^2' >/dev/null; then
+    TIP="HEAD^2"
+    echo "  --    HEAD is a synthesised pull-request merge; judging $TIP instead"
+  fi
+fi
+git rev-parse --verify --quiet "$TIP" >/dev/null || TIP="HEAD"
 if [ -n "$BASE" ] && git rev-parse --verify --quiet "$BASE" >/dev/null; then
-  RANGE="$BASE..HEAD"
+  RANGE="$BASE..$TIP"
   scope="commits in $RANGE"
 else
-  RANGE=""
-  scope="every commit in the history"
+  # No base: walk the whole history, but from TIP rather than HEAD. Leaving this
+  # empty was the second half of the same bug — stepping off the synthesised
+  # merge commit achieves nothing if the log is then walked from HEAD anyway.
+  RANGE="$TIP"
+  scope="every commit reachable from $TIP"
 fi
 
 # Each line is prefixed with its commit hash, so a match names the commit to fix

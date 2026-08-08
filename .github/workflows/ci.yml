@@ -75,8 +75,15 @@ jobs:
         run: |
           # On a pull request only the branch's own commits are judged, so a
           # pre-existing history cannot fail somebody else's change.
+          # The HEAD sha is passed as well as the base. On a pull_request event
+          # HEAD is a merge commit GitHub synthesises for the run, authored with
+          # a noreply address that this gate rejects — a false positive that only
+          # appears once a project starts using pull requests, which is exactly
+          # when it is least convenient to discover.
           if [ -n "${{ github.event.pull_request.base.sha }}" ]; then
-            bash scripts/attribution-gate.sh "${{ github.event.pull_request.base.sha }}"
+            bash scripts/attribution-gate.sh \
+              "${{ github.event.pull_request.base.sha }}" \
+              "${{ github.event.pull_request.head.sha }}"
           else
             bash scripts/attribution-gate.sh
           fi
