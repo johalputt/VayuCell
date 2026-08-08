@@ -113,6 +113,34 @@ while IFS= read -r line; do
   esac
 done < <(grep -rn 'pip install' .github/workflows/ 2>/dev/null || true)
 
+# ── Every job in ci.yml is actually required ──────────────────────────────────
+# The aggregating job carries a comment warning that "a job added above but
+# forgotten here would otherwise be required in name and unenforced in fact".
+# That is exactly what happened: the install job was added, left out of `needs`,
+# failed on its first run, and CI reported all required checks green. The hazard
+# was written down and nothing enforced it. This enforces it.
+python3 - <<'PYCHECK' || FAILED=1
+import sys, yaml
+
+ci = yaml.safe_load(open(".github/workflows/ci.yml"))
+jobs = ci.get("jobs", {})
+# The aggregator is the job that depends on many others; found by shape rather
+# than by name, so renaming it does not quietly disable this check.
+agg = next((n for n, j in jobs.items()
+            if isinstance(j.get("needs"), list) and len(j["needs"]) > 3), None)
+if agg is None:
+    print("  FAIL        ci.yml has no aggregating required-checks job")
+    sys.exit(1)
+
+required = set(jobs[agg]["needs"])
+missing = sorted(set(jobs) - required - {agg})
+for m in missing:
+    print(f"  FAIL        ci.yml job '{m}' is missing from {agg}.needs, so it cannot fail the build")
+if missing:
+    sys.exit(1)
+print(f"  ok          all {len(required)} ci.yml jobs are required by {agg}")
+PYCHECK
+
 echo
 if [ "$FAILED" -ne 0 ]; then
   echo "ACTIONS GATE FAILED — a workflow reference is unpinned or unreachable."

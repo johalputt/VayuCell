@@ -179,23 +179,42 @@ else
   say  "     It only happens once."
 
   need git git
-  if ! command -v cargo >/dev/null 2>&1; then
+  # `command -v cargo` answers "is there something on PATH called cargo", which
+  # is not the question. On a machine with a rustup shim and no default
+  # toolchain the name resolves, the check passes, and the build then dies with
+  # "rustup could not choose a version of cargo to run" — a real failure this
+  # installer once reported as "free up 2 GB". Presence is not verification, so
+  # this runs it.
+  if ! cargo --version >/dev/null 2>&1; then
     if [ "$IS_TERMUX" = "1" ]; then
       warn "Installing Rust (this is the big one)"
       pkg install -y rust >/dev/null 2>&1 \
         || die "could not install Rust" "Run: pkg update && pkg install rust   — then run this installer again"
+      cargo --version >/dev/null 2>&1 \
+        || die "Rust is installed but will not run" \
+               "Close Termux completely, open it again, and re-run this installer"
+    elif command -v rustup >/dev/null 2>&1; then
+      die "Rust is installed but no default toolchain is set, so cargo cannot run" \
+          "Run: rustup default stable   — then run this installer again"
     else
       die "Rust is not installed" "Install it from https://rustup.rs and run this installer again"
     fi
   fi
-  good "Rust is available"
+  good "Rust runs: $(cargo --version)"
 
   step "Building — leave the screen on and the phone plugged in"
   git clone --depth 1 "$RAW.git" "$TMP/src" >/dev/null 2>&1 \
     || die "could not download the source code" "Check the phone is online, then run the installer again"
-  ( cd "$TMP/src" && cargo build --release --locked -p vayucell ) \
-    || die "the build did not finish" \
-           "Usually this is free space or memory. Free up 2 GB, close other apps, and run the installer again"
+  # The build's own error is kept and shown. Guessing at the cause — this used
+  # to say "usually free space or memory" — is worse than saying nothing, since
+  # it sends the person to fix something that was never wrong.
+  if ! ( cd "$TMP/src" && cargo build --release --locked -p vayucell ) >"$TMP/build.log" 2>&1; then
+    say ""
+    say "  The build stopped. Its last lines were:"
+    tail -15 "$TMP/build.log" | sed 's/^/      /'
+    die "the build did not finish" \
+        "Read the lines above — they say why. If they mention space or memory, free up 2 GB and close other apps, then run the installer again"
+  fi
   cp "$TMP/src/target/release/vayucell" "$BIN" \
     || die "the build finished but the program could not be copied into place" "Check free space in $HOME"
 fi

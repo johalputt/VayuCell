@@ -302,7 +302,11 @@ if git ls-remote --tags --refs https://github.com/actions/checkout >/dev/null 2>
     "without --require-hashes" \
     "sed -i 's|--require-hashes -r requirements/schema.txt|jsonschema|' .github/workflows/ci.yml"
 
-  violation "$ACTIONS" "a workflow names a commit SHA that does not exist" \
+  violation "$ACTIONS" "a ci.yml job is added but never made a required check" \
+  "cannot fail the build" \
+  "sed -i '/^      - install$/d' .github/workflows/ci.yml"
+
+violation "$ACTIONS" "a workflow names a commit SHA that does not exist" \
     "could not be fetched" \
     "sed -i -E '0,/uses: actions\\/checkout@[0-9a-f]{40}/s|@[0-9a-f]{40}|@0000000000000000000000000000000000000000|' .github/workflows/ci.yml"
 else

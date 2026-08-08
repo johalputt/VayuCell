@@ -15,6 +15,29 @@ traffic before it.
 
 ## [0.0.3] — 2026-08-08
 
+### Fixed
+
+- **A failing gate did not fail CI.** The install job was added to `ci.yml` and
+  left out of the aggregating required-checks list. It then failed on its very
+  first run — correctly, on a real installer bug — and CI reported *all required
+  checks passed*. The aggregator carries a comment warning about exactly this
+  hazard; the hazard was written down and nothing enforced it. The actions gate
+  now refuses any `ci.yml` job that is not in the required list, and a self-test
+  plant proves it fires.
+- **The installer said Rust was available when Rust could not run.** It asked
+  `command -v cargo`, which answers "is there something on PATH called cargo" —
+  not the question. On a machine carrying a rustup shim with no default
+  toolchain the name resolves, the check passes, and the build dies with
+  "rustup could not choose a version of cargo to run". Presence is not
+  verification, which is this project's whole argument, and the installer was
+  doing the thing the charter forbids everywhere else. It now runs
+  `cargo --version`, and where rustup is present but unconfigured it says so and
+  gives the one command that fixes it.
+- **The build failure told people to free up 2 GB regardless of the cause.** It
+  guessed, and its guess sent someone to fix something that was never wrong. The
+  build's own output is now kept and its last lines are shown, because the real
+  error already says why.
+
 ### Changed
 
 - `v0.0.2` is published, so `install.sh` now downloads a signed, checksummed

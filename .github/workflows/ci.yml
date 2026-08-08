@@ -167,8 +167,10 @@ jobs:
   install:
     name: "Install · The first thing a stranger runs"
     runs-on: ubuntu-24.04
-    # The end-to-end path builds from source, because no release is published
-    # yet. That is slow and it is the point: it is exactly what a person gets.
+    # The end-to-end path downloads the published build and verifies it, which
+    # is what a person actually gets. Where no build exists for a platform it
+    # compiles from source instead, which is slow and is also what that person
+    # would get. Either way the gate prints which path it took.
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -490,6 +492,7 @@ jobs:
       - shell
       - hardware
       - actions
+      - install
       - release-meta
       - rust
       - msrv
