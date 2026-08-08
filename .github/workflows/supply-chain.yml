@@ -96,11 +96,45 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+
+      - name: Say which token this scan is using, and what that costs
+        # Branch-Protection is the one check that cannot be answered from the
+        # tree: Scorecard has to *read the repository's settings*, and the
+        # default GITHUB_TOKEN cannot. Without a token carrying
+        # `Administration: read` the check scores 0 whatever the repository is
+        # actually configured to do — so a maintainer who turns protection on
+        # and watches the alert stay open has been told nothing useful.
+        #
+        # That is exactly the failure this project exists to refuse: a red row
+        # that means "not checked" while reading as "checked and failing". It is
+        # said out loud on every run rather than left to be discovered.
+        env:
+          HAS_TOKEN: ${{ secrets.SCORECARD_TOKEN != '' }}
+        run: |
+          if [ "$HAS_TOKEN" = "true" ]; then
+            echo "SCORECARD_TOKEN is set: Branch-Protection is being genuinely evaluated."
+          else
+            echo "SCORECARD_TOKEN is NOT set."
+            echo
+            echo "  Branch-Protection will report 0 because this scan cannot read the"
+            echo "  repository's settings — not because protection is absent. The two"
+            echo "  are indistinguishable in the output, which is why this notice exists."
+            echo
+            echo "  To make the check mean something, add a fine-grained personal access"
+            echo "  token with 'Administration: read' on this repository as the secret"
+            echo "  SCORECARD_TOKEN. Nothing else in this workflow needs it, and no other"
+            echo "  check changes."
+          fi
+
       - uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4
         with:
           results_file: scorecard.sarif
           results_format: sarif
           publish_results: false
+          # Falls back to the job's own token when the secret is absent, so the
+          # scan still runs and every other check is still scored. The fallback
+          # is the current behaviour, made visible rather than implicit.
+          repo_token: ${{ secrets.SCORECARD_TOKEN || github.token }}
       - uses: github/codeql-action/upload-sarif@c4dd10e44af883a891fe31ced449bcb4a6728b9b # v3
         with:
           sarif_file: scorecard.sarif
