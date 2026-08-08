@@ -53,7 +53,17 @@ restore() {
   done
 }
 cleanup() { restore; rm -rf "$SNAPSHOT"; }
-trap cleanup EXIT
+
+# INT and TERM as well as EXIT. Bash does not run an EXIT trap for every signal
+# that ends the shell, so a Ctrl-C partway through would leave whichever file was
+# mutated at that moment sitting on disk, looking like source somebody wrote.
+#
+# SIGKILL still cannot be caught, and that is not hypothetical — a run killed by
+# the harness during this session left a mutation behind. The defence for that
+# case is the check below: the suite must be green BEFORE the first mutation, so
+# a leaked mutation from a previous run refuses the next one rather than being
+# mistaken for the code under test.
+trap cleanup INT TERM EXIT
 
 # If the suite is not green to begin with, every mutation would "die" for the
 # wrong reason and the gate would report success while proving nothing.
