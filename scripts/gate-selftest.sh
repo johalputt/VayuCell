@@ -36,6 +36,13 @@ RELEASING="scripts/release-gate.sh --releasing"
 ACTIONS=scripts/actions-gate.sh
 CONST=scripts/constitution-gate.sh
 ATTRIB=scripts/attribution-gate.sh
+INSTALL=scripts/install-gate.sh
+
+# The install gate's end-to-end case builds VayuCell from source, which takes
+# minutes. What is under test here is whether its *static* checks fire, and each
+# plant would otherwise pay for a full build to answer a question the build has
+# no bearing on. CI's install job runs the end-to-end path unskipped.
+export VAYUCELL_SKIP_INSTALL_RUN=1
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -100,7 +107,7 @@ echo
 
 # Both baselines must be green, or every "caught" below could be the baseline
 # failing rather than the planted violation.
-for gate in "$CHARTER" "$HARDWARE" "$DOCS" "$ATTRIB" "$RELEASE" "$CONST"; do
+for gate in "$CHARTER" "$HARDWARE" "$DOCS" "$ATTRIB" "$RELEASE" "$CONST" "$INSTALL"; do
   if ! bash "$gate" >/dev/null 2>&1; then
     echo "refusing to run: $gate is already failing on a clean tree, so a caught"
     echo "violation would not be evidence that the gate caught anything."
@@ -331,6 +338,27 @@ violation "$CHARTER" "the CLI crate gains a third-party dependency" \
 violation "$CHARTER" "the fuzz harness rejoins the workspace, making its dependency shippable" \
   "not excluded in the root Cargo.toml" \
   "sed -i 's|^exclude = \\[\"fuzz\"\\]|exclude = []|' Cargo.toml"
+
+# ── Installer ─────────────────────────────────────────────────────────────────
+# install.sh is the one file here that runs on a stranger's phone, so the gate
+# guarding it is the one most worth proving fires. Each plant below is a way the
+# installer could quietly become worse without a single test going red.
+
+violation "$INSTALL" "the battery warning stops being shown before anything is written" \
+  "before the first write to disk" \
+  "sed -i '/swollen battery is a fire hazard/d' install.sh"
+
+violation "$INSTALL" "a failure path names what broke but not what to do about it" \
+  "do not say what to do next" \
+  "printf '\ndie \"it broke\"\n' >> install.sh"
+
+violation "$INSTALL" "the physical-inspection instruction is dropped from the installer" \
+  "must name physical inspection" \
+  "sed -i '/face-down on a flat table/d' install.sh"
+
+violation "$INSTALL" "the installer starts asking for root" \
+  "escalates privileges" \
+  "printf '\nsudo pkg install rust\n' >> install.sh"
 
 # ── Doctest count ─────────────────────────────────────────────────────────────
 # Checked directly rather than through violation(), which copies the tree

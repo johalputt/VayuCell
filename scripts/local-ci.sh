@@ -42,6 +42,7 @@ STEPS=(
   "release|0|scripts/release-gate.sh"
   "markdown|0|scripts/markdown-gate.sh"
   "actions|1|scripts/actions-gate.sh"
+  "install|1|scripts/install-gate.sh"
   "shellcheck|0|shellcheck --severity=warning --shell=bash scripts/*.sh"
   "gate-selftest|1|scripts/gate-selftest.sh"
   "mutation|1|scripts/mutation-gate.sh"

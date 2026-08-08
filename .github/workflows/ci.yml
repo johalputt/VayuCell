@@ -163,6 +163,21 @@ jobs:
           VAYUCELL_REQUIRE_NETWORK: "1"
         run: bash scripts/actions-gate.sh
 
+  # ── Installer ───────────────────────────────────────────────────────────────
+  install:
+    name: "Install · The first thing a stranger runs"
+    runs-on: ubuntu-24.04
+    # The end-to-end path builds from source, because no release is published
+    # yet. That is slow and it is the point: it is exactly what a person gets.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Install gate
+        # install.sh is the only file here that runs on somebody else's device,
+        # and the only one the test suite cannot reach. Without this it would be
+        # the least-tested file in the repository and the most exposed.
+        run: bash scripts/install-gate.sh
+
   # ── Release metadata ────────────────────────────────────────────────────────
   release-meta:
     name: "Release · Version consistency"

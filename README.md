@@ -32,7 +32,7 @@
   <a href="docs/CI.md"><img alt="coverage: 80.83%" src="https://img.shields.io/badge/coverage-80.83%25-success"></a>
   <a href="GOVERNANCE-CONSTITUTION.md"><img alt="constitution: 110 rules" src="https://img.shields.io/badge/constitution-110%20rules-blueviolet"></a>
   <a href="scripts/mutation-gate.sh"><img alt="mutations killed: 111/111" src="https://img.shields.io/badge/mutations%20killed-111%2F111-success"></a>
-  <a href="scripts/gate-selftest.sh"><img alt="gates self-tested: 48 plants caught" src="https://img.shields.io/badge/gates%20self--tested-48%20plants%20caught-success"></a>
+  <a href="scripts/gate-selftest.sh"><img alt="gates self-tested: 52 plants caught" src="https://img.shields.io/badge/gates%20self--tested-52%20plants%20caught-success"></a>
   <a href="CHARTER.md"><img alt="hardware tested: none yet" src="https://img.shields.io/badge/hardware%20tested-none%20yet-inactive"></a>
 </p>
 
@@ -93,7 +93,7 @@ and no amount of green rows replaces it.
 | --- | --- |
 | Written | The capability registry, tier detection, the CSP and response security headers, **the battery safety governor** — state machine, verification loop, thresholds, recovery — the sysfs layer it drives, the sampling cadence, the mains-loss shed ladder, and **the safety panel**, where a row that could not be checked is not allowed to read as one that was |
 | Not written | The fleet view, the hardware database itself, the Android shell, **the fleet, and every ingress mode except local-only — an onion and a relay are described and governed in code, but neither is implemented** |
-| Checked | 234 unit tests and 20 doctests, 80.83% line coverage against an 80% floor, **111 mutations each re-broken and each required to turn its named test red**, and **48 violations planted in a scratch repository that the gates must catch citing the right rule**. None of that is evidence about hardware; all of it is evidence about the code |
+| Checked | 234 unit tests and 20 doctests, 80.83% line coverage against an 80% floor, **111 mutations each re-broken and each required to turn its named test red**, and **52 violations planted in a scratch repository that the gates must catch citing the right rule**. None of that is evidence about hardware; all of it is evidence about the code |
 | Unblocked | [Charter III.1](CHARTER.md) forbids anything serving traffic before the governor. The governor is now **written** — the ordering constraint is met in code, and the gate fails the build if it is ever removed. It is not met on hardware, and nothing serves traffic yet regardless |
 | Never tested on hardware | Everything. Every device-facing behaviour is exercised through a fake host describing handsets nobody here is holding |
 
@@ -360,6 +360,31 @@ of those are answers rather than errors. `vayucell run` holds the ceiling and
 watches the cell until the governor halts; it stops when it does, because a hard
 stop that a restart clears is a log line rather than a state.
 
+### Putting it on a phone
+
+One command inside [Termux](https://f-droid.org/packages/com.termux/), installed
+from F-Droid rather than the Play Store:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/johalputt/VayuCell/main/install.sh | bash
+```
+
+It names the battery risk and waits for you to type `yes` **before it writes
+anything**, installs what is missing, and refuses to claim success until the
+program it installed has actually run. Every failure says what to do next rather
+than printing an error code. Nothing needs root, nothing is written outside
+`~/.vayucell`, and removing it is `rm -rf ~/.vayucell`.
+
+Piping a script into a shell means trusting whatever the server sends;
+[`docs/INSTALL.md`](docs/INSTALL.md) gives the download-then-read form, and is
+written for somebody who has never opened a terminal.
+
+Two things to expect. There is **no published release yet**, so the installer
+builds from source — ten to twenty minutes on a phone, once. And `vayucell
+status` will very likely say `UNSAFE`, which is the correct answer: an ordinary
+unrooted phone has no supported way to stop charging at 60%, so that row stays
+red permanently because it is permanently true.
+
 **No handset has run it.** To run the gates instead — exactly what CI runs:
 
 ```bash
@@ -389,7 +414,7 @@ cargo test --workspace
 ```
 
 A full run exercises **234 unit tests and 20 doctests** (2 ignored — the two
-snapshot regenerators), kills **111 mutations**, catches **48 planted violations**,
+snapshot regenerators), kills **111 mutations**, catches **52 planted violations**,
 and measures **80.83% line coverage** against a floor of 80. That is a suite that
 has been shown to fail when the code is wrong — the mutation gate is the proof,
 and it asserts its own match count so a mutation that failed to apply cannot be
@@ -606,7 +631,7 @@ and has no other symptom.
 | Gate | What it refuses to let through |
 | --- | --- |
 | **Charter** | A serving capability registered while the governor is gone. `Capability::verify` demoted to an `Option`, so a control with no read-back would compile. A generic success variant that would absorb "not checked". `Absent` and `Unverified` collapsing into one answer. A tier detector that defaults to T0. Telemetry, a treasury, a kill switch, a remote wipe, a dependency on a host this project runs. A `[dependencies]` section with anything in it. An edit to Article III or V whose SHA-256 no longer matches `.charter-digests` |
-| **Gate self-test** | A gate that has only ever been observed passing. **Forty-eight violations** planted in a scratch copy — the governor deleted, `verify` made optional, telemetry added, a third-party dependency added to the CLI crate, a bot-authored commit, a workflow tag that resolves to nothing — each of which the matching gate must catch **citing the right rule**. A plant that changed nothing is scored `STALE`, not `caught`: the sandbox is fingerprinted before and after |
+| **Gate self-test** | A gate that has only ever been observed passing. **Fifty-two violations** planted in a scratch copy — the governor deleted, `verify` made optional, telemetry added, a third-party dependency added to the CLI crate, a bot-authored commit, a workflow tag that resolves to nothing — each of which the matching gate must catch **citing the right rule**. A plant that changed nothing is scored `STALE`, not `caught`: the sandbox is fingerprinted before and after |
 | **Mutation** | **One hundred and eleven** safety and honesty guards, each re-broken in turn, each required to turn its named test red. A green suite proves the code passes its tests; this proves the tests would notice if the code were wrong. Every mutation asserts its own match count, because one that failed to apply would otherwise be reported as one the code survived |
 | **Doctests** | A `compile_fail` proof that stopped being collected. The count is asserted **exactly, in both directions** — too few means a proof moved onto a private item, where rustdoc runs zero tests and still prints `ok`; too many means somebody added a proof without raising the number |
 | **Rust** | Unformatted code, a `clippy::pedantic` warning at `-D warnings` over all targets, a failed build or test, a broken intra-doc link, and the removal of *either* `#![forbid(unsafe_code)]` or `unsafe_code = "deny"` — either alone can be dropped in a diff that looks unrelated |
@@ -618,13 +643,14 @@ and has no other symptom.
 | **Release** | A `.release-version` that is missing, malformed or carries a trailing newline; a crate version that disagrees with it; a changelog with no section for the release; a tag that already exists |
 | **Actions** | A workflow reference that is **not pinned to a full commit SHA**, or one naming a commit that cannot be fetched, **or a `pip install` without `--require-hashes`** — pinning the actions and then installing an unpinned package inside one closes the front door and leaves the side door open. A tag is whatever its owner repoints it at tomorrow, and repointing produces no diff here. Also an extraction pattern that has gone stale and found nothing. Without network it prints `UNVERIFIED`; CI requires the network so the authoritative run cannot skip it |
 | **Shell** | A `shellcheck` finding in any script, a script that is not executable, or one with no `bash` shebang. The gates decide whether a release ships, so a quoting bug in one is a correctness bug in the release process |
+| **Install** | An installer that stops naming the battery risk **before it writes anything**, drops the physical-inspection instruction, acquires root, or has a failure path that says what broke without saying what to do about it. It also installs from a clean `HOME` and runs the result, twice — `install.sh` is the only file here that executes on a stranger's device, and the only one the test suite cannot reach. What it cannot check is Termux itself, and it prints that rather than implying otherwise |
 | **Targets** | The core failing to type-check for 64- and 32-bit Android, mainline ARM, or an ordinary Linux laptop — five targets, `fail-fast: false`, so one broken target does not hide the other four |
 | **Supply chain** | An advisory, a banned or duplicated crate, a disallowed licence, a source that is not crates.io, an unused declared dependency, a lockfile that would change on build, an SBOM component whose name is not ours, or a verified secret anywhere in history |
 | **Reproducible** | A release artefact that is not byte-identical when rebuilt from a clean tree, compared by SHA-256. You are asked to run this unattended in the building where you sleep; "check for yourself" has to be a real offer |
 
 Gate logic lives in [`scripts/`](scripts/) rather than inline YAML, so the check
 that decides a release is the check you can run on your laptop before you push.
-That directory holds fifteen files: ten gate scripts, the `local-ci.sh` runner,
+That directory holds sixteen files: eleven gate scripts, the `local-ci.sh` runner,
 coverage, the doctest count, the SBOM job and the logo generator. Some checks in the
 table above — Rust, Shell, Targets, Supply chain and Reproducible — are invoked
 directly as jobs and commands rather than living in a script of their own. Seven workflows call all of it:
@@ -727,6 +753,7 @@ for.
 | [`ADR-0005`](docs/adr/ADR-0005-implementation-language.md) | Implementation language: Rust for the core, Kotlin for the shell |
 | [`ADR-0006`](docs/adr/ADR-0006-content-security-policy.md) | Content Security Policy: the browser as the last enforcement point |
 | [`ADR-0007`](docs/adr/ADR-0007-the-safety-panel.md) | The safety panel: what a person is allowed to be told |
+| [`docs/INSTALL.md`](docs/INSTALL.md) | Putting it on a phone, written for somebody who has never opened a terminal |
 | [`docs/CI.md`](docs/CI.md) | Every gate, and every parameter it checks with |
 | [`docs/BRAND.md`](docs/BRAND.md) | The mark: how it is constructed, and the rules for using it |
 | [`CHANGELOG.md`](CHANGELOG.md) | What changed, and what it means for someone running this |

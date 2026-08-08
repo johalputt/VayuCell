@@ -15,6 +15,29 @@ traffic before it.
 
 ### Added
 
+- **A one-command installer for a phone** (`install.sh`) and
+  [`docs/INSTALL.md`](docs/INSTALL.md), written for somebody who has never
+  opened a terminal. It names the battery risk and waits for an explicit `yes`
+  **before writing anything**, installs what is missing, verifies the checksum
+  of a published build or falls back to building from source, and refuses to
+  claim success until the program it installed has actually run. Every failure
+  path says what to do next rather than printing an error code. It never asks
+  for root and writes nothing outside `~/.vayucell`, so removing it is one
+  `rm -rf`. The guide states plainly that no release has been installed on a
+  physical phone, that `UNSAFE` is the expected and correct verdict on an
+  ordinary handset, and that hosting a website or storing files is not built
+  yet — the safety layer had to come first.
+- **An install gate** (`scripts/install-gate.sh`), because `install.sh` is the
+  only file here that runs on a stranger's device and the only one the test
+  suite cannot reach — which made it the least-tested and most exposed file in
+  the repository. It requires every failure path to name both what happened and
+  what to do, requires the battery warning to precede the first write to disk,
+  requires the physical-inspection instruction to be present, refuses an
+  installer that escalates privileges, and installs from a clean `HOME` twice
+  over, running the result. It prints that Termux itself is not exercised
+  rather than letting green ticks imply a device was involved. Four plants in
+  the gate self-test prove it fires; the count there is now 52.
+
 - **The Battery Safety Governor** (ADR-0002) — the subsystem Charter Article
   III.1 required before anything may serve traffic. State machine, verification
   loop, thresholds, and a recovery path that requires a person who looked at the

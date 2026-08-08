@@ -60,6 +60,7 @@ scripts/hardware-gate.sh         # device database schema and honesty
 scripts/release-gate.sh          # the version says the same thing everywhere
 scripts/actions-gate.sh          # every workflow reference actually resolves
 scripts/markdown-gate.sh         # markdown lint, at the one pinned version
+scripts/install-gate.sh          # the first thing a stranger runs still works
 scripts/doctest-count.sh         # exactly the expected number of doctests ran
 scripts/coverage.sh              # production-only line coverage against the floor
 scripts/sbom.sh                  # CycloneDX bill of materials
@@ -534,6 +535,35 @@ later on a Monday morning.
 
 Without network the gate reports `UNVERIFIED` and carries on; CI sets
 `VAYUCELL_REQUIRE_NETWORK=1` so the authoritative run cannot silently skip it.
+
+### `install` — the first thing a stranger runs
+
+Runs [`scripts/install-gate.sh`](../scripts/install-gate.sh).
+
+`install.sh` is the only file in this repository that executes on somebody
+else's device, and the only one the test suite cannot reach. Without this gate
+it would be the least-tested file here and the most exposed — which is exactly
+backwards.
+
+What it checks:
+
+| Check | Why |
+| --- | --- |
+| Every `die` names **both** what happened and what to do | An error message that only names the failure leaves the person exactly where they were, on a phone, with no terminal experience. `curl: (22)` is a receipt for an error, not an error message |
+| The battery warning appears **before the first write to disk** | Consent that arrives after the install has started is not consent. The check compares line numbers rather than trusting the order to stay put |
+| The physical-inspection instruction is present | [Charter III.4](../CHARTER.md). No sensor detects a swelling cell; the person looking at it does, and the installer has to say so |
+| It never invokes `sudo` or `su` | An installer that quietly escalates is one nobody can reason about afterwards |
+| It installs from a clean `HOME`, and the installed program runs | A successful install that produces a program which does not start is a failure that reports success |
+| Running it a **second** time succeeds | A half-finished install that cannot be re-run strands somebody somewhere they cannot describe |
+
+The end-to-end case builds VayuCell from source, because no release is published
+yet — slow, and deliberately so: that is precisely what a person gets today. The
+gate self-test sets `VAYUCELL_SKIP_INSTALL_RUN=1` for its four plants, since
+what those plants exercise is the static checks; CI runs the path unskipped.
+
+**What this gate cannot check is Termux itself.** There is no Android device in
+CI. It prints that on every run rather than letting six green ticks imply a
+device was involved.
 
 ### `release-meta`
 

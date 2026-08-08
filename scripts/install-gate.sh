@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+#
+# The installer is the first thing a stranger runs, and it runs on their phone
+# rather than ours. It is also the one script that cannot be exercised by the
+# ordinary test suite, so without this it would be the least-tested file in the
+# repository and the most exposed.
+#
+# What this checks is what can be checked without an Android device:
+#   - it parses, and shellcheck is clean
+#   - every failure path says what to do, not just what broke
+#   - it actually installs, from a clean HOME, and the result runs
+#   - running it twice is safe
+#
+# What it cannot check is Termux itself. That is stated rather than implied.
+set -uo pipefail
+cd "$(dirname "$0")/.." || exit 1
+
+FAILED=0
+pass() { printf '  ok    %s\n' "$1"; }
+fail() { printf '  FAIL  %s\n' "$1"; FAILED=1; }
+
+echo "Install gate — the installer must work for somebody who has never used a terminal"
+echo
+
+[ -x install.sh ] && pass "install.sh is executable" || fail "install.sh is not executable"
+bash -n install.sh 2>/dev/null && pass "install.sh parses" || fail "install.sh has a syntax error"
+
+# Every die() must carry both halves: what happened AND what to do. A failure
+# message that only names the error leaves the person exactly where they were.
+# Counted rather than pattern-matched. The first version of this check required
+# the two arguments to be split across a line continuation, and flagged a
+# perfectly good `die "what" "todo"` written on one line — the gate was wrong,
+# not the installer. Two quoted arguments means at least four quote characters.
+bad_dies=0
+while IFS= read -r n; do
+  block="$(sed -n "${n},$((n+3))p" install.sh | tr '\n' ' ')"
+  quotes="$(printf '%s' "$block" | tr -cd '"' | wc -c)"
+  [ "$quotes" -ge 4 ] || bad_dies=$((bad_dies + 1))
+done < <(grep -n '^\s*die ' install.sh | cut -d: -f1)
+[ "$bad_dies" -eq 0 ] \
+  && pass "every failure path names both what happened and what to do" \
+  || fail "$bad_dies failure path(s) do not say what to do next"
+
+# The battery warning is not optional and not a footnote. It must appear before
+# anything is written to disk.
+warn_line="$(grep -n 'swollen battery is a fire hazard' install.sh | cut -d: -f1 | head -1)"
+first_write="$(grep -n '^mkdir -p "\$PREFIX' install.sh | cut -d: -f1 | head -1)"
+if [ -n "$warn_line" ] && [ -n "$first_write" ] && [ "$warn_line" -lt "$first_write" ]; then
+  pass "the battery warning is shown before anything is installed"
+else
+  fail "the battery warning must come before the first write to disk"
+fi
+
+grep -q 'face-down on a flat table' install.sh \
+  && pass "the physical inspection instruction is in the installer" \
+  || fail "the installer must name physical inspection — Charter III.4"
+
+# It must not quietly acquire privileges.
+grep -qE '^\s*sudo |^\s*su ' install.sh \
+  && fail "the installer escalates privileges" \
+  || pass "the installer never asks for root"
+
+# End to end, from a clean HOME.
+if [ "${VAYUCELL_SKIP_INSTALL_RUN:-0}" = "1" ]; then
+  printf '  --    end-to-end install skipped (VAYUCELL_SKIP_INSTALL_RUN=1)\n'
+else
+  work="$(mktemp -d)"
+  trap 'rm -rf "$work"' EXIT
+  if HOME="$work" VAYUCELL_ASSUME_YES=1 VAYUCELL_PREFIX="$work/.vayucell" \
+       bash install.sh >"$work/out" 2>&1; then
+    pass "installs from a clean HOME"
+    if "$work/.vayucell/bin/vayucell" version >/dev/null 2>&1; then
+      pass "the installed program runs"
+    else
+      fail "the installer reported success but the program does not run"
+    fi
+    # Twice. A half-finished install that cannot be re-run strands somebody
+    # somewhere they cannot describe.
+    if HOME="$work" VAYUCELL_ASSUME_YES=1 VAYUCELL_PREFIX="$work/.vayucell" \
+         bash install.sh >"$work/out2" 2>&1; then
+      pass "running it a second time is safe"
+    else
+      fail "running the installer twice fails; see $work/out2"
+    fi
+  else
+    fail "the installer did not complete on a clean HOME"
+    tail -20 "$work/out" | sed 's/^/        /'
+  fi
+fi
+
+echo
+printf '  --    Termux itself is not exercised here; no Android device is available in CI\n'
+echo
+if [ "$FAILED" -ne 0 ]; then
+  echo "INSTALL GATE FAILED — the first thing a stranger runs is broken."
+  exit 1
+fi
+echo "Install gate passed."
