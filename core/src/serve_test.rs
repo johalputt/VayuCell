@@ -6,12 +6,26 @@
 //! send that a browser never would.
 
 use crate::csp::Nonce;
+use crate::governor::Level;
+use crate::host::FakeHost;
 use crate::serve::{
-    parse_request_line, refuse, route, BadRequest, Method, Request, Response, MAX_REQUEST_LINE,
+    parse_request_line, refuse, route, route_site, BadRequest, Method, Request, Response, Surface,
+    MAX_REQUEST_LINE,
 };
+use crate::shed::Stage;
+use crate::site::{Availability, SiteRoot};
 
 fn nonce() -> Nonce {
     Nonce::new("r4nd0mBase64urlValue00").expect("a strong enough nonce")
+}
+
+/// The body as text, for the assertions that are about words.
+///
+/// Bodies are bytes now because a site serves images. Everything below is a
+/// text response, and `from_utf8_lossy` keeps the assertion about the sentence
+/// rather than about the encoding.
+fn text(r: &Response) -> String {
+    String::from_utf8_lossy(&r.body).into_owned()
 }
 
 fn get(path: &str) -> Request {
@@ -133,7 +147,7 @@ fn the_root_and_the_panel_path_both_serve_the_panel() {
     for p in ["/", "/panel"] {
         let r = route(&get(p), "BATTERY SAFETY: PROTECTED\n");
         assert_eq!(r.status, 200);
-        assert!(r.body.contains("BATTERY SAFETY"), "{p}");
+        assert!(text(&r).contains("BATTERY SAFETY"), "{p}");
     }
 }
 
@@ -144,15 +158,15 @@ fn the_health_path_does_not_restate_the_devices_condition() {
     // stale — then disagrees with the panel, in the reassuring direction.
     let r = route(&get("/health"), "BATTERY SAFETY: UNSAFE\n");
     assert_eq!(r.status, 200);
-    assert!(!r.body.contains("UNSAFE"), "{}", r.body);
-    assert!(r.body.contains("read /panel"), "{}", r.body);
+    assert!(!text(&r).contains("UNSAFE"), "{}", text(&r));
+    assert!(text(&r).contains("read /panel"), "{}", text(&r));
 }
 
 #[test]
 fn an_unknown_path_is_a_404_and_not_a_redirect_to_the_panel() {
     let r = route(&get("/wp-admin"), "panel");
     assert_eq!(r.status, 404);
-    assert!(!r.body.contains("panel\n"));
+    assert!(!text(&r).contains("panel\n"));
 }
 
 // ── Every response carries the posture ────────────────────────────────────────
@@ -162,7 +176,9 @@ fn even_a_404_carries_the_full_security_posture() {
     // A 404 served without a CSP is still a page a browser will execute script
     // in, and error paths are where headers get dropped because the happy path
     // is the one anybody checks.
-    let out = String::from_utf8(route(&get("/nope"), "p").render(nonce(), Method::Get)).unwrap();
+    let out =
+        String::from_utf8(route(&get("/nope"), "p").render(Surface::Control, nonce(), Method::Get))
+            .unwrap();
     assert!(out.starts_with("HTTP/1.1 404 Not Found"));
     for required in [
         "Content-Security-Policy:",
@@ -180,7 +196,8 @@ fn even_a_404_carries_the_full_security_posture() {
 #[test]
 fn a_refusal_carries_the_posture_too() {
     let bad = parse_request_line("POST / HTTP/1.1").unwrap_err();
-    let out = String::from_utf8(refuse(&bad).render(nonce(), Method::Get)).unwrap();
+    let out =
+        String::from_utf8(refuse(&bad).render(Surface::Control, nonce(), Method::Get)).unwrap();
     assert!(out.starts_with("HTTP/1.1 405"));
     assert!(out.contains("Content-Security-Policy:"));
 }
@@ -189,7 +206,9 @@ fn a_refusal_carries_the_posture_too() {
 fn the_policy_served_permits_no_inline_script() {
     // The whole point of csp.rs reaching a socket. Until now these headers had
     // never been sent to anything.
-    let out = String::from_utf8(route(&get("/"), "panel").render(nonce(), Method::Get)).unwrap();
+    let out =
+        String::from_utf8(route(&get("/"), "panel").render(Surface::Control, nonce(), Method::Get))
+            .unwrap();
     assert!(!out.contains("unsafe-inline"), "{out}");
     assert!(!out.contains("unsafe-eval"), "{out}");
     assert!(out.contains("default-src 'none'"), "{out}");
@@ -199,8 +218,8 @@ fn the_policy_served_permits_no_inline_script() {
 #[test]
 fn a_head_request_omits_the_body_but_still_states_its_length() {
     let r = Response::text("0123456789".to_owned());
-    let head = String::from_utf8(r.render(nonce(), Method::Head)).unwrap();
-    let body = String::from_utf8(r.render(nonce(), Method::Get)).unwrap();
+    let head = String::from_utf8(r.render(Surface::Control, nonce(), Method::Head)).unwrap();
+    let body = String::from_utf8(r.render(Surface::Control, nonce(), Method::Get)).unwrap();
 
     assert!(head.contains("Content-Length: 10"), "{head}");
     assert!(head.ends_with("\r\n\r\n"), "a HEAD carries no body");
@@ -213,10 +232,180 @@ fn the_body_length_is_counted_in_bytes_rather_than_characters() {
     // length and truncate the last bytes on the wire, on exactly the responses
     // that say something about temperature.
     let r = Response::text("45 °C — warm\n".to_owned());
-    let out = String::from_utf8(r.render(nonce(), Method::Get)).unwrap();
+    let out = String::from_utf8(r.render(Surface::Control, nonce(), Method::Get)).unwrap();
     assert!(
         out.contains(&format!("Content-Length: {}", "45 °C — warm\n".len())),
         "{out}"
     );
     assert!(out.contains("Content-Length: 16"), "{out}");
+}
+
+// ── The published site ────────────────────────────────────────────────────────
+
+const SITE: &str = "/srv/site";
+
+fn site_host() -> FakeHost {
+    FakeHost::new()
+        .with_dir(SITE)
+        .with_file(&format!("{SITE}/index.html"), "<h1>hello</h1>")
+        .with_file(&format!("{SITE}/.env"), "TOKEN=shouldnotleak")
+}
+
+fn site_root(host: &FakeHost) -> SiteRoot {
+    SiteRoot::open(host, SITE).expect("the fixture creates it")
+}
+
+/// Reads whatever the fake host holds, as bytes.
+fn reader(host: &FakeHost) -> impl Fn(&str) -> Option<Vec<u8>> + '_ {
+    move |p: &str| crate::host::Host::read(host, p).map(String::into_bytes)
+}
+
+#[test]
+fn a_published_file_is_served_with_its_declared_type() {
+    let host = site_host();
+    let r = route_site(
+        &get("/"),
+        &site_root(&host),
+        &host,
+        Availability::Serving,
+        &reader(&host),
+    );
+    assert_eq!(r.status, 200);
+    assert_eq!(r.content_type, "text/html; charset=utf-8");
+    assert_eq!(text(&r), "<h1>hello</h1>");
+}
+
+#[test]
+fn a_site_response_carries_the_site_policy_and_not_the_panels() {
+    // The two surfaces differ in exactly one directive. If they ever stop
+    // differing, either the panel has been weakened or the operator's own
+    // scripts have stopped running, and both are worth failing a build over.
+    let host = site_host();
+    let r = route_site(
+        &get("/"),
+        &site_root(&host),
+        &host,
+        Availability::Serving,
+        &reader(&host),
+    );
+    let out = String::from_utf8(r.render(Surface::Site, nonce(), Method::Get)).unwrap();
+    assert!(out.contains("script-src 'self'"), "{out}");
+    assert!(
+        !out.contains("nonce-"),
+        "a site does not get the panel's nonce: {out}"
+    );
+    assert!(!out.contains("unsafe-inline"), "{out}");
+    assert!(out.contains("default-src 'none'"), "{out}");
+    assert!(out.contains("frame-ancestors 'none'"), "{out}");
+
+    let panel =
+        String::from_utf8(route(&get("/"), "panel").render(Surface::Control, nonce(), Method::Get))
+            .unwrap();
+    assert!(panel.contains("script-src 'nonce-"), "{panel}");
+    assert!(!panel.contains("script-src 'self'"), "{panel}");
+}
+
+#[test]
+fn a_withheld_site_refuses_before_it_resolves_anything() {
+    // The status must not depend on whether the path exists. A 404 for a missing
+    // file and a 503 for a real one is a directory map, served by a device that
+    // is refusing to serve.
+    let host = site_host();
+    for path in ["/", "/index.html", "/definitely-not-here"] {
+        let r = route_site(
+            &get(path),
+            &site_root(&host),
+            &host,
+            Availability::of(Level::Protect, Stage::Serving),
+            &reader(&host),
+        );
+        assert_eq!(r.status, 503, "{path}");
+        assert!(text(&r).contains("PROTECT"), "{path}: {}", text(&r));
+    }
+}
+
+#[test]
+fn a_site_withheld_by_the_outage_ladder_says_which_rung() {
+    let host = site_host();
+    let r = route_site(
+        &get("/"),
+        &site_root(&host),
+        &host,
+        Availability::of(Level::Normal, Stage::Shed),
+        &reader(&host),
+    );
+    assert_eq!(r.status, 503);
+    assert!(
+        text(&r).contains("stopped non-essential services"),
+        "{}",
+        text(&r)
+    );
+}
+
+#[test]
+fn a_hidden_file_is_never_served_and_its_contents_never_appear() {
+    let host = site_host();
+    let r = route_site(
+        &get("/.env"),
+        &site_root(&host),
+        &host,
+        Availability::Serving,
+        &reader(&host),
+    );
+    assert_eq!(r.status, 404);
+    assert!(!text(&r).contains("shouldnotleak"), "{}", text(&r));
+}
+
+#[test]
+fn a_file_that_resolved_but_cannot_be_read_answers_exactly_like_a_typo() {
+    // This started as a 500, which read as the helpful answer and was a leak: a
+    // stranger could tell "this path exists but I cannot have it" from "this
+    // path does not exist", one probe at a time. The operator gets the reason in
+    // the log on the device they own; the wire gets the same 404 either way.
+    let host = site_host();
+    let unreadable = route_site(
+        &get("/"),
+        &site_root(&host),
+        &host,
+        Availability::Serving,
+        &|_| None,
+    );
+    let missing = route_site(
+        &get("/definitely-not-here"),
+        &site_root(&host),
+        &host,
+        Availability::Serving,
+        &reader(&host),
+    );
+    assert_eq!(unreadable.status, 404);
+    assert_eq!(missing.status, 404);
+    assert_eq!(
+        unreadable.status, missing.status,
+        "the two must be indistinguishable to a stranger"
+    );
+}
+
+#[test]
+fn a_site_serves_bytes_that_are_not_text() {
+    // The reason Response::body is Vec<u8>. A PNG is not valid UTF-8 and a
+    // String body would have made the type system demand that it were.
+    let host = site_host().with_file(&format!("{SITE}/logo.png"), "placeholder");
+    let bytes = vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0xfe];
+    let r = route_site(
+        &get("/logo.png"),
+        &site_root(&host),
+        &host,
+        Availability::Serving,
+        &|_| Some(bytes.clone()),
+    );
+    assert_eq!(r.status, 200);
+    assert_eq!(r.content_type, "image/png");
+    assert_eq!(r.body, bytes);
+
+    let out = r.render(Surface::Site, nonce(), Method::Get);
+    assert!(
+        out.ends_with(&bytes[..]),
+        "the bytes must survive rendering"
+    );
+    assert!(String::from_utf8(out).is_err(), "this response is not text");
 }

@@ -129,6 +129,8 @@ RP=cli/src/report.rs
 DU=core/src/durability.rs
 IN=core/src/ingress.rs
 SV=core/src/serve.rs
+ST=core/src/site.rs
+LI=cli/src/listen.rs
 
 mutate "$T" a_guest_that_cannot_see_the_phone_reports_unverified_rather_than_guessing \
   "a bare VM is promoted to T2 without the shell's assertion" \
@@ -857,7 +859,7 @@ mutate "$SV" only_the_two_read_verbs_are_implemented \
 
 mutate "$SV" even_a_404_carries_the_full_security_posture \
   "error responses are sent without the security posture" \
-  "        for (name, value) in SecurityHeaders::production(control_surface()).render(nonce) {" \
+  "        for (name, value) in SecurityHeaders::production(surface.policy()).render(nonce) {" \
   "        let _ = nonce;
         for (name, value) in Vec::<(&str, String)>::new() {"
 
@@ -879,6 +881,72 @@ mutate "$SV" a_head_request_omits_the_body_but_still_states_its_length \
   "a HEAD response carries a body" \
   "        if method == Method::Get {" \
   "        if true {"
+
+# ── The published site: the first surface here serving strangers ─────────────
+
+mutate "$ST" a_hidden_name_is_refused_as_a_class_rather_than_by_blocklist \
+  "a dotfile is served, so .git and .env leave the building" \
+  "        if segment.starts_with('.') {
+            return Resolved::Refused(Refusal::Hidden(segment.to_owned()));
+        }" \
+  "        if false {
+            return Resolved::Refused(Refusal::Hidden(segment.to_owned()));
+        }"
+
+mutate "$ST" a_path_that_walks_upward_is_refused_by_the_segment_that_does_it \
+  "a path may walk out of the site directory" \
+  "        if segment == \".\" || segment == \"..\" {" \
+  "        if false {"
+
+mutate "$ST" a_directory_with_no_index_does_not_become_a_listing \
+  "a directory with no index resolves to something rather than refusing" \
+  "    if host.exists(&base) {
+        return Resolved::Refused(Refusal::NoIndex(path.to_owned()));
+    }" \
+  "    if false {
+        return Resolved::Refused(Refusal::NoIndex(path.to_owned()));
+    }"
+
+mutate "$ST" the_shed_rung_is_where_a_website_stops \
+  "the outage ladder stops withholding the site" \
+  "                Stage::Shed | Stage::Quiesced | Stage::ShuttingDown => {
+                    Self::Withheld(Withheld::Outage(stage))
+                }" \
+  "                Stage::Shed | Stage::Quiesced | Stage::ShuttingDown => Self::Serving,"
+
+mutate "$ST" protect_and_halt_stop_the_site_whatever_the_outage_ladder_says \
+  "the governor stops outranking the site" \
+  "            Level::Protect | Level::Halt => Self::Withheld(Withheld::Governor(level))," \
+  "            Level::Protect | Level::Halt => Self::Serving,"
+
+mutate "$ST" an_unknown_extension_is_an_octet_stream_rather_than_a_guess \
+  "an unknown extension is guessed as HTML rather than declared unknown" \
+  "        _ => \"application/octet-stream\"," \
+  "        _ => \"text/html; charset=utf-8\","
+
+mutate "$ST" a_directory_is_not_resolved_as_though_it_were_a_page \
+  "existence is used where the question was whether it is a file" \
+  "host.is_file(&base);" \
+  "host.exists(&base);"
+
+mutate "$SV" a_withheld_site_refuses_before_it_resolves_anything \
+  "a withheld site resolves paths anyway, mapping the directory by status code" \
+  "    if !availability.is_serving() {" \
+  "    if false {"
+
+mutate "$SV" a_file_that_resolved_but_cannot_be_read_answers_exactly_like_a_typo \
+  "an unreadable file answers differently from a missing one" \
+  "            None => Response::refused(
+                404,
+                \"Not Found\"," \
+  "            None => Response::refused(
+                500,
+                \"Not Found\","
+
+mutate "$LI" a_symlink_pointing_out_of_the_root_is_refused \
+  "a symbolic link may lead out of the site directory" \
+  "    if !real_file.starts_with(&real_root) {" \
+  "    if false {"
 
 mutate "$B" a_charge_full_near_the_integer_limit_does_not_crash_the_reading \
   "a charge_full near the integer limit overflows the health calculation again" \

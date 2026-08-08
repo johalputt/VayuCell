@@ -25,8 +25,10 @@
 //! authentication — because there is nothing to authorise. A panel is what the
 //! owner of the device can already see by picking it up.
 
-use crate::csp::{control_surface, Nonce};
+use crate::csp::{control_surface, published_site, Nonce, Policy};
 use crate::headers::SecurityHeaders;
+use crate::host::Host;
+use crate::site::{resolve, status_for, Availability, Refusal, Resolved, SiteRoot};
 
 /// What was asked for.
 ///
@@ -141,7 +143,38 @@ fn normalise(path: &str) -> Result<String, BadRequest> {
     Ok(path.to_owned())
 }
 
+/// Which surface a response belongs to, and therefore which policy it carries.
+///
+/// Passed at every call rather than defaulted. Two surfaces exist with two
+/// different policies — see [`crate::csp::published_site`] — and a default would
+/// mean the weaker one could be attached to a control-surface response by
+/// somebody who simply did not think about it. Naming it at the call site makes
+/// "which policy is this carrying" a decision rather than an inheritance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Surface {
+    /// The device's own panel. Script runs only with the per-response nonce.
+    Control,
+    /// A site the operator publishes. Their own script files run; inline does not.
+    Site,
+}
+
+impl Surface {
+    /// The policy this surface serves under.
+    #[must_use]
+    pub fn policy(self) -> Policy {
+        match self {
+            Surface::Control => control_surface(),
+            Surface::Site => published_site(),
+        }
+    }
+}
+
 /// What to send back.
+///
+/// The body is bytes, not text. A site serves images and fonts, and a `String`
+/// body would have made the type system demand that a PNG be valid UTF-8 —
+/// which would have been discovered by whoever first put a photograph on their
+/// site, rather than here.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Response {
     /// The status code.
@@ -151,7 +184,7 @@ pub struct Response {
     /// The content type.
     pub content_type: &'static str,
     /// The body.
-    pub body: String,
+    pub body: Vec<u8>,
 }
 
 impl Response {
@@ -162,6 +195,22 @@ impl Response {
             status: 200,
             reason: "OK",
             content_type: "text/plain; charset=utf-8",
+            body: body.into_bytes(),
+        }
+    }
+
+    /// A 200 carrying bytes of a declared type.
+    ///
+    /// The type is `&'static str` so it can only come from the allowlist in
+    /// [`crate::site::content_type`]. A caller cannot compute one from the
+    /// request, which is how a content type ends up being whatever an uploader
+    /// named their file.
+    #[must_use]
+    pub fn bytes(body: Vec<u8>, content_type: &'static str) -> Self {
+        Self {
+            status: 200,
+            reason: "OK",
+            content_type,
             body,
         }
     }
@@ -173,7 +222,7 @@ impl Response {
             status,
             reason,
             content_type: "text/plain; charset=utf-8",
-            body: format!("{reason}: {why}\n"),
+            body: format!("{reason}: {why}\n").into_bytes(),
         }
     }
 
@@ -184,11 +233,11 @@ impl Response {
     /// carries the full posture including the errors, because a 404 without a
     /// CSP is still a page a browser will execute script in.
     #[must_use]
-    pub fn render(&self, nonce: Nonce, method: Method) -> Vec<u8> {
+    pub fn render(&self, surface: Surface, nonce: Nonce, method: Method) -> Vec<u8> {
         use core::fmt::Write as _;
 
         let mut head = format!("HTTP/1.1 {} {}\r\n", self.status, self.reason);
-        for (name, value) in SecurityHeaders::production(control_surface()).render(nonce) {
+        for (name, value) in SecurityHeaders::production(surface.policy()).render(nonce) {
             // Writing into a String cannot fail, and a response builder is not a
             // place to start propagating an error that cannot happen.
             let _ = write!(head, "{name}: {value}\r\n");
@@ -203,7 +252,7 @@ impl Response {
 
         let mut out = head.into_bytes();
         if method == Method::Get {
-            out.extend_from_slice(self.body.as_bytes());
+            out.extend_from_slice(&self.body);
         }
         out
     }
@@ -224,6 +273,55 @@ pub fn route(request: &Request, panel: &str) -> Response {
             Response::text("this process is answering; read /panel for what it found\n".to_owned())
         }
         _ => Response::refused(404, "Not Found", "no such path on this surface"),
+    }
+}
+
+/// Routes a request against a published site.
+///
+/// Separate from [`route`] rather than a branch inside it, because the two
+/// surfaces answer different questions. The panel answers "what did this device
+/// find"; the site answers "what did the operator publish", and it answers that
+/// only while the governor and the outage ladder both permit it.
+///
+/// `read` is passed in rather than performed here, so the resolution, the
+/// availability check and every refusal are decided before a byte is read and
+/// none of it needs a filesystem to test. It returns `None` for a file that
+/// resolved but could not be read, which is a real case: one deleted between the
+/// existence check and the read, or one whose permissions exclude this process.
+#[must_use]
+pub fn route_site(
+    request: &Request,
+    root: &SiteRoot,
+    host: &dyn Host,
+    availability: Availability,
+    read: &dyn Fn(&str) -> Option<Vec<u8>>,
+) -> Response {
+    // Checked before resolution, not after. A withheld site that still resolved
+    // paths would answer one status for a missing file and another for one that
+    // exists, and the difference between those two answers is a map of the
+    // operator's directory, served while the device is refusing to serve.
+    if !availability.is_serving() {
+        return Response::refused(503, "Service Unavailable", &availability.describe());
+    }
+
+    match resolve(root, host, &request.path) {
+        Resolved::File { path, content_type } => match read(&path) {
+            Some(body) => Response::bytes(body, content_type),
+            // The same 404 a missing path gets, deliberately. It was there when
+            // it resolved and is not now, or this process cannot read it, or the
+            // containment check in the binary refused it — and a status that
+            // varied between those and a typo would tell a stranger which paths
+            // exist. The operator gets the real reason where it belongs, in the
+            // log on the device they own.
+            None => Response::refused(
+                404,
+                "Not Found",
+                &Refusal::NotFound(request.path.clone()).to_string(),
+            ),
+        },
+        Resolved::Refused(why) => {
+            Response::refused(status_for(&why), "Not Found", &why.to_string())
+        }
     }
 }
 

@@ -426,3 +426,53 @@ pub fn control_surface() -> Policy {
         .report_to("/csp-report")
         .expect("a same-origin path is a valid endpoint")
 }
+
+/// The policy for a site the operator publishes from the device.
+///
+/// **This is weaker than [`control_surface`], deliberately, and here is exactly
+/// how much weaker.** `script-src` is `'self'` rather than a nonce, because the
+/// content is somebody's own website and this program does not rewrite their
+/// HTML to inject a nonce into their script tags. Their own `.js` files, served
+/// from their own directory, run. Inline `<script>` and inline `on*=` handlers
+/// still do not, and neither does script from anywhere else.
+///
+/// That is the whole of the difference. Everything else is the locked-down
+/// baseline: no plugins, no framing, no `<base>` rewriting, forms may only post
+/// back to the same origin, and nothing may be loaded from another site.
+///
+/// There is no `report-uri`. The panel has one because the panel has routes;
+/// the site serves files out of a directory and has nowhere to put a collector,
+/// and a policy naming an endpoint that answers 404 is a policy whose reports go
+/// nowhere while looking like they are being collected.
+///
+/// # This is why the site is not on the panel's port
+///
+/// A weaker policy on the same origin as the panel would be a weaker policy *on
+/// the panel*, because same-origin script can read same-origin pages. Keeping
+/// the two surfaces on separate listeners means the operator's site can be
+/// permissive about their own stylesheet without that permission reaching the
+/// screen that reports whether their battery is safe. See
+/// [`crate::site`].
+///
+/// # Panics
+///
+/// Does not panic in practice, for the same reason [`control_surface`] does not:
+/// every source used here is accepted by [`Policy::allow`] and the suite asserts
+/// it. The `expect` calls make a future edit that violates a rule fail loudly at
+/// startup rather than silently shipping a weaker policy.
+#[must_use]
+pub fn published_site() -> Policy {
+    Policy::locked_down()
+        .allow("script-src", &[Source::Own])
+        .expect("self is valid on script-src")
+        .allow("style-src", &[Source::Own])
+        .expect("self is valid on style-src")
+        .allow("img-src", &[Source::Own, Source::Data])
+        .expect("img-src is not executable")
+        .allow("font-src", &[Source::Own])
+        .expect("self is valid on font-src")
+        .allow("connect-src", &[Source::Own])
+        .expect("self is valid on connect-src")
+        .allow("media-src", &[Source::Own])
+        .expect("self is valid on media-src")
+}

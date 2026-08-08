@@ -19,7 +19,11 @@ use std::net::{TcpListener, TcpStream};
 use std::time::Duration;
 
 use vayucell_core::csp::Nonce;
-use vayucell_core::serve::{parse_request_line, refuse, route, Method, MAX_REQUEST_LINE};
+use vayucell_core::host::RealHost;
+use vayucell_core::serve::{
+    parse_request_line, refuse, route, route_site, Method, Response, Surface, MAX_REQUEST_LINE,
+};
+use vayucell_core::site::{Availability, SiteRoot};
 
 /// How long a client may take to send its request line.
 ///
@@ -43,10 +47,84 @@ pub fn serve(addr: &str, panel: &dyn Fn() -> String) -> Result<(), String> {
     // that this is not on the open network needs the real answer.
     println!("vayucell: serving the panel on http://{bound}/ (local only)");
 
+    accept_loop(&listener, Surface::Control, &|r| route(r, &panel()))
+}
+
+/// Serves a directory of files, under the governor.
+///
+/// `availability` is consulted **per request** rather than once at startup. That
+/// costs a handful of small sysfs reads per request, which on a home network is
+/// nothing, and it buys the property the whole project turns on: a site that
+/// stops being served the moment the cell is in trouble, rather than one that
+/// keeps serving because the process started while everything was fine. A cached
+/// verdict is a verdict that goes stale, and the stale direction is always the
+/// reassuring one.
+///
+/// # Errors
+///
+/// Returns the reason the listener could not be established.
+pub fn serve_site(
+    addr: &str,
+    root: &SiteRoot,
+    availability: &dyn Fn() -> Availability,
+) -> Result<(), String> {
+    let listener = TcpListener::bind(addr).map_err(|e| format!("{addr}: {e}"))?;
+    let bound = listener
+        .local_addr()
+        .map_err(|e| format!("the socket would not say what it bound: {e}"))?;
+
+    println!("vayucell: serving {} on http://{bound}/", root.dir());
+
+    accept_loop(&listener, Surface::Site, &|r| {
+        route_site(r, root, &RealHost, availability(), &|path| {
+            read_contained(root.dir(), path)
+        })
+    })
+}
+
+/// Reads a file, having first confirmed against the real filesystem that it is
+/// under the root.
+///
+/// [`vayucell_core::site::resolve`] makes traversal impossible through the
+/// *request*, and says plainly that it cannot see symbolic links, because the
+/// host interface it is written against cannot. This is where that gap is
+/// closed: both paths are canonicalised, which resolves every link, and the file
+/// is read only if the real path is genuinely inside the real root. A link
+/// inside the site directory pointing at `/etc/shadow` resolves to `/etc/shadow`
+/// and is refused here.
+fn read_contained(root: &str, path: &str) -> Option<Vec<u8>> {
+    let real_root = std::fs::canonicalize(root).ok()?;
+    let real_file = std::fs::canonicalize(path).ok()?;
+    if !real_file.starts_with(&real_root) {
+        eprintln!(
+            "vayucell: refusing {} — it resolves to {}, which is outside {}",
+            path,
+            real_file.display(),
+            real_root.display()
+        );
+        return None;
+    }
+    match std::fs::read(&real_file) {
+        Ok(bytes) => Some(bytes),
+        Err(e) => {
+            // The visitor gets the same 404 a typo gets, so the status cannot be
+            // used to map the directory. The operator gets the reason, here, on
+            // the device they own.
+            eprintln!("vayucell: {} resolved but could not be read: {e}", path);
+            None
+        }
+    }
+}
+
+fn accept_loop(
+    listener: &TcpListener,
+    surface: Surface,
+    respond: &dyn Fn(&vayucell_core::serve::Request) -> Response,
+) -> Result<(), String> {
     for stream in listener.incoming() {
         match stream {
             Ok(s) => {
-                if let Err(e) = handle(s, panel) {
+                if let Err(e) = handle(s, surface, respond) {
                     eprintln!("vayucell: {e}");
                 }
             }
@@ -56,7 +134,11 @@ pub fn serve(addr: &str, panel: &dyn Fn() -> String) -> Result<(), String> {
     Ok(())
 }
 
-fn handle(stream: TcpStream, panel: &dyn Fn() -> String) -> Result<(), String> {
+fn handle(
+    stream: TcpStream,
+    surface: Surface,
+    respond: &dyn Fn(&vayucell_core::serve::Request) -> Response,
+) -> Result<(), String> {
     stream
         .set_read_timeout(Some(READ_TIMEOUT))
         .map_err(|e| format!("could not set a read timeout: {e}"))?;
@@ -82,14 +164,14 @@ fn handle(stream: TcpStream, panel: &dyn Fn() -> String) -> Result<(), String> {
         return Ok(());
     } else {
         match parse_request_line(&line) {
-            Ok(r) => (route(&r, &panel()), r.method),
+            Ok(r) => (respond(&r), r.method),
             Err(bad) => (refuse(&bad), Method::Get),
         }
     };
 
     let (body, method) = response;
     let mut out = stream;
-    out.write_all(&body.render(nonce()?, method))
+    out.write_all(&body.render(surface, nonce()?, method))
         .map_err(|e| format!("could not write the response: {e}"))?;
     out.flush().map_err(|e| format!("could not flush: {e}"))
 }
@@ -166,5 +248,142 @@ mod tests {
         assert_eq!(base64url(b"fooba"), "Zm9vYmE");
         assert_eq!(base64url(b"foobar"), "Zm9vYmFy");
         assert_eq!(base64url(&[0xff, 0xef]), "_-8");
+    }
+}
+
+#[cfg(test)]
+mod containment_tests {
+    use super::read_contained;
+    use std::io::Write as _;
+
+    /// A scratch directory, removed when the test ends.
+    struct Scratch(std::path::PathBuf);
+
+    impl Scratch {
+        fn new(name: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!("vayucell-contain-{name}"));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).expect("a scratch directory");
+            Self(dir)
+        }
+        fn path(&self, rel: &str) -> std::path::PathBuf {
+            self.0.join(rel)
+        }
+        fn write(&self, rel: &str, body: &str) -> std::path::PathBuf {
+            let p = self.path(rel);
+            if let Some(parent) = p.parent() {
+                std::fs::create_dir_all(parent).expect("a parent directory");
+            }
+            let mut f = std::fs::File::create(&p).expect("a file");
+            f.write_all(body.as_bytes()).expect("written");
+            p
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn an_ordinary_file_inside_the_root_is_read() {
+        let s = Scratch::new("ordinary");
+        let root = s.path("site");
+        std::fs::create_dir_all(&root).expect("the root");
+        s.write("site/index.html", "<h1>hi</h1>");
+
+        let got = read_contained(
+            root.to_str().expect("utf-8"),
+            s.path("site/index.html").to_str().expect("utf-8"),
+        );
+        assert_eq!(got.as_deref(), Some(&b"<h1>hi</h1>"[..]));
+    }
+
+    #[test]
+    fn a_symlink_pointing_out_of_the_root_is_refused() {
+        // The gap core::site names and says it cannot close, closed here against
+        // the real filesystem. A link is transparent to `exists` and to `read`,
+        // so nothing above this function can see it; canonicalising both paths
+        // resolves it and the comparison catches it.
+        let s = Scratch::new("symlink");
+        let root = s.path("site");
+        std::fs::create_dir_all(&root).expect("the root");
+        let secret = s.write("secret.txt", "PRIVATE");
+
+        let link = root.join("leak.txt");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&secret, &link).expect("a symlink");
+        #[cfg(not(unix))]
+        return;
+
+        // The link really does resolve to the secret, so the test is not passing
+        // because the setup silently failed.
+        assert_eq!(
+            std::fs::read_to_string(&link).expect("the link resolves"),
+            "PRIVATE"
+        );
+
+        assert_eq!(
+            read_contained(root.to_str().expect("utf-8"), link.to_str().expect("utf-8")),
+            None,
+            "a link out of the root must not be read"
+        );
+    }
+
+    #[test]
+    fn a_symlink_staying_inside_the_root_is_still_read() {
+        // Refusing every link would break an ordinary arrangement — a shared
+        // asset directory linked into two places — so the check is about where
+        // the link lands, not about whether one exists.
+        let s = Scratch::new("inside");
+        let root = s.path("site");
+        std::fs::create_dir_all(root.join("assets")).expect("the root");
+        let real = s.write("site/assets/style.css", "body{}");
+
+        let link = root.join("style.css");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&real, &link).expect("a symlink");
+        #[cfg(not(unix))]
+        return;
+
+        assert_eq!(
+            read_contained(root.to_str().expect("utf-8"), link.to_str().expect("utf-8")).as_deref(),
+            Some(&b"body{}"[..])
+        );
+    }
+
+    #[test]
+    fn a_path_that_does_not_exist_is_none_rather_than_a_panic() {
+        let s = Scratch::new("missing");
+        let root = s.path("site");
+        std::fs::create_dir_all(&root).expect("the root");
+        assert_eq!(
+            read_contained(
+                root.to_str().expect("utf-8"),
+                s.path("site/nope").to_str().expect("utf-8")
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn a_sibling_directory_with_the_roots_name_as_a_prefix_is_not_inside_it() {
+        // The bug a naive string comparison has: "/srv/site-backup" starts with
+        // "/srv/site". Path::starts_with compares components rather than bytes,
+        // and this is the test that says so out loud.
+        let s = Scratch::new("prefix");
+        let root = s.path("site");
+        std::fs::create_dir_all(&root).expect("the root");
+        let neighbour = s.write("site-backup/secrets.txt", "PRIVATE");
+
+        assert_eq!(
+            read_contained(
+                root.to_str().expect("utf-8"),
+                neighbour.to_str().expect("utf-8")
+            ),
+            None,
+            "a sibling sharing a name prefix is not inside the root"
+        );
     }
 }

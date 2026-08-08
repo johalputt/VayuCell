@@ -13,6 +13,61 @@ traffic before it.
 
 ## [Unreleased]
 
+### Added
+
+- **A published website** (ADR-0008). `vayucell site --dir <DIR>` serves a
+  directory of files to the operator's own network — the first surface in this
+  project that exists for somebody other than the device's owner.
+
+  What makes it not simply a file server is that **the governor is consulted on
+  every request**, not cached at startup. `PROTECT` and `HALT` withhold the site;
+  so does the outage ladder from `Stage::Shed` down, whose obligation is
+  literally "stopped non-essential services". `DERATED` keeps serving, and that
+  is a decision rather than an oversight: deration answers heat, a static file
+  read is not producing the heat, and shedding a negligible load to fix a thermal
+  problem is theatre that costs the operator their site. A cell that cannot be
+  read yields `PROTECT` — absence is never protection.
+
+  Traversal is impossible by construction rather than by checking: `resolve`
+  splits the path into segments, refuses every segment that is not a plain name,
+  and joins the survivors, so no accepted sequence can leave the root. It is a
+  second and independent check on top of the request parser, because a defence
+  that relies on a caller's discipline is a convention. Hidden names are refused
+  as a class, so the `.git` and `.env` beside somebody's site never leave the
+  building. No directory listing is ever generated.
+
+  **Every refusal is the same 404.** Hidden name, traversal, missing file,
+  directory without an index, unreadable file, escaping symlink — one answer, so
+  the difference between them cannot be used to map the directory one probe at a
+  time. The operator gets the real reason in the log on the device they own.
+
+  `--dir` has no default, because a `site` that published whatever folder the
+  operator was standing in is the worst thing the command could do. `--bind`
+  still defaults to loopback (ADR-0003 §3).
+- **A second CSP profile**, `csp::published_site`. The site and the panel are
+  separate origins on separate ports, so the operator's own stylesheet and their
+  own script files can run without that permission reaching the screen that
+  reports whether their battery is safe. The whole of the difference is
+  `script-src 'self'` instead of a per-response nonce; inline script is still
+  refused on both. `serve::Surface` is passed at every render rather than
+  defaulted, so which policy a response carries is a decision at the call site.
+- `Host::is_file`, and `FakeHost::with_dir` beside it — see below for why.
+
+### Fixed
+
+- **A directory resolved as though it were a page.** `resolve` asked
+  `Host::exists`, which cannot tell a folder from a file, so `/blog` resolved to
+  the *directory* and the read failed — a server error for a page that was there
+  the whole time. Every unit test passed, because the fake host had no
+  directories: every path in it was a file, so the case did not exist in the test
+  world. `Host` now has `is_file`, `FakeHost` has `with_dir`, and the regression
+  is pinned. Found by running the thing, not by reading it.
+- **An unreadable file answered differently from a missing one.** A 500 against a
+  404 is more accurate and is also a directory listing delivered one status code
+  at a time: a stranger could tell "this exists and I cannot have it" from "this
+  does not exist". Both are now 404 on the wire, with the reason logged where the
+  operator — and only the operator — can read it.
+
 ## [0.0.3] — 2026-08-08
 
 ### Fixed

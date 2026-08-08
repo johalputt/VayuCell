@@ -29,9 +29,9 @@
   <a href="LICENSE-CHARTER"><img alt="Charter: CC0-1.0" src="https://img.shields.io/badge/charter-CC0--1.0-lightgrey.svg"></a>
   <a href="core/src/lib.rs"><img alt="unsafe: forbidden" src="https://img.shields.io/badge/unsafe-forbidden-success.svg"></a>
   <a href="deny.toml"><img alt="runtime deps: zero" src="https://img.shields.io/badge/runtime%20deps-zero-success.svg"></a>
-  <a href="docs/CI.md"><img alt="coverage: 80.83%" src="https://img.shields.io/badge/coverage-80.83%25-success"></a>
+  <a href="docs/CI.md"><img alt="coverage: 80.47%" src="https://img.shields.io/badge/coverage-80.47%25-success"></a>
   <a href="GOVERNANCE-CONSTITUTION.md"><img alt="constitution: 110 rules" src="https://img.shields.io/badge/constitution-110%20rules-blueviolet"></a>
-  <a href="scripts/mutation-gate.sh"><img alt="mutations killed: 111/111" src="https://img.shields.io/badge/mutations%20killed-111%2F111-success"></a>
+  <a href="scripts/mutation-gate.sh"><img alt="mutations killed: 121/121" src="https://img.shields.io/badge/mutations%20killed-121%2F121-success"></a>
   <a href="scripts/gate-selftest.sh"><img alt="gates self-tested: 57 plants caught" src="https://img.shields.io/badge/gates%20self--tested-57%20plants%20caught-success"></a>
   <a href="CHARTER.md"><img alt="hardware tested: none yet" src="https://img.shields.io/badge/hardware%20tested-none%20yet-inactive"></a>
 </p>
@@ -91,9 +91,9 @@ and no amount of green rows replaces it.
 
 | | |
 | --- | --- |
-| Written | The capability registry, tier detection, the CSP and response security headers, **the battery safety governor** — state machine, verification loop, thresholds, recovery — the sysfs layer it drives, the sampling cadence, the mains-loss shed ladder, and **the safety panel**, where a row that could not be checked is not allowed to read as one that was |
-| Not written | The fleet view, the hardware database itself, the Android shell, **the fleet, and every ingress mode except local-only — an onion and a relay are described and governed in code, but neither is implemented** |
-| Checked | 234 unit tests and 20 doctests, 80.83% line coverage against an 80% floor, **111 mutations each re-broken and each required to turn its named test red**, and **57 violations planted in a scratch repository that the gates must catch citing the right rule**. None of that is evidence about hardware; all of it is evidence about the code |
+| Written | The capability registry, tier detection, the CSP and response security headers, **the battery safety governor** — state machine, verification loop, thresholds, recovery — the sysfs layer it drives, the sampling cadence, the mains-loss shed ladder, **the safety panel**, where a row that could not be checked is not allowed to read as one that was, and **a published website**: a directory served to your own network, refused the moment the governor says the cell is in trouble |
+| Not written | The fleet view, the hardware database itself, the Android shell, **file storage — the site serves files and accepts none** — and **every ingress mode except local-only: an onion and a relay are described and governed in code, but neither is implemented, so nothing here is reachable from outside your own network** |
+| Checked | 234 unit tests and 22 doctests, 80.47% line coverage against an 80% floor, **121 mutations each re-broken and each required to turn its named test red**, and **57 violations planted in a scratch repository that the gates must catch citing the right rule**. None of that is evidence about hardware; all of it is evidence about the code |
 | Unblocked | [Charter III.1](CHARTER.md) forbids anything serving traffic before the governor. The governor is now **written** — the ordering constraint is met in code, and the gate fails the build if it is ever removed. It is not met on hardware, and nothing serves traffic yet regardless |
 | Never tested on hardware | Everything. Every device-facing behaviour is exercised through a fake host describing handsets nobody here is holding |
 
@@ -352,6 +352,32 @@ cargo run -p vayucell -- status      # read the device once, print the panel
 cargo run -p vayucell -- help        # every flag, and what each exit code means
 ```
 
+### Hosting a website from it
+
+```bash
+vayucell site --dir ~/mysite --bind 0.0.0.0:8080
+```
+
+That is the whole of it. A directory of files, served to your own network.
+
+What makes it different from any other file server is the part you cannot turn
+off: **the governor is consulted on every single request.** If the cell gets hot
+or the phone drops to `PROTECT`, the site stops answering and says why. If mains
+is lost and the shed ladder reaches the rung whose obligation is "stopped
+non-essential services", the site is one of them.
+
+It also refuses, by construction rather than by checklist: any path with `..` in
+it, any name beginning with a dot — so the `.git` and `.env` sitting beside your
+site never leave the building — any symlink resolving outside the directory, and
+any directory without an `index.html`, because a generated listing publishes
+everything you happened to leave in a folder. Every one of those refusals is the
+same 404, so the difference between them cannot be used to map your directory;
+the real reason goes to your log. See
+[ADR-0008](docs/adr/ADR-0008-publishing-a-site.md).
+
+`--dir` has no default. A `site` command that published whatever folder you were
+standing in is the worst thing it could do.
+
 `status` exits **0** only when every row was checked and held, **1** when
 something could not be checked, and **2** when something was checked and does
 not hold — the verdict in the one form a monitor can read without parsing prose.
@@ -423,9 +449,9 @@ scripts/release-gate.sh        # the version says the same thing everywhere
 cargo test --workspace
 ```
 
-A full run exercises **234 unit tests and 20 doctests** (2 ignored — the two
-snapshot regenerators), kills **111 mutations**, catches **57 planted violations**,
-and measures **80.83% line coverage** against a floor of 80. That is a suite that
+A full run exercises **234 unit tests and 22 doctests** (2 ignored — the two
+snapshot regenerators), kills **121 mutations**, catches **57 planted violations**,
+and measures **80.47% line coverage** against a floor of 80. That is a suite that
 has been shown to fail when the code is wrong — the mutation gate is the proof,
 and it asserts its own match count so a mutation that failed to apply cannot be
 scored as one the code survived. **What none of it establishes, and none of it
@@ -642,16 +668,17 @@ and has no other symptom.
 | --- | --- |
 | **Charter** | A serving capability registered while the governor is gone. `Capability::verify` demoted to an `Option`, so a control with no read-back would compile. A generic success variant that would absorb "not checked". `Absent` and `Unverified` collapsing into one answer. A tier detector that defaults to T0. Telemetry, a treasury, a kill switch, a remote wipe, a dependency on a host this project runs. A `[dependencies]` section with anything in it. An edit to Article III or V whose SHA-256 no longer matches `.charter-digests` |
 | **Gate self-test** | A gate that has only ever been observed passing. **Fifty-seven violations** planted in a scratch copy — the governor deleted, `verify` made optional, telemetry added, a third-party dependency added to the CLI crate, a bot-authored commit, a workflow tag that resolves to nothing — each of which the matching gate must catch **citing the right rule**. A plant that changed nothing is scored `STALE`, not `caught`: the sandbox is fingerprinted before and after |
-| **Mutation** | **One hundred and eleven** safety and honesty guards, each re-broken in turn, each required to turn its named test red. A green suite proves the code passes its tests; this proves the tests would notice if the code were wrong. Every mutation asserts its own match count, because one that failed to apply would otherwise be reported as one the code survived |
+| **Mutation** | **One hundred and twenty-one** safety and honesty guards, each re-broken in turn, each required to turn its named test red. A green suite proves the code passes its tests; this proves the tests would notice if the code were wrong. Every mutation asserts its own match count, because one that failed to apply would otherwise be reported as one the code survived |
 | **Doctests** | A `compile_fail` proof that stopped being collected. The count is asserted **exactly, in both directions** — too few means a proof moved onto a private item, where rustdoc runs zero tests and still prints `ok`; too many means somebody added a proof without raising the number |
 | **Rust** | Unformatted code, a `clippy::pedantic` warning at `-D warnings` over all targets, a failed build or test, a broken intra-doc link, and the removal of *either* `#![forbid(unsafe_code)]` or `unsafe_code = "deny"` — either alone can be dropped in a diff that looks unrelated |
-| **Coverage** | Production line coverage below **80%** (measured: 80.83%), with test files excluded so the figure is not inflated by the coverage of the tests themselves. A missing coverage tool is a failure, never a pass |
+| **Coverage** | Production line coverage below **80%** (measured: 80.47%), with test files excluded so the figure is not inflated by the coverage of the tests themselves. A missing coverage tool is a failure, never a pass |
 | **Constitution** | A `[CI]` rule claiming enforcement while naming no enforcer, or naming a file that has been deleted. It explicitly does *not* claim the cited file enforces the sentence attached to it, and prints that limitation on every run |
 | **Docs** | A required document missing **or emptied**, an ADR whose title names a different number than its filename, a gap in the decision log, an ADR nothing links to, a dead relative link anywhere in the repository, **or a constitution whose own totals disagree with the rules in it** |
 | **Hardware** | A device profile that fails [`hardware/schema.json`](hardware/schema.json), a verified charge ceiling with no sysfs node named, `available: false` beside a named mechanism, or a storage block with the durability class omitted rather than chosen |
 | **Attribution** | An assistant name in any tracked file, a "generated by" line, an assistant co-author trailer, or a commit authored by a bot or `noreply` address — over the full history, because a shallow clone would pass by checking nothing |
 | **Release** | A `.release-version` that is missing, malformed or carries a trailing newline; a crate version that disagrees with it; a changelog with no section for the release; a tag that already exists |
 | **Actions** | A `ci.yml` job that is not in the required-checks list, so it can fail while CI reports green. A workflow reference that is **not pinned to a full commit SHA**, or one naming a commit that cannot be fetched, **or a `pip install` without `--require-hashes`** — pinning the actions and then installing an unpinned package inside one closes the front door and leaves the side door open. A tag is whatever its owner repoints it at tomorrow, and repointing produces no diff here. Also an extraction pattern that has gone stale and found nothing. Without network it prints `UNVERIFIED`; CI requires the network so the authoritative run cannot skip it |
+| **Site** | A path that leaves the site directory, a hidden name being served, a directory becoming a generated listing, a symbolic link resolving outside the root, a refusal whose status differs from the others, or the governor ceasing to outrank a visitor's request. Ten of the mutations above re-break exactly these |
 | **Shell** | A `shellcheck` finding in any script, a script that is not executable, or one with no `bash` shebang. The gates decide whether a release ships, so a quoting bug in one is a correctness bug in the release process |
 | **Install** | An installer that stops naming the battery risk **before it writes anything**, drops the physical-inspection instruction, acquires root, or has a failure path that says what broke without saying what to do about it. It also installs from a clean `HOME` and runs the result, twice — `install.sh` is the only file here that executes on a stranger's device, and the only one the test suite cannot reach. What it cannot check is Termux itself, and it prints that rather than implying otherwise |
 | **Targets** | The core failing to type-check for 64- and 32-bit Android, mainline ARM, or an ordinary Linux laptop — five targets, `fail-fast: false`, so one broken target does not hide the other four |
@@ -763,6 +790,7 @@ for.
 | [`ADR-0005`](docs/adr/ADR-0005-implementation-language.md) | Implementation language: Rust for the core, Kotlin for the shell |
 | [`ADR-0006`](docs/adr/ADR-0006-content-security-policy.md) | Content Security Policy: the browser as the last enforcement point |
 | [`ADR-0007`](docs/adr/ADR-0007-the-safety-panel.md) | The safety panel: what a person is allowed to be told |
+| [`ADR-0008`](docs/adr/ADR-0008-publishing-a-site.md) | Publishing a site: serving strangers from a governed phone |
 | [`docs/INSTALL.md`](docs/INSTALL.md) | Putting it on a phone, written for somebody who has never opened a terminal |
 | [`docs/CI.md`](docs/CI.md) | Every gate, and every parameter it checks with |
 | [`docs/BRAND.md`](docs/BRAND.md) | The mark: how it is constructed, and the rules for using it |

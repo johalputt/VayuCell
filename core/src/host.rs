@@ -12,7 +12,7 @@
 //! [`FakeHost`] is a map, and is what the tier tests use to describe a handset
 //! nobody in this room is holding.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 /// Read-only access to the machine a probe is running on.
@@ -27,6 +27,19 @@ pub trait Host {
 
     /// Whether a path exists.
     fn exists(&self, path: &str) -> bool;
+
+    /// Whether a path is a regular file rather than a directory.
+    ///
+    /// Added because [`exists`](Host::exists) answers a question that was not
+    /// the one being asked. A site serving `/blog` needs to know whether `blog`
+    /// is a page or a folder, and existence cannot tell it apart — the first
+    /// version tried, resolved a directory as a file, and answered 500 for a
+    /// page that was there all along.
+    ///
+    /// It still cannot see through a symbolic link to whether the target is
+    /// inside anything in particular. That is not this trait's job and
+    /// [`crate::site`] says so.
+    fn is_file(&self, path: &str) -> bool;
 
     /// Effective user id of this process.
     fn euid(&self) -> u32;
@@ -67,6 +80,10 @@ impl Host for RealHost {
 
     fn exists(&self, path: &str) -> bool {
         Path::new(path).exists()
+    }
+
+    fn is_file(&self, path: &str) -> bool {
+        Path::new(path).is_file()
     }
 
     fn euid(&self) -> u32 {
@@ -147,6 +164,7 @@ impl Writer for RealHost {
 #[derive(Debug, Default, Clone)]
 pub struct FakeHost {
     files: BTreeMap<String, String>,
+    dirs: BTreeSet<String>,
     env: BTreeMap<String, String>,
     euid: u32,
     read_only: BTreeMap<String, String>,
@@ -159,6 +177,7 @@ impl FakeHost {
     pub fn new() -> Self {
         Self {
             files: BTreeMap::new(),
+            dirs: BTreeSet::new(),
             env: BTreeMap::new(),
             euid: 1000,
             read_only: BTreeMap::new(),
@@ -170,6 +189,17 @@ impl FakeHost {
     #[must_use]
     pub fn with_file(mut self, path: &str, contents: &str) -> Self {
         self.files.insert(path.to_owned(), contents.to_owned());
+        self
+    }
+
+    /// Adds a directory: something that exists and is not a file.
+    ///
+    /// Separate from [`with_file`](FakeHost::with_file) because the difference
+    /// is exactly what [`Host::is_file`] exists to report, and a fake where
+    /// every path is a file cannot exercise the case that broke.
+    #[must_use]
+    pub fn with_dir(mut self, path: &str) -> Self {
+        self.dirs.insert(path.to_owned());
         self
     }
 
@@ -265,6 +295,14 @@ impl Host for FakeHost {
     }
 
     fn exists(&self, path: &str) -> bool {
+        self.files.contains_key(path)
+            || self.dirs.contains(path)
+            || self.files.contains_key(&format!("\0unreadable\0{path}"))
+    }
+
+    fn is_file(&self, path: &str) -> bool {
+        // An unreadable path is still a file: it exists, it is not a directory,
+        // and reporting it as absent is the collapse this whole project refuses.
         self.files.contains_key(path) || self.files.contains_key(&format!("\0unreadable\0{path}"))
     }
 

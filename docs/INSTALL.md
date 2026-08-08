@@ -11,14 +11,16 @@ something you do not have, that is a defect in this page — please
 An old phone on your Wi-Fi, running a program that watches its battery and
 shows you a page describing exactly what it has and has not verified.
 
-**What it does not do yet, stated plainly:** it does not host a website, and it
-does not store your files. Those are the point of the project and they are not
-written. What exists today is the safety layer everything else has to sit on —
-the part that decides whether it is reasonable to leave this phone plugged in
-and warm in the first place. Building that first was deliberate, and the
-[charter](../CHARTER.md) forbids the other order.
+It can also **host a website** — a folder of files, served to your own network,
+which stops being served the moment the phone says its battery is in trouble.
+See [Step 7](#step-7--host-a-website-optional).
 
-If you want a file store or a website **today**, this is not that yet.
+**What it does not do yet, stated plainly:** it does not store your files, and
+nothing it serves is reachable from outside your own network. There is no
+sync, no upload, no sharing a link with somebody in another building. Those are
+the point of the project and they are not written.
+
+If you want a file store **today**, this is not that yet.
 
 ---
 
@@ -201,6 +203,56 @@ termux-wake-lock
 
 ---
 
+## Step 7 — Host a website (optional)
+
+Put your files in a folder — `index.html` and whatever it needs — and:
+
+```bash
+vayucell site --dir ~/mysite --bind 0.0.0.0:8080
+```
+
+Open `http://<phone-ip>:8080` from any device on your Wi-Fi. If you do not have
+a site yet, three lines is a site:
+
+```bash
+mkdir -p ~/mysite
+echo '<h1>Served from a phone in a drawer</h1>' > ~/mysite/index.html
+vayucell site --dir ~/mysite --bind 0.0.0.0:8080
+```
+
+### What it will not do, on purpose
+
+| It refuses | Why |
+| --- | --- |
+| Any file or folder whose name starts with a dot | This is how a `.git` or a `.env` full of passwords leaves a building. Refused as a class, not by a list of the ones somebody thought of |
+| A folder with no `index.html` | It will not generate a listing. A listing publishes everything you happened to leave in that folder |
+| A shortcut pointing outside your site folder | Checked against the real filesystem, not against the address that was typed |
+| Anything with `..` in the address | Refused, not "cleaned up and served anyway" |
+| Publishing to the internet | It binds your own network only. Nothing forwards a port and nothing registers a name |
+
+Every one of those answers the same `404`, deliberately: if a refused file
+answered differently from a missing one, somebody could work out what you have
+by trying addresses. The real reason is printed in Termux, where only you see it.
+
+### The part no other file server does
+
+**The battery governor is asked on every single request.** If the phone gets hot
+and drops to `PROTECT`, your site stops answering and tells visitors that the
+device is protecting its battery. If the power goes out and the phone works down
+its shutdown ladder, your site is one of the first things it stops.
+
+That is not a fault, and it is not something to work around. A phone that keeps
+serving a webpage while its cell is in trouble is the exact failure this whole
+project exists to prevent.
+
+### Keep the panel too
+
+Run `vayucell-start` in a second Termux session (swipe from the left edge → **New
+session**). The panel and the site are separate ports on purpose, so a page on
+your site can never read the screen that reports whether your battery is safe.
+
+---
+
 ## When something goes wrong
 
 | What you see | What it means | What to do |
@@ -212,6 +264,9 @@ termux-wake-lock
 | `vayucell: command not found` | PATH not picked up yet | Close Termux fully and reopen, or run `~/.vayucell/bin/vayucell status` |
 | The page will not open from my laptop | Different networks | Both devices must be on the same Wi-Fi. Guest networks usually block this |
 | Status says `UNSAFE` | Almost certainly correct | Read Step 3 — it is a true statement about your phone, not a fault |
+| My site says `Service Unavailable` | The governor withheld it | Read the message — it says whether the cell is hot or the phone is on battery. This is the software working |
+| `site needs --dir` | No folder given | There is no default on purpose, so it cannot publish whatever folder you were in. Pass `--dir ~/mysite` |
+| My site shows `404` for a page that exists | A dot-name, a folder with no `index.html`, or a shortcut leading outside | Termux prints the real reason under the command |
 
 Running the installer again is always safe. It will not duplicate anything.
 
@@ -223,7 +278,8 @@ Running the installer again is always safe. It will not duplicate anything.
 rm -rf ~/.vayucell
 ```
 
-That is everything. VayuCell writes nothing outside that folder, installs no
+That is everything. Your site folder is yours and is not touched by this —
+VayuCell only ever reads it. VayuCell writes nothing outside that folder, installs no
 system service, and leaves no account anywhere. If you also want Termux gone,
 uninstall it like any app.
 

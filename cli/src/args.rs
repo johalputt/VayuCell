@@ -25,6 +25,8 @@ pub enum Command {
     },
     /// Serve the panel on the local network.
     Serve,
+    /// Serve a directory of files as a website.
+    Site,
     /// Print usage.
     Help,
     /// Print the version.
@@ -45,6 +47,8 @@ pub struct Args {
     pub assume_outage: Option<Duration>,
     /// What address `serve` binds.
     pub bind: String,
+    /// The directory `site` publishes. `None` means none was given.
+    pub site_dir: Option<String>,
 }
 
 /// Why an invocation was refused.
@@ -83,6 +87,8 @@ COMMANDS:
                         with a code that reflects it
     run                 Run the supervisor loop until the governor halts
     serve               Serve the safety panel over HTTP, local only
+    site                Serve a directory of files as a website, under the
+                        governor: it stops serving when the cell is in trouble
     help                Print this
     version             Print the version
 
@@ -93,9 +99,14 @@ OPTIONS:
     --ticks <N>         Stop `run` after N passes instead of running on
     --assume-outage <S> Treat mains as lost this many seconds ago, so the shed
                         ladder can be exercised without unplugging anything
-    --bind <ADDR>       Address for `serve` [default: 127.0.0.1:8080]. The
-                        default is loopback: reaching the rest of your network
-                        is something you type, not something you get
+    --bind <ADDR>       Address for `serve` and `site` [default:
+                        127.0.0.1:8080]. The default is loopback: reaching the
+                        rest of your network is something you type, not
+                        something you get
+    --dir <DIR>         The directory `site` publishes. Required by `site`.
+                        Hidden names are never served, no directory listing is
+                        ever generated, and a symbolic link pointing outside
+                        this directory is refused
 
 EXIT CODES:
     0   the panel reads PROTECTED — every row was checked and held
@@ -122,6 +133,7 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
     let mut ticks: Option<u32> = None;
     let mut assume_outage: Option<Duration> = None;
     let mut bind = DEFAULT_BIND.to_owned();
+    let mut site_dir: Option<String> = None;
 
     let mut i = 0;
     while i < argv.len() {
@@ -130,6 +142,7 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
             "status" => set_command(&mut command, Command::Status, arg)?,
             "run" => set_command(&mut command, Command::Run { ticks: None }, arg)?,
             "serve" => set_command(&mut command, Command::Serve, arg)?,
+            "site" => set_command(&mut command, Command::Site, arg)?,
             "help" | "--help" | "-h" => set_command(&mut command, Command::Help, arg)?,
             "version" | "--version" | "-V" => set_command(&mut command, Command::Version, arg)?,
             "--supply-dir" => {
@@ -137,6 +150,9 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
             }
             "--bind" => {
                 bind = value_after(argv, &mut i, "--bind")?;
+            }
+            "--dir" => {
+                site_dir = Some(value_after(argv, &mut i, "--dir")?);
             }
             "--ceiling" => {
                 let raw = value_after(argv, &mut i, "--ceiling")?;
@@ -185,12 +201,24 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
         other => other,
     };
 
+    // Refused here rather than defaulted to the working directory. A `site`
+    // with no --dir that quietly published whatever folder the operator happened
+    // to be standing in is the single worst thing this command could do.
+    if command == Command::Site && site_dir.is_none() {
+        return Err(ArgError(
+            "site needs --dir <DIR>, the folder to publish; there is no default, \
+             because a default would publish whatever directory you were standing in"
+                .to_owned(),
+        ));
+    }
+
     Ok(Args {
         command,
         supply_dir,
         ceiling,
         assume_outage,
         bind,
+        site_dir,
     })
 }
 
@@ -238,6 +266,7 @@ mod tests {
                 ceiling: DEFAULT_CEILING,
                 assume_outage: None,
                 bind: super::DEFAULT_BIND.to_owned(),
+                site_dir: None,
             }
         );
         assert_eq!(DEFAULT_CEILING, 60, "ADR-0002's recommended long-term hold");
@@ -349,5 +378,47 @@ mod tests {
         // Charter Article IV reaches the one screen somebody sees before they
         // decide to trust this with a device.
         assert!(super::USAGE.contains("never been run against a phone"));
+    }
+
+    #[test]
+    fn site_without_a_directory_is_refused_rather_than_defaulted() {
+        // The worst thing this command could do is publish whatever folder the
+        // operator happened to be standing in, so there is no default and the
+        // refusal says why.
+        let e = parse(&argv(&["site"])).expect_err("site needs --dir");
+        assert!(e.0.contains("--dir"), "{}", e.0);
+        assert!(e.0.contains("standing in"), "{}", e.0);
+    }
+
+    #[test]
+    fn site_takes_a_directory_and_the_shared_bind_flag() {
+        let a = parse(&argv(&[
+            "site",
+            "--dir",
+            "/srv/www",
+            "--bind",
+            "0.0.0.0:8080",
+        ]))
+        .expect("site parses");
+        assert_eq!(a.command, Command::Site);
+        assert_eq!(a.site_dir.as_deref(), Some("/srv/www"));
+        assert_eq!(a.bind, "0.0.0.0:8080");
+    }
+
+    #[test]
+    fn site_still_binds_loopback_unless_told_otherwise() {
+        // ADR-0003 §3. Reaching the rest of the network is something the
+        // operator types; a website command is exactly where a helpful default
+        // of 0.0.0.0 would feel natural and would be making their disclosure
+        // decision for them.
+        let a = parse(&argv(&["site", "--dir", "/srv/www"])).expect("site parses");
+        assert_eq!(a.bind, super::DEFAULT_BIND);
+        assert!(a.bind.starts_with("127.0.0.1"));
+    }
+
+    #[test]
+    fn dir_without_a_value_is_refused() {
+        let e = parse(&argv(&["site", "--dir"])).expect_err("--dir needs a value");
+        assert!(e.0.contains("--dir"), "{}", e.0);
     }
 }

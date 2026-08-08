@@ -28,6 +28,7 @@ pub mod runtime;
 pub mod sampler;
 pub mod serve;
 pub mod shed;
+pub mod site;
 pub mod sysfs;
 pub mod tier;
 
@@ -53,6 +54,8 @@ mod sampler_test;
 mod serve_test;
 #[cfg(test)]
 mod shed_test;
+#[cfg(test)]
+mod site_test;
 #[cfg(test)]
 mod sysfs_test;
 #[cfg(test)]

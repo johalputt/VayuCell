@@ -24,6 +24,8 @@ mod listen;
 mod report;
 
 use std::process::ExitCode;
+use std::sync::{Mutex, PoisonError};
+use std::time::Instant;
 
 use args::{Args, Command};
 use report::EXIT_USAGE;
@@ -33,8 +35,9 @@ use vayucell_core::governor::{Governor, Level, Thresholds};
 use vayucell_core::host::RealHost;
 use vayucell_core::runtime::{Clock, Power, RealClock, Supervisor};
 use vayucell_core::sampler::Sampler;
-use vayucell_core::shed::{Shed, ShedPlan};
-use vayucell_core::sysfs::{detect_mechanism, Kind, SysfsCeiling};
+use vayucell_core::shed::{Charge, Shed, ShedPlan, Stage};
+use vayucell_core::site::{Availability, SiteRoot};
+use vayucell_core::sysfs::{detect_mechanism, read_battery, Kind, SysfsCeiling};
 
 fn main() -> ExitCode {
     let argv: Vec<String> = std::env::args().skip(1).collect();
@@ -58,6 +61,7 @@ fn main() -> ExitCode {
         }
         Command::Status => status(&parsed),
         Command::Serve => serve(&parsed),
+        Command::Site => site(&parsed),
         Command::Run { ticks } => run(&parsed, ticks),
     };
 
@@ -86,6 +90,93 @@ fn serve(a: &Args) -> i32 {
     // process lives, which is the failure the whole project is built against.
     let panel = move || report::assemble(&RealHost, &dir, ceiling, Level::Normal).render();
     match listen::serve(&a.bind, &panel) {
+        Ok(()) => 0,
+        Err(e) => {
+            eprintln!("vayucell: {e}");
+            report::EXIT_UNSAFE
+        }
+    }
+}
+
+/// Publishes a directory, with the governor consulted on every request.
+///
+/// The battery is read per request rather than once at startup. That is the
+/// whole difference between a site that stops when the cell is in trouble and
+/// one that keeps serving because the process happened to start while everything
+/// was fine.
+fn site(a: &Args) -> i32 {
+    let host = RealHost;
+    let Some(dir) = a.site_dir.as_deref() else {
+        // args::parse refuses this, so reaching here means the two disagree.
+        eprintln!("vayucell: site needs --dir <DIR>");
+        return report::EXIT_USAGE;
+    };
+
+    let root = match SiteRoot::open(&host, dir) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("vayucell: {e}");
+            return report::EXIT_USAGE;
+        }
+    };
+
+    if !root.has_index(&host) {
+        // Not a failure. A site whose top level is only subdirectories is a real
+        // arrangement, and the operator should hear this from the program rather
+        // than from whoever visits and gets a 404.
+        eprintln!(
+            "vayucell: there is no {} in {}, so / will not serve anything",
+            vayucell_core::site::INDEX,
+            root.dir()
+        );
+    }
+
+    let supply = a.supply_dir.clone();
+    let outage = a.assume_outage;
+    // The real ladder, not a recomputation from the clock. It latches: once a
+    // rung is entered it is never walked back up on its own, which is the
+    // property that makes shedding mean something. A pure function of elapsed
+    // time would quietly un-shed the moment the arithmetic said so.
+    let ladder = Mutex::new(Shed::new(ShedPlan::recommended()));
+    let started = Instant::now();
+
+    let availability = move || {
+        // A fresh governor per request, observing a fresh reading. It carries no
+        // history, so it cannot latch — right here and wrong for `run`: this
+        // decides whether to answer one request from what the cell says now,
+        // while `run` owns the escalation that has to survive a cool reading.
+        let (level, charge) = match read_battery(&RealHost, &supply) {
+            Ok(reading) => {
+                let mut governor = Governor::new(Thresholds::recommended());
+                governor.observe(&reading);
+                (governor.level(), Charge::Measured(reading.capacity))
+            }
+            // A cell nobody could read is not a cell that is fine. The site is
+            // withheld rather than served on the strength of a reading nobody
+            // took — absence is never protection.
+            Err(e) => (Level::Protect, Charge::Unreadable(e.to_string())),
+        };
+
+        let stage = match outage {
+            // Mains detection is not implemented anywhere in this project — see
+            // the note on runtime::Power, where whether mains is present is an
+            // argument rather than something read. Claiming Serving here is
+            // therefore an assumption, and it is named as one rather than
+            // dressed up as a measurement.
+            None => Stage::Serving,
+            Some(since) => {
+                // Poisoning is recovered from rather than propagated: a panic in
+                // one request must not take the site down for every later one.
+                let mut ladder = ladder.lock().unwrap_or_else(PoisonError::into_inner);
+                ladder.on_tick(since.saturating_add(started.elapsed()), &charge);
+                ladder.stage()
+            }
+        };
+
+        Availability::of(level, stage)
+    };
+
+    match listen::serve_site(&a.bind, &root, &availability) {
         Ok(()) => 0,
         Err(e) => {
             eprintln!("vayucell: {e}");
