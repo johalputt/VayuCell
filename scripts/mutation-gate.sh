@@ -1243,6 +1243,30 @@ mutate "$AU" a_store_readable_by_anyone_else_is_reported_as_such \
   "    mode & 0o077 != 0" \
   "    mode & 0o007 != 0"
 
+mutate "$AU" a_name_enrolled_twice_refuses_the_store_and_names_both_lines \
+  "a name enrolled twice loads as two credentials for one device" \
+  "        if let Some(at) = seen
+            .iter()
+            .find_map(|(at, name)| (*name == device).then_some(*at))
+        {" \
+  "        if let Some(at) = seen
+            .iter()
+            .find_map(|(at, name)| (*name == device).then_some(*at))
+            .filter(|_| false)
+        {"
+
+mutate "$AU" the_duplicate_names_the_line_it_was_first_seen_on_not_its_place_in_the_list \
+  "the duplicate names the offending line twice instead of the earlier one" \
+  "                why: StoreProblem::Duplicate { first_seen: at }," \
+  "                why: StoreProblem::Duplicate {
+                    first_seen: line_number,
+                },"
+
+mutate "$AU" two_devices_with_different_names_are_not_a_duplicate \
+  "the store refuses two devices that share nothing but a file" \
+  "            .find_map(|(at, name)| (*name == device).then_some(*at))" \
+  "            .find_map(|(at, _name)| Some(*at))"
+
 mutate "$AU" a_bad_line_refuses_the_whole_store_rather_than_loading_part_of_it \
   "a malformed line is skipped, silently unenrolling a device" \
   "        let secret = Secret::new(secret).map_err(|e| StoreError {

@@ -329,6 +329,73 @@ fn a_bad_line_refuses_the_whole_store_rather_than_loading_part_of_it() {
 }
 
 #[test]
+fn a_name_enrolled_twice_refuses_the_store_and_names_both_lines() {
+    // `enrol` already refuses to write a duplicate. That guarded the path this
+    // software writes; the store is a text file the operator is told to edit by
+    // hand — the enrolment error says to remove the existing line first — so the
+    // one path a duplicate actually arrives by had no check on it at all.
+    //
+    // The harm is identity. `verify` matches on the secret and answers with the
+    // name, so two rows sharing a name means two different credentials
+    // authenticate as one device and nothing can say which presented it.
+    let text = format!(
+        "laptop {}\nphone {}\nlaptop {}\n",
+        secret(1),
+        secret(2),
+        secret(3)
+    );
+    let e = parse_store(&text).expect_err("laptop is enrolled twice");
+    assert_eq!(e.line, 3);
+    assert_eq!(e.why, StoreProblem::Duplicate { first_seen: 1 });
+
+    let said = e.to_string();
+    assert!(said.starts_with("line 3:"), "{said}");
+    assert!(
+        said.contains("line 1"),
+        "both rows have to be findable: {said}"
+    );
+    assert!(said.contains("which of them presented"), "{said}");
+}
+
+#[test]
+fn the_duplicate_names_the_line_it_was_first_seen_on_not_its_place_in_the_list() {
+    // Blank lines and comments are skipped, so an entry's position in the parsed
+    // list is not its line number. A message off by the number of comments above
+    // it sends somebody to edit the wrong row of a file full of secrets.
+    let text = format!(
+        "# the household devices\n\nlaptop {}\n\n# added later\nlaptop {}\n",
+        secret(1),
+        secret(2)
+    );
+    let e = parse_store(&text).expect_err("laptop is enrolled twice");
+    assert_eq!(e.line, 6, "the offending line");
+    assert_eq!(
+        e.why,
+        StoreProblem::Duplicate { first_seen: 3 },
+        "line 3, not entry 1"
+    );
+}
+
+#[test]
+fn two_devices_with_different_names_are_not_a_duplicate() {
+    // The check must refuse a repeated name and nothing else. A store that
+    // refused two distinct devices would make the feature this module exists for
+    // impossible to use.
+    let text = format!("laptop {}\nphone {}\n", secret(1), secret(2));
+    let creds = parse_store(&text).expect("two devices is the ordinary case");
+    assert_eq!(creds.len(), 2);
+}
+
+#[test]
+fn a_name_that_only_appears_in_a_comment_is_not_a_duplicate() {
+    // Comments are skipped before anything is parsed, and a revoked device left
+    // commented out for the record is an ordinary thing for an operator to do.
+    let text = format!("# laptop was revoked\nlaptop {}\n", secret(1));
+    let creds = parse_store(&text).expect("a comment enrols nobody");
+    assert_eq!(creds.len(), 1);
+}
+
+#[test]
 fn a_line_that_is_not_two_fields_is_refused_by_number() {
     for (text, line) in [
         ("laptop\n".to_owned(), 1usize),

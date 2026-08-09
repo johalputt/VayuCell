@@ -394,6 +394,7 @@ pub const fn readable_by_others(mode: u32) -> bool {
 /// stops working for a reason nobody connects to the edit.
 pub fn parse_store(text: &str) -> Result<Credentials, StoreError> {
     let mut entries = Vec::new();
+    let mut seen: Vec<(usize, DeviceName)> = Vec::new();
     for (index, line) in text.lines().enumerate() {
         let line_number = index + 1;
         let line = line.trim();
@@ -421,6 +422,32 @@ pub fn parse_store(text: &str) -> Result<Credentials, StoreError> {
             line: line_number,
             why: StoreProblem::Secret(e),
         })?;
+        // §5 refuses a malformed store whole rather than loading what it can, and
+        // a name that appears twice is malformed by this module's own rule —
+        // `enrol` refuses to write one. It was only refused on the path this
+        // software writes, and the store is a text file the operator is told to
+        // edit by hand: the enrolment error says "remove its line first". So the
+        // one path where a duplicate actually arrives had no check on it.
+        //
+        // The harm is identity, not leftovers. `verify` matches on the secret and
+        // answers with the name, so two rows sharing a name means two different
+        // credentials authenticate as one device and `Authenticated(name)` no
+        // longer says which of them presented it — and revoking that name takes
+        // both, including the one the operator had forgotten about.
+        // The line each entry came from, not its position in the list: blank and
+        // comment lines are skipped, so an entry's ordinal is not its line and an
+        // error that names the wrong line sends the operator to edit the wrong
+        // row of a file holding credentials.
+        if let Some(at) = seen
+            .iter()
+            .find_map(|(at, name)| (*name == device).then_some(*at))
+        {
+            return Err(StoreError {
+                line: line_number,
+                why: StoreProblem::Duplicate { first_seen: at },
+            });
+        }
+        seen.push((line_number, device.clone()));
         entries.push(Credential { device, secret });
     }
     Ok(Credentials::new(entries))
@@ -435,6 +462,15 @@ pub enum StoreProblem {
     Device(DeviceError),
     /// The secret was refused.
     Secret(SecretError),
+    /// The name is already enrolled on an earlier line.
+    Duplicate {
+        /// The line the name first appeared on, counting from one.
+        ///
+        /// Both lines are named because the operator has to look at two rows to
+        /// decide which credential to keep, and a message naming only the second
+        /// makes them search a file full of secrets for the first.
+        first_seen: usize,
+    },
 }
 
 /// A refused store, with the line to look at.
@@ -455,6 +491,13 @@ impl fmt::Display for StoreError {
             }
             StoreProblem::Device(e) => write!(f, "{e}"),
             StoreProblem::Secret(e) => write!(f, "{e}"),
+            StoreProblem::Duplicate { first_seen } => write!(
+                f,
+                "this device name is already enrolled on line {first_seen}; two rows \
+                 sharing a name means two different secrets authenticate as one \
+                 device, so nothing can say which of them presented a credential, \
+                 and revoking that name takes both"
+            ),
         }
     }
 }

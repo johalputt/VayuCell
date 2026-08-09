@@ -90,6 +90,32 @@ when the tag is cut.
   without a time — after the ingress verification and the replication lag. All
   three were found by the same question, and none by the test suite.
 
+- **A credential store could enrol one device name twice.** ADR-0010 says a name
+  already present is "refused rather than duplicated". `enrol` refuses it — the
+  path *this software* writes. `parse_store` did not, and the store is a text
+  file the operator is told to edit by hand: the enrolment error itself says to
+  remove the existing line first. The one path a duplicate actually arrives by
+  had no check on it.
+
+  §5 of that ADR already requires a malformed store to be **refused whole**,
+  loudly, rather than partly loaded — and every other malformation was: a line
+  that is not two fields, a bad name, a bad secret. This one loaded quietly.
+  `parse_store` now refuses it and names **both** lines, because deciding which
+  credential to keep means looking at two rows, and a message naming only the
+  second sends somebody searching a file full of secrets for the first.
+
+  **The reason the ADR gave for the rule was wrong, and that is what hid the
+  gap.** It said a duplicate matters because revoking the name "leaves the other
+  behind". `revoke` skips every line carrying the name, so it does not. Checking
+  the stated reason against the code is what surfaced both the false rationale
+  and the missing check.
+
+  The real reason is identity: `verify` matches on the secret and answers with
+  the name, so two rows sharing a name means two different credentials
+  authenticate as one device — `Authenticated(name)` cannot say which of them
+  presented anything, and revoking that name silently takes both. That is now
+  what the ADR says and what the refusal message says.
+
 ## [0.0.9] — 2026-08-09
 
 ### Fixed

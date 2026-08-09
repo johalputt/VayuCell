@@ -152,8 +152,27 @@ the body mentions none of the three.
 store, and prints the secret once. The store is created with mode `0600` *at
 open time* rather than chmod'ed afterwards — a file that was world-readable for
 an instant has been read by anything that was looking. A name already present is
-refused rather than duplicated, because two rows with one name means revoking it
-leaves the other behind and the operator cannot see that.
+refused rather than duplicated.
+
+**The reason first given for that rule was wrong, and it hid where the rule was
+missing.** This section said a duplicate matters because "revoking it leaves the
+other behind and the operator cannot see that". `revoke` skips *every* line
+carrying the name, so it does not leave the other behind — the failure named here
+was not one this code had.
+
+The real reason is identity. `verify` matches on the secret and answers with the
+name, so two rows sharing a name means **two different credentials authenticate
+as one device**: `Authenticated(name)` no longer says which of them presented
+anything, and revoking that name takes both, including the one the operator had
+forgotten was there.
+
+And stating the wrong reason concealed a real gap. The rule was enforced only in
+`enrol` — the path *this software* writes. The store is a text file the operator
+is told to edit by hand, and the enrolment error itself says to remove the
+existing line first, so the one path a duplicate actually arrives by had no check
+on it. `parse_store` now refuses a repeated name, naming **both** lines, which is
+what §5 already required of every other malformation: refuse the file whole,
+loudly, rather than load something nobody asked for.
 
 There is no command that prints a secret back. A credential a program will
 re-display is one that leaks through a scrollback or a screen share, and enrolling
