@@ -51,22 +51,38 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          # Full history, because the charter gate reads it. At depth 1 it would
+          # pass by checking almost none of it.
+          fetch-depth: 0
+      - name: Charter gate
+        run: bash scripts/charter-gate.sh
+
+  # ── The gates, verified against themselves ──────────────────────────────────
+  #
+  # Its own job rather than a second step under the charter. The self-test
+  # refuses to run when any gate is already failing on a clean tree — correctly,
+  # because a caught violation would then prove nothing — and that refusal is
+  # not a charter failure. Reported under the charter's name it said "Charter ·
+  # Articles III–IX enforced: failure" while the charter was entirely fine, and
+  # a red check that names the wrong thing sends whoever reads it to the wrong
+  # file. This project refuses that in its own output; the build says it too.
+  selftest:
+    name: "Gates · Self-test, every check must fire"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
           # The self-test runs every gate on a clean tree before planting
           # anything, and one of those gates reads commit history. A shallow
           # clone made that pre-flight fail on a pull request — the checkout
           # leaves HEAD at a merge commit GitHub synthesises, and at depth 1 its
           # parents are absent, so the gate could not step off it.
-          #
-          # It is also what the attribution gate needs to mean what it says. It
-          # claims to check the full history; at depth 1 it would pass by
-          # checking almost none of it.
           fetch-depth: 0
-      - name: Charter gate
-        run: bash scripts/charter-gate.sh
-      # The gate's own verification. Each article's check is re-broken in a
-      # scratch copy and must be caught. Without this, a pattern that silently
-      # stops matching would report the charter as upheld forever.
       - name: Gate self-test — every check must actually fire
+        # Each gate's check is re-broken in a scratch copy and must be caught.
+        # Without this, a pattern that silently stopped matching would report
+        # every rule it guards as upheld, forever.
         run: |
           python3 -m pip install --quiet --disable-pip-version-check --require-hashes -r requirements/schema.txt
           bash scripts/gate-selftest.sh
@@ -487,6 +503,7 @@ jobs:
     name: "CI Pass — all required checks"
     needs:
       - charter
+      - selftest
       - attribution
       - docs
       - shell

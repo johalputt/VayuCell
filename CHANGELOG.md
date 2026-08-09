@@ -20,6 +20,14 @@ when the tag is cut.
 
 ### Fixed
 
+- **A red check named the wrong thing.** The gate self-test ran as a second step
+  inside the job called *"Charter · Articles III–IX enforced"*. The self-test
+  refuses to run whenever another gate is already failing on a clean tree —
+  correctly, because a caught violation would prove nothing then — and that
+  refusal reported as a charter failure while the charter was entirely fine.
+  A build status that sends whoever reads it to the wrong file is the same
+  defect this project refuses in its own output, so the self-test is now its own
+  job, *"Gates · Self-test, every check must fire"*, and is in the required set.
 - **A clippy lint that this machine could not see failed CI.**
   `clippy::byte_char_slices` landed after the toolchain the gates are run on,
   and flagged `[b'a', b'b']` in a test that had been passing locally for weeks.
