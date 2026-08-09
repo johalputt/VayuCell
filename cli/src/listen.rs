@@ -143,6 +143,17 @@ pub fn serve_vault(
         );
     }
 
+    // Said here because this is the moment somebody starts keeping files on a
+    // phone. ADR-0004's opening sentence is that a phone is a replica and never
+    // the only copy, and until this printed, nothing anywhere told an operator
+    // that it is the only copy — the honesty types existed and had no caller.
+    println!(
+        "vayucell: {}\n\
+         \x20         Nothing here replicates yet, so keep a copy elsewhere of \
+         anything you would mind losing.",
+        vayucell_core::durability::RecoveryPoint::NoReplica.describe(Duration::ZERO)
+    );
+
     accept_loop(&listener, Surface::Site, &|request, headers, body| {
         let (level, stage) = context();
         let quota = used_bytes(root.dir()).map(|used| Quota::new(used, limit));

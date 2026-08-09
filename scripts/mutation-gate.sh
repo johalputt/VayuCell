@@ -138,6 +138,8 @@ CL=cli/src/cell.rs
 HA=core/src/halt.rs
 HR=cli/src/halted.rs
 SY=cli/src/survey.rs
+WR=core/src/wear.rs
+SG=cli/src/storage.rs
 
 mutate "$T" a_guest_that_cannot_see_the_phone_reports_unverified_rather_than_guessing \
   "a bare VM is promoted to T2 without the shell's assertion" \
@@ -736,6 +738,53 @@ mutate "$DU" an_unreachable_replica_is_not_filtered_out_as_noise \
   "            Self::NeverReplicated | Self::Unreachable(_) | Self::NoReplica => true," \
   "            Self::Unreachable(_) => false,
             Self::NeverReplicated | Self::NoReplica => true,"
+
+mutate "$WR" a_range_is_reported_as_its_worse_end \
+  "a wear range is reported at its kinder end" \
+  "        Some(step) => WearIndicator::Readable(step.saturating_mul(10))," \
+  "        Some(step) => WearIndicator::Readable(step.saturating_sub(1).saturating_mul(10)),"
+
+mutate "$WR" the_worse_of_the_two_cell_types_is_the_answer \
+  "the better-wearing cell type is reported and the worse one discarded" \
+  "        worst = Some(worst.map_or(step, |w: u8| w.max(step)));" \
+  "        worst = Some(worst.map_or(step, |w: u8| w.min(step)));"
+
+mutate "$WR" a_device_that_declines_to_estimate_is_not_reported_as_new \
+  "a device declining to estimate is read as brand new flash" \
+  "        if step == DECLINES_TO_SAY {
+            continue;
+        }" \
+  "        if false {
+            continue;
+        }"
+
+mutate "$WR" a_device_past_its_rated_life_reads_as_a_hundred_and_not_as_more \
+  "a device past its rated life is refused instead of reported at a hundred" \
+  "        Some(PAST_RATED_LIFE) => WearIndicator::Readable(100)," \
+  "        Some(PAST_RATED_LIFE) => WearIndicator::Unreliable(String::new()),"
+
+mutate "$WR" a_node_that_does_not_parse_is_unreliable_rather_than_absent \
+  "a node that does not parse is reported as no node at all" \
+  "            return WearIndicator::Unreliable(format!(\"{field:?} is not a life-time estimate\"));" \
+  "            return WearIndicator::Absent;"
+
+mutate "$SG" a_shed_ladder_nobody_has_watched_is_not_credited_here_either \
+  "the producer credits a shed ladder nobody has watched complete" \
+  "        graceful_shutdown: GracefulShutdown::NeverObserved," \
+  "        graceful_shutdown: GracefulShutdown::Verified,"
+
+mutate "$SG" a_cell_with_no_replicator_says_it_is_the_only_copy \
+  "a cell with no replicator reports a lag instead of no replica" \
+  "        recovery_point: RecoveryPoint::NoReplica," \
+  "        recovery_point: RecoveryPoint::Behind {
+            lag: core::time::Duration::ZERO,
+            measured_at: core::time::Duration::ZERO,
+        },"
+
+mutate "$SG" a_device_that_exposes_no_wear_node_says_absent_rather_than_omitting_the_line \
+  "an absent wear node is left out of the report entirely" \
+  "            \"  wear       ABSENT   this device exposes no life-time estimate\".to_owned()" \
+  "            String::new()"
 
 mutate "$DU" a_lag_nobody_has_re_measured_stops_being_a_live_figure \
   "a lag nobody has re-measured goes on reading as no concern" \

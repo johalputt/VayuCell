@@ -26,6 +26,7 @@ mod enrol;
 mod halted;
 mod listen;
 mod report;
+mod storage;
 mod survey;
 
 use std::process::ExitCode;
@@ -78,6 +79,17 @@ fn main() -> ExitCode {
                     &parsed.supply_dir,
                     env!("CARGO_PKG_VERSION"),
                     &halted::read(&parsed.halt_record),
+                    // A fresh clock. `report` prints once and exits, so nothing
+                    // it shows has had time to go stale — but the storage
+                    // posture demands both readings rather than assuming that,
+                    // which is why the type asks for them.
+                    vayucell_core::durability::Now {
+                        since_start: core::time::Duration::ZERO,
+                        today: {
+                            use vayucell_core::runtime::Clock as _;
+                            vayucell_core::runtime::RealClock::new().wall_clock_unix()
+                        },
+                    },
                 )
             );
             0

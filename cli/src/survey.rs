@@ -49,6 +49,10 @@
 //! username, any network configuration, or anything from the operator's site or
 //! vault directories. The only path that can carry anything personal is a
 //! `--supply-dir` the operator chose themselves, and the report says so.
+//!
+//! The storage section names no path and lists no file. It reports what the
+//! flash says about its own wear and what this cell can say about having an
+//! off-device copy, which today is that it has none.
 
 use core::fmt::Write as _;
 
@@ -63,7 +67,13 @@ use vayucell_core::tier::{detect, Verdict, SHELL_ASSERTION_ENV};
 /// Returns a `String` rather than printing, so every line of it is reachable in
 /// a test against a fake device — which is the only kind this project has.
 #[must_use]
-pub fn report(host: &dyn Host, supply_dir: &str, version: &str, standing: &Standing) -> String {
+pub fn report(
+    host: &dyn Host,
+    supply_dir: &str,
+    version: &str,
+    standing: &Standing,
+    now: vayucell_core::durability::Now,
+) -> String {
     let mut out = String::new();
 
     let _ = writeln!(out, "VayuCell device report — v{version}");
@@ -171,6 +181,14 @@ pub fn report(host: &dyn Host, supply_dir: &str, version: &str, standing: &Stand
         ),
     };
 
+    // Storage, which the hardware database wants as much as the power supply:
+    // whether this handset exposes a life-time estimate at all is exactly the
+    // sort of per-model fact nobody can type from memory.
+    let _ = writeln!(out);
+    for line in crate::storage::describe(host, now) {
+        let _ = writeln!(out, "{line}");
+    }
+
     let _ = writeln!(out);
     let _ = writeln!(out, "PANEL");
     let panel = crate::report::observed(host, supply_dir, Percent::clamped(60), standing);
@@ -184,6 +202,14 @@ pub fn report(host: &dyn Host, supply_dir: &str, version: &str, standing: &Stand
 
 #[cfg(test)]
 mod tests {
+    /// Both clock readings, for a report that prints once and exits.
+    fn at_noon() -> vayucell_core::durability::Now {
+        vayucell_core::durability::Now {
+            since_start: core::time::Duration::ZERO,
+            today: Some(1_786_000_000),
+        }
+    }
+
     use super::report;
     use vayucell_core::halt::{Halt, Standing};
     use vayucell_core::host::FakeHost;
@@ -211,7 +237,7 @@ mod tests {
         // The single most useful line in the report. `health` is absent on this
         // fixture, and a report that simply left the line out would make "this
         // device has no such node" indistinguishable from "nobody looked".
-        let out = report(&phone(), SUPPLY, "0.0.0", &Standing::Clear);
+        let out = report(&phone(), SUPPLY, "0.0.0", &Standing::Clear, at_noon());
         assert!(out.contains("ABSENT   health"), "{out}");
         assert!(out.contains("present  capacity               58"), "{out}");
     }
@@ -220,7 +246,7 @@ mod tests {
     fn every_node_the_reader_consults_appears_in_the_report() {
         // Pinned to the published list rather than to a copy, so a node added to
         // the reader cannot go unreported.
-        let out = report(&phone(), SUPPLY, "0.0.0", &Standing::Clear);
+        let out = report(&phone(), SUPPLY, "0.0.0", &Standing::Clear, at_noon());
         for node in NODES {
             assert!(
                 out.contains(node),
@@ -233,7 +259,7 @@ mod tests {
     fn values_are_trimmed_so_a_pasted_report_does_not_show_blank_fields() {
         // The fixture writes each node with a trailing newline, as the kernel
         // does. Untrimmed, every value would land on the following line.
-        let out = report(&phone(), SUPPLY, "0.0.0", &Standing::Clear);
+        let out = report(&phone(), SUPPLY, "0.0.0", &Standing::Clear, at_noon());
         assert!(!out.contains("capacity               \n"), "{out}");
     }
 
@@ -241,7 +267,7 @@ mod tests {
     fn all_four_charge_mechanisms_are_reported_including_the_absent_ones() {
         // Which mechanisms a handset does *not* have is the answer to "why does
         // this phone say UNSAFE", and it is the same answer for most of them.
-        let out = report(&phone(), SUPPLY, "0.0.0", &Standing::Clear);
+        let out = report(&phone(), SUPPLY, "0.0.0", &Standing::Clear, at_noon());
         assert!(out.contains("charge_control_end_threshold"), "{out}");
         assert!(
             out.contains("no mechanism; no ceiling can be held"),
@@ -253,7 +279,13 @@ mod tests {
     fn a_device_that_answers_nothing_still_produces_a_report() {
         // The case a first tester is most likely to hit, and the one where a
         // panic or an empty page would waste the only run anybody made.
-        let out = report(&FakeHost::new(), SUPPLY, "0.0.0", &Standing::Clear);
+        let out = report(
+            &FakeHost::new(),
+            SUPPLY,
+            "0.0.0",
+            &Standing::Clear,
+            at_noon(),
+        );
         assert!(out.contains("TIER"), "{out}");
         assert!(out.contains("ABSENT   capacity"), "{out}");
         assert!(out.contains("BATTERY SAFETY"), "{out}");
@@ -264,7 +296,7 @@ mod tests {
         // A promise in a document nobody reads is not a control. The claim
         // travels with the text it describes, so whoever is about to paste it
         // can check one against the other.
-        let out = report(&phone(), SUPPLY, "0.0.0", &Standing::Clear);
+        let out = report(&phone(), SUPPLY, "0.0.0", &Standing::Clear, at_noon());
         assert!(out.contains("CONTAINS"), "{out}");
         assert!(out.contains("OMITS"), "{out}");
         for absent in ["IMEI", "MAC", "hostname", "username"] {
@@ -296,7 +328,7 @@ mod tests {
         // It also means whatever they typed lands in a report going into a public
         // issue, so the claim above it has to say so.
         let mine = phone().with_env(SHELL_ASSERTION_ENV, "alices-spare-pixel");
-        let out = report(&mine, SUPPLY, "0.0.0", &Standing::Clear);
+        let out = report(&mine, SUPPLY, "0.0.0", &Standing::Clear, at_noon());
         assert!(
             out.contains("alices-spare-pixel"),
             "the probe stopped quoting it:\n{out}"
@@ -311,7 +343,7 @@ mod tests {
     fn a_report_with_nothing_operator_set_claims_no_exceptions() {
         // The other direction, so "flag what they chose" cannot be satisfied by
         // a line that is always printed.
-        let out = report(&phone(), SUPPLY, "0.0.0", &Standing::Clear);
+        let out = report(&phone(), SUPPLY, "0.0.0", &Standing::Clear, at_noon());
         assert!(!out.contains("YOURS"), "{out}");
     }
 
@@ -319,10 +351,16 @@ mod tests {
     fn a_supply_directory_the_operator_chose_is_flagged_as_theirs() {
         // The only path here that can carry a person's name. Silently including
         // it would make the OMITS block above a slightly false statement.
-        let mine = report(&phone(), "/home/somebody/fake", "0.0.0", &Standing::Clear);
+        let mine = report(
+            &phone(),
+            "/home/somebody/fake",
+            "0.0.0",
+            &Standing::Clear,
+            at_noon(),
+        );
         assert!(mine.contains("path below is one you chose"), "{mine}");
 
-        let standard = report(&phone(), SUPPLY, "0.0.0", &Standing::Clear);
+        let standard = report(&phone(), SUPPLY, "0.0.0", &Standing::Clear, at_noon());
         assert!(
             !standard.contains("path below is one you chose"),
             "{standard}"
@@ -334,7 +372,7 @@ mod tests {
         // A report from a halted phone is the most interesting one anybody will
         // ever send, and by the time they send it the cell has cooled.
         let halted = Standing::Halted(Halt::new("pack temperature exceeded 60 °C").expect("ok"));
-        let out = report(&phone(), SUPPLY, "0.0.0", &halted);
+        let out = report(&phone(), SUPPLY, "0.0.0", &halted, at_noon());
         assert!(out.contains("governor at HALT"), "{out}");
     }
 }

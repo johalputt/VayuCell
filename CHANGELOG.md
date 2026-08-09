@@ -18,31 +18,45 @@ traffic before it.
 The heading says *unreleased* rather than carrying a date. The date is written
 when the tag is cut.
 
-### Fixed
-
-- **The device report claimed something about this binary that is not true.** It
-  printed *"this program has no network code"*. The same binary runs three HTTP
-  listeners — that is most of what it is for — so an operator who has ever run
-  `vayucell site` reads that sentence, knows it is wrong, and has been handed a
-  reason to discount every other assurance in the block it heads.
-
-  **An overstated reassurance is worse than a narrow one, because the reader can
-  check it.** What is true is stronger and narrower: *nothing in this binary
-  dials out.* It binds when you ask it to serve, and it never connects. There is
-  no `connect` anywhere outside the test module, and a test now pins that the
-  report claims listening-not-connecting rather than an absence of sockets.
-
-- **The charter gate scanned `core/src` only, so Article V was enforced on the
-  one crate that cannot reach anything.** The forbidden-concept scan (telemetry,
-  call-home, kill switch) and the V.5 project-operated-host check both ran over
-  `core/src` and never looked at `cli/src` — the only crate that opens a socket.
-
-  The V.5 *dependency* check in that same file already carries the note that a
-  gate naming one manifest by hand "goes on passing while a dependency lands in
-  the crate beside it". That half had learned the lesson; the source-scanning
-  half had not. Crates are now found rather than listed.
-
 ### Added
+
+- **P6's observable half: the storage posture is now produced and shown.**
+  `core/src/durability.rs` held the honesty machinery for ADR-0004 — a lag that
+  goes stale, a restore drill that expires, no variant meaning *durable*, a
+  `Default` at every field's least reassuring value — and **nothing ever built
+  one**. `Posture::unconfigured` had no caller outside its own tests. Three of
+  this session's fixes were in types that reached no operator at all.
+
+  So somebody storing files in the vault was never told the thing ADR-0004 exists
+  to tell them. `vayucell vault` now says it at the moment it matters:
+
+  > no off-device copy is configured, so this phone is the only copy — which is
+  > the one thing ADR-0004 says a phone must never be
+
+  and `vayucell report` gains a `STORAGE` section carrying the flash posture, the
+  wear estimate and every standing concern.
+
+  The producer guesses in no direction. There is no replicator, so the recovery
+  point is `NoReplica` — not "unknown", not "behind by zero". Nothing records a
+  clean shutdown, so the ladder reads `NeverObserved`; reporting `Verified`
+  because no failure was seen is absence taken as evidence, which Article IV.3
+  forbids.
+
+- **A wear probe, which is the one storage property a device can answer about
+  itself.** eMMC and UFS report life used as a coarse step (`0x01` = 0–10%,
+  `0x0B` = past rated life), and `core/src/wear.rs` reads it from any of four
+  sysfs paths.
+
+  Three decisions in it are the whole point. A range is reported at its **worse**
+  end — `0x02` is 20%, not 15 and not 10, because rounding toward less wear is
+  rounding in the reassuring direction on the one figure whose purpose is to stop
+  being reassuring. The **worse of the two cell types** is the answer, since the
+  device fails when either does. And `0x00` means *the device declines to say*,
+  which is reported as unreliable and **never as new** — treating it as zero
+  would make the least forthcoming flash look like the healthiest.
+
+  A device that exposes nothing reads `ABSENT`, printed rather than omitted,
+  because a missing line cannot be told apart from a node nobody looked for.
 
 - **A charter check that nothing in production source opens an outbound
   connection**, which is the mechanism behind the sentence the report prints. The
@@ -79,6 +93,30 @@ when the tag is cut.
   The failure names the path **and the document that claims it**, because the
   point is to go and correct the claim. Planted in the gate self-test as a
   rename rather than a deletion, since that is how it actually happens.
+
+### Fixed
+
+- **The device report claimed something about this binary that is not true.** It
+  printed *"this program has no network code"*. The same binary runs three HTTP
+  listeners — that is most of what it is for — so an operator who has ever run
+  `vayucell site` reads that sentence, knows it is wrong, and has been handed a
+  reason to discount every other assurance in the block it heads.
+
+  **An overstated reassurance is worse than a narrow one, because the reader can
+  check it.** What is true is stronger and narrower: *nothing in this binary
+  dials out.* It binds when you ask it to serve, and it never connects. There is
+  no `connect` anywhere outside the test module, and a test now pins that the
+  report claims listening-not-connecting rather than an absence of sockets.
+
+- **The charter gate scanned `core/src` only, so Article V was enforced on the
+  one crate that cannot reach anything.** The forbidden-concept scan (telemetry,
+  call-home, kill switch) and the V.5 project-operated-host check both ran over
+  `core/src` and never looked at `cli/src` — the only crate that opens a socket.
+
+  The V.5 *dependency* check in that same file already carries the note that a
+  gate naming one manifest by hand "goes on passing while a dependency lands in
+  the crate beside it". That half had learned the lesson; the source-scanning
+  half had not. Crates are now found rather than listed.
 
 ## [0.0.11] — 2026-08-09
 

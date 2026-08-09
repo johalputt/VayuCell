@@ -34,6 +34,7 @@ pub mod site;
 pub mod sysfs;
 pub mod tier;
 pub mod vault;
+pub mod wear;
 
 #[cfg(test)]
 mod auth_test;
@@ -69,3 +70,5 @@ mod sysfs_test;
 mod tier_test;
 #[cfg(test)]
 mod vault_test;
+#[cfg(test)]
+mod wear_test;
