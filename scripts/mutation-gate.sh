@@ -733,11 +733,40 @@ mutate "$RP" a_machine_that_is_not_a_phone_reports_unverified_rather_than_crashi
 
 mutate "$DU" an_unreachable_replica_is_not_filtered_out_as_noise \
   "an unreachable replica is filtered out as noise" \
-  "            RecoveryPoint::Behind(lag) => *lag > target,
-            _ => true," \
-  "            RecoveryPoint::Behind(lag) => *lag > target,
-            RecoveryPoint::Unreachable(_) => false,
-            _ => true,"
+  "            Self::NeverReplicated | Self::Unreachable(_) | Self::NoReplica => true," \
+  "            Self::Unreachable(_) => false,
+            Self::NeverReplicated | Self::NoReplica => true,"
+
+mutate "$DU" a_lag_nobody_has_re_measured_stops_being_a_live_figure \
+  "a lag nobody has re-measured goes on reading as no concern" \
+  "                if !self.is_live(now) {
+                    return true;
+                }" \
+  "                if false {
+                    return true;
+                }"
+
+mutate "$DU" a_lag_nobody_has_re_measured_stops_being_a_live_figure \
+  "a measurement stands for a century, so nothing ever goes stale" \
+  "pub const MEASUREMENT_STANDS_FOR: Duration = Duration::from_secs(5 * 60);" \
+  "pub const MEASUREMENT_STANDS_FOR: Duration = Duration::from_secs(100 * 365 * 24 * 60 * 60);"
+
+mutate "$DU" a_lag_measured_a_moment_ago_is_still_live \
+  "a measurement is stale the instant it is taken" \
+  "pub const MEASUREMENT_STANDS_FOR: Duration = Duration::from_secs(5 * 60);" \
+  "pub const MEASUREMENT_STANDS_FOR: Duration = Duration::from_secs(0);"
+
+mutate "$DU" a_measurement_stamped_ahead_of_the_clock_is_not_a_live_figure \
+  "a measurement the clock cannot account for reads as a live one" \
+  "                Some(age) => age.checked_sub(MEASUREMENT_STANDS_FOR).is_none(),
+                None => false," \
+  "                Some(age) => age.checked_sub(MEASUREMENT_STANDS_FOR).is_none(),
+                None => true,"
+
+mutate "$DU" a_stale_lag_reaches_the_operator_through_the_posture_too \
+  "the panel checks the lag against its target and not against its age" \
+  "        if self.recovery_point.needs_attention(lag_target, now) {" \
+  "        if !matches!(self.recovery_point, RecoveryPoint::Behind { lag, .. } if lag <= lag_target) {"
 
 mutate "$DU" a_backup_nobody_has_restored_is_never_proven \
   "a backup that was merely written counts as proven" \

@@ -72,6 +72,28 @@ So VayuCell states the number:
 That is the honest durability statement for a phone server, it is verifiable, and
 it is the number an operator actually needs. An adjective is not.
 
+**"Live" is the load-bearing word, and it needed a mechanism.** `RecoveryPoint`
+originally carried `Behind(Duration)` — the lag and nothing else — and
+implemented `Display`. A figure with no measurement time renders identically
+whether it was taken a second ago or the morning the replicator died, so the
+number this section prefers over an adjective was, structurally, an adjective
+wearing a number's clothes. `47` said nothing about whether anyone was still
+counting.
+
+So the type now carries `Behind { lag, measured_at }`, the stamp is monotonic,
+and **there is no `Display` impl** — `Display` is the hole, because
+`format!("{rp}")` renders with no clock in scope and no way for the type to
+object. `describe(now)` and `needs_attention(target, now)` require the clock's
+reading; a measurement older than `MEASUREMENT_STANDS_FOR` (five minutes, against
+a 60-second default target) reports itself as no longer live; and
+`Posture::concerns` takes `now` for the same reason, because otherwise the panel
+goes on presenting a dead replicator's last good reading as no concern at all.
+
+This is the same defect as ADR-0003 §4.1, found by the same question, and repaired
+before the replicator exists rather than after. **A claim in the present tense —
+*"is 47 seconds behind"* — is a claim about now, and needs something that knows
+what time it is.**
+
 ### 1.2 Writes are made survivable rather than trusted
 
 Where the device cannot be trusted to have persisted an acknowledged write, the

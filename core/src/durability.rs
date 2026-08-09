@@ -37,8 +37,43 @@
 //! behaviour, not the flash controller's honesty. That is the rule the whole ADR
 //! produces, and [`Posture`] is arranged so the testable field is the only one
 //! that can ever read as verified.
+//!
+//! # A number is only honest while somebody is still taking it
+//!
+//! ADR-0004 §1.1 does not say the panel shows a lag. It says it shows one
+//! *"continuously, as a live figure"*, and the whole argument of §1.1 is that a
+//! number beats an adjective because a number can be checked. A number nobody
+//! has re-measured is an adjective wearing a number's clothes: `47` renders
+//! identically whether it was taken a second ago or the morning the replicator
+//! died, and the morning the replicator died is exactly when an operator most
+//! needs to be told.
+//!
+//! So [`RecoveryPoint::Behind`] carries **when it was measured**, not only what
+//! was measured, and this module deliberately **does not implement `Display`**.
+//! `Display` is the hole: `format!("{rp}")` renders a recovery point with no
+//! clock in scope and no way for the type to object. [`RecoveryPoint::describe`]
+//! takes the clock's reading instead, so the age travels with the figure and a
+//! measurement past [`MEASUREMENT_STANDS_FOR`] says so in the sentence the
+//! operator reads.
+//!
+//! This is the same repair, and the same defect, as
+//! [`crate::ingress::Reachability`]. It is written here before the replicator
+//! exists rather than after, which is the only difference and the one worth
+//! having.
 
 use core::time::Duration;
+
+/// How long a lag measurement stands before it stops being a live figure.
+///
+/// ADR-0004 §2 sets the default lag *target* at 60 seconds, so a replicator that
+/// is working reports many times inside this window. Five minutes without a new
+/// measurement is therefore not a slow cycle; it is something having stopped,
+/// and the panel says so rather than going on showing the last good number.
+///
+/// The tests that pin this use literal durations rather than this constant, for
+/// the reason [`crate::ingress::FRESH_FOR`] does: a test written against the
+/// constant it is pinning stays green when the constant is widened.
+pub const MEASUREMENT_STANDS_FOR: Duration = Duration::from_secs(5 * 60);
 
 /// How much data would be lost if this device stopped existing right now.
 ///
@@ -50,13 +85,32 @@ use core::time::Duration;
 /// let r: RecoveryPoint = RecoveryPoint::Durable;
 /// ```
 ///
+/// And there is deliberately no `Display`, so a recovery point cannot be
+/// rendered without a clock in scope:
+///
+/// ```compile_fail
+/// use core::time::Duration;
+/// use vayucell_core::durability::RecoveryPoint;
+/// let r = RecoveryPoint::NoReplica;
+/// let s = format!("{r}");
+/// ```
+///
 /// The closest thing to good news this type can express is
-/// [`RecoveryPoint::Behind`] with a small duration, and that still names the
-/// window in which data exists on one device only.
+/// [`RecoveryPoint::Behind`] with a small lag and a recent measurement, and that
+/// still names the window in which data exists on one device only.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RecoveryPoint {
-    /// An off-device copy exists and is this far behind.
-    Behind(Duration),
+    /// An off-device copy exists and was this far behind when last measured.
+    Behind {
+        /// How far behind the off-device copy was.
+        lag: Duration,
+        /// The clock's reading when that was measured.
+        ///
+        /// Monotonic, from [`crate::runtime::Clock::elapsed`]. Present because
+        /// ADR-0004 §1.1 promises a *live* figure, and a number with no age
+        /// cannot be told apart from one taken this morning.
+        measured_at: Duration,
+    },
     /// Replication is configured but has never completed a cycle.
     ///
     /// Distinct from a large [`RecoveryPoint::Behind`] on purpose: "twelve hours
@@ -77,42 +131,96 @@ pub enum RecoveryPoint {
 }
 
 impl RecoveryPoint {
-    /// Whether an operator should be told about this now.
+    /// Whether this figure is current enough to be shown as a live one.
     ///
-    /// Every state except a lag inside the target is worth surfacing. In
-    /// particular an unreachable replica is *not* filtered out as noise — it is
-    /// the state in which the number on the panel stops meaning anything.
+    /// Only a [`RecoveryPoint::Behind`] measured within
+    /// [`MEASUREMENT_STANDS_FOR`] is. A measurement stamped ahead of the clock
+    /// cannot be aged, so it is not live either — an age that cannot be
+    /// established is not an age.
     #[must_use]
-    pub fn needs_attention(&self, target: Duration) -> bool {
+    pub const fn is_live(&self, now: Duration) -> bool {
         match self {
-            RecoveryPoint::Behind(lag) => *lag > target,
-            _ => true,
+            Self::Behind { measured_at, .. } => match now.checked_sub(*measured_at) {
+                Some(age) => age.checked_sub(MEASUREMENT_STANDS_FOR).is_none(),
+                None => false,
+            },
+            Self::NeverReplicated | Self::Unreachable(_) | Self::NoReplica => false,
         }
     }
-}
 
-impl core::fmt::Display for RecoveryPoint {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    /// Whether an operator should be told about this now.
+    ///
+    /// Every state except a live lag inside the target is worth surfacing. Two
+    /// of those states are easy to miss and both are here deliberately:
+    ///
+    /// - An unreachable replica is *not* filtered out as noise. It is the state
+    ///   in which the number on the panel stops meaning anything.
+    /// - **A lag nobody has re-measured is not a lag that is fine.** Without
+    ///   this, a replicator that died an hour ago goes on presenting its last
+    ///   good reading — 47 seconds, inside target, no concern raised — for as
+    ///   long as the process lives.
+    ///
+    /// `now` is required rather than optional, so the second case cannot be
+    /// skipped by a caller who did not think of it.
+    #[must_use]
+    pub const fn needs_attention(&self, target: Duration, now: Duration) -> bool {
         match self {
-            RecoveryPoint::Behind(d) => write!(
-                f,
-                "the off-device copy is {}s behind; anything written since then \
-                 exists on this device only",
-                d.as_secs()
-            ),
-            RecoveryPoint::NeverReplicated => f.write_str(
+            Self::Behind { lag, .. } => {
+                if !self.is_live(now) {
+                    return true;
+                }
+                // `lag > target` without a const comparison operator.
+                lag.checked_sub(target).is_some()
+            }
+            Self::NeverReplicated | Self::Unreachable(_) | Self::NoReplica => true,
+        }
+    }
+
+    /// What to tell the operator, as of `now`.
+    ///
+    /// Deliberately a method and not a [`core::fmt::Display`] impl. `Display` is
+    /// the hole this module closed: it renders with no clock in scope and no way
+    /// for the type to object, which is how a figure ADR-0004 §1.1 promises will
+    /// be *live* gets printed hours after anybody measured it.
+    #[must_use]
+    pub fn describe(&self, now: Duration) -> String {
+        match self {
+            Self::Behind { lag, measured_at } => {
+                if self.is_live(now) {
+                    return format!(
+                        "the off-device copy is {}s behind; anything written since then \
+                         exists on this device only",
+                        lag.as_secs()
+                    );
+                }
+                match now.checked_sub(*measured_at) {
+                    Some(age) => format!(
+                        "the off-device copy was {}s behind when it was last measured, \
+                         and that was {}s ago — the figure is no longer live, and a lag \
+                         nobody is still measuring is not a lag that is fine",
+                        lag.as_secs(),
+                        age.as_secs()
+                    ),
+                    None => format!(
+                        "the off-device copy was {}s behind at a moment stamped ahead of \
+                         this cell's clock, so how old that figure is cannot be \
+                         established and it is not a live one",
+                        lag.as_secs()
+                    ),
+                }
+            }
+            Self::NeverReplicated => {
                 "replication is configured but has never completed a cycle, so \
-                 every byte here exists on this device only",
-            ),
-            RecoveryPoint::Unreachable(why) => write!(
-                f,
+                 every byte here exists on this device only"
+                    .to_owned()
+            }
+            Self::Unreachable(why) => format!(
                 "the off-device copy could not be reached ({why}), so the lag is \
                  unknown and unknown is not small"
             ),
-            RecoveryPoint::NoReplica => f.write_str(
-                "no off-device copy is configured, so this phone is the only copy \
-                 — which is the one thing ADR-0004 says a phone must never be",
-            ),
+            Self::NoReplica => "no off-device copy is configured, so this phone is the only copy \
+                 — which is the one thing ADR-0004 says a phone must never be"
+                .to_owned(),
         }
     }
 }
@@ -306,13 +414,17 @@ impl Posture {
     ///
     /// Returns the reasons this device's storage is not settled. An empty slice
     /// means every one of them was answered — which requires, among other
-    /// things, a backup somebody has actually restored.
+    /// things, a backup somebody has actually restored, and a replication lag
+    /// somebody is still measuring.
+    ///
+    /// `now` is the clock's reading and is required: without it this function
+    /// would report a dead replicator's last good number as no concern at all.
     #[must_use]
-    pub fn concerns(&self, lag_target: Duration) -> Vec<String> {
+    pub fn concerns(&self, lag_target: Duration, now: Duration) -> Vec<String> {
         let mut out = Vec::new();
 
-        if self.recovery_point.needs_attention(lag_target) {
-            out.push(self.recovery_point.to_string());
+        if self.recovery_point.needs_attention(lag_target, now) {
+            out.push(self.recovery_point.describe(now));
         }
         if !self.backup.is_proven() {
             out.push(self.backup.to_string());

@@ -18,6 +18,40 @@ traffic before it.
 The heading says *unreleased* rather than carrying a date. The date is written
 when the tag is cut.
 
+### Fixed
+
+- **A replication lag nobody was still measuring read as a lag that was fine.**
+  ADR-0004 §1.1 is the section that argues a number beats an adjective, because a
+  number can be checked — and it promises the panel shows the lag *"continuously,
+  as a live figure"*. `RecoveryPoint::Behind(Duration)` carried the lag and
+  nothing else, and implemented `Display`.
+
+  A figure with no measurement time renders identically whether it was taken a
+  second ago or the morning the replicator died. So the number §1.1 prefers over
+  an adjective was, structurally, an adjective wearing a number's clothes: `47`
+  said nothing about whether anybody was still counting, and a replicator that
+  stopped an hour ago would have gone on reporting its last good reading — inside
+  target, no concern raised — for as long as the process lived. That is the exact
+  reading Charter Article IV.3 forbids.
+
+  The type now carries `Behind { lag, measured_at }` with a monotonic stamp, and
+  **the `Display` impl is gone** — `Display` was the hole, because
+  `format!("{rp}")` renders with no clock in scope and no way for the type to
+  object. A `compile_fail` doctest proves it no longer compiles. `describe(now)`
+  and `needs_attention(target, now)` require the clock's reading; a measurement
+  older than `MEASUREMENT_STANDS_FOR` (five minutes, against the 60-second
+  default target) says so in the sentence the operator reads rather than going
+  quiet; a stamp ahead of the clock cannot be aged and is not live either; and
+  `Posture::concerns` takes `now`, because a rule enforced only on the type the
+  panel wraps is a rule the panel can route around — which is how the governor
+  row went wrong twice.
+
+  Replication is not implemented, so nothing shipped was showing a stale figure.
+  What shipped was a type that could not have known, in the module whose entire
+  argument is that a checkable number beats an unfalsifiable word. Same defect as
+  the ingress verification in 0.0.9, found by the same question, and repaired
+  before the subsystem exists rather than after.
+
 ## [0.0.9] — 2026-08-09
 
 ### Fixed
