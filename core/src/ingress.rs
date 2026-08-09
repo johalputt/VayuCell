@@ -131,6 +131,27 @@ pub enum CompromiseStory {
 /// Every field is required. A `Profile` with `Option` fields would let a mode
 /// added later leave the uncomfortable ones blank, and the uncomfortable ones are
 /// the three the draft was missing.
+///
+/// ADR-0003 §2 used to say the *capability registry* rejects a mode that leaves
+/// a property unanswered. It does not and cannot: an ingress mode is not a
+/// [`crate::capability::Capability`], and that struct has no field for a thermal
+/// class or for any of the other six. The enforcement is here instead, and it is
+/// stronger than the runtime check the ADR described — a mode that omits the
+/// field the draft was missing does not build:
+///
+/// ```compile_fail
+/// use vayucell_core::ingress::{CompromiseStory, Dependency, Profile, ThermalClass};
+/// let p = Profile {
+///     dependency: Dependency::Commons,
+///     ordinary_browsers: false,
+///     thermal: ThermalClass::High,
+///     survives_roaming: true,
+///     middle_sees: "relays carry ciphertext",
+///     costs_money: false,
+///     // `compromise` omitted — the property the draft did not have a slot for,
+///     // and the one a mode would most like to leave blank.
+/// };
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Profile {
     /// What it depends on.

@@ -93,7 +93,7 @@ and no amount of green rows replaces it.
 | --- | --- |
 | Written | The capability registry, tier detection, the CSP and response security headers, **the battery safety governor** — state machine, verification loop, thresholds, recovery — the sysfs layer it drives, the sampling cadence, the mains-loss shed ladder, **the safety panel**, where a row that could not be checked is not allowed to read as one that was, **a published website**: a directory served to your own network, refused the moment the governor says the cell is in trouble, and **file storage**: authenticated upload, download and delete, each device holding a credential that can be revoked on its own |
 | Not written | The fleet view, the hardware database itself, the Android shell, **anything that syncs on its own — storage is a request somebody makes, never a folder that mirrors itself** — and **every ingress mode except local-only: an onion and a relay are described and governed in code, but neither is implemented, so nothing here is reachable from outside your own network** |
-| Checked | 350 unit tests and 29 doctests, 82.65% line coverage against an 80% floor, **190 mutations each re-broken and each required to turn its named test red**, and **57 violations planted in a scratch repository that the gates must catch citing the right rule**. None of that is evidence about hardware; all of it is evidence about the code |
+| Checked | 350 unit tests and 30 doctests, 82.65% line coverage against an 80% floor, **190 mutations each re-broken and each required to turn its named test red**, and **57 violations planted in a scratch repository that the gates must catch citing the right rule**. None of that is evidence about hardware; all of it is evidence about the code |
 | Unblocked | [Charter III.1](CHARTER.md) forbids anything serving traffic before the governor. The governor is now **written** — the ordering constraint is met in code, and the gate fails the build if it is ever removed. It is not met on hardware, and nothing serves traffic yet regardless |
 | Never tested on hardware | Everything. Every device-facing behaviour is exercised through a fake host describing handsets nobody here is holding |
 
@@ -497,7 +497,7 @@ scripts/release-gate.sh        # the version says the same thing everywhere
 cargo test --workspace
 ```
 
-A full run exercises **350 unit tests and 29 doctests** (2 ignored — the two
+A full run exercises **350 unit tests and 30 doctests** (2 ignored — the two
 snapshot regenerators), kills **190 mutations**, catches **57 planted violations**,
 and measures **82.65% line coverage** against a floor of 80. That is a suite that
 has been shown to fail when the code is wrong — the mutation gate is the proof,

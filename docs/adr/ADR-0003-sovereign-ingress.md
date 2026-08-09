@@ -51,8 +51,28 @@ This defeats most home-server projects before they begin, and it is the reason
 ## §2. The four modes, with an honest field set
 
 The draft's fields were insufficient — they had no slot for the things that
-turned out to matter most. Each mode now declares **seven** properties, and the
-registry (ADR-0001) rejects a mode that leaves any unanswered.
+turned out to matter most. Each mode now declares **seven** properties, and a
+mode that leaves any unanswered **does not compile**.
+
+That is a correction to this section as it was first written, and it is recorded
+rather than quietly applied. The original sentence said the *capability registry*
+(ADR-0001) rejects a mode that leaves a property unanswered. It does not, and it
+could not: the registry validates `Capability` values, an ingress mode is not one
+of them, and `Capability` has no field for a thermal class or for any of the
+other six. Nothing was ever going to reject anything.
+
+The property does hold, by a mechanism stronger than a runtime check and a
+different one from the one named: `Mode::profile` is an exhaustive match
+returning a `Profile` whose every field is required — no `Option`, no `Default`.
+Adding a mode means adding an arm, and an arm means answering all seven or
+failing the build.
+
+The reason to correct it rather than shrug: a reader auditing that sentence would
+go to the registry, find nothing, and could reasonably conclude either that the
+guarantee is missing or that the repair is to add a runtime check and relax the
+struct — which would replace a compile-time guarantee with a weaker one. **A
+claim that names the wrong enforcing mechanism is a defect even when the property
+it claims is true.**
 
 | | **Onion** | **Relay tunnel** | **Direct** | **Local-only** |
 | --- | --- | --- | --- | --- |
@@ -169,8 +189,9 @@ precisely to slow heat-driven ageing.
 
 **The governor wins. Always, and by construction:**
 
-1. Every ingress mode declares a **thermal class**, and the registry rejects a
-   mode that does not.
+1. Every ingress mode declares a **thermal class**, and a mode that does not
+   fails to compile — see the correction in §2 for why this does not say "the
+   registry rejects" any more.
 2. When the governor enters `DERATED`, high-thermal-class ingress is **shed
    first**, before storage or serving work.
 3. In `PROTECT`, all outbound-facing ingress stops.

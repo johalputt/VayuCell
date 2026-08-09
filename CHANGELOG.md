@@ -58,6 +58,26 @@ when the tag is cut.
   as current. What shipped was a type that could not have noticed — found by
   reading a claim in a doc comment against the mechanism meant to keep it.
 
+- **An ADR named a mechanism that does not do the job it was credited with.**
+  ADR-0003 §2 said the capability registry "rejects a mode that leaves any
+  unanswered", and §5.1 said it "rejects a mode that does not" declare a thermal
+  class. The registry validates `Capability` values; an ingress mode is not one,
+  and `Capability` has no field for a thermal class or for any of the other six
+  properties. Nothing was ever going to reject anything.
+
+  The property itself holds, and by something stronger than the runtime check
+  described: `Mode::profile` is an exhaustive match returning a struct with no
+  `Option` and no `Default`, so a mode that leaves a property blank does not
+  build. Both sentences now name that, §2 records the correction rather than
+  quietly applying it, and a `compile_fail` doctest proves the claim instead of
+  asserting it.
+
+  **A claim that names the wrong enforcing mechanism is a defect even when the
+  property it claims is true** — a reader auditing that sentence would find
+  nothing at the registry, and the obvious repair would have been to add a
+  runtime check and relax the struct, trading a compile-time guarantee for a
+  weaker one.
+
 ## [0.0.8] — 2026-08-09
 
 ### Fixed
