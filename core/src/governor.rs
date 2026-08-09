@@ -332,6 +332,27 @@ impl Governor {
         }
     }
 
+    /// A governor that starts at [`Level::Halt`], because one was recorded.
+    ///
+    /// The counterpart to [`Governor::after_inspection`], and the reason
+    /// [`crate::runtime::Supervisor::new`] takes a governor rather than building
+    /// one. Without it every start was a fresh `Level::Normal`, so the halt the
+    /// binary described as needing a person was cleared by any restart at all —
+    /// see [`crate::halt`].
+    ///
+    /// No history: this governor did not watch the escalation, it inherited the
+    /// conclusion. Claiming a transition it never observed would put a reading
+    /// in the record that nobody took.
+    #[must_use]
+    pub fn halted(thresholds: Thresholds) -> Self {
+        Self {
+            level: Level::Halt,
+            thresholds,
+            history: Vec::new(),
+            consecutive_failures: 0,
+        }
+    }
+
     /// How many consecutive read attempts have failed.
     #[must_use]
     pub fn consecutive_failures(&self) -> u32 {

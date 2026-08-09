@@ -23,6 +23,7 @@ mod args;
 mod cell;
 mod device;
 mod enrol;
+mod halted;
 mod listen;
 mod report;
 
@@ -67,6 +68,7 @@ fn main() -> ExitCode {
         Command::Site => site(&parsed),
         Command::Vault => vault(&parsed),
         Command::All => all(&parsed),
+        Command::Inspect => inspect(&parsed),
         Command::Enrol => enrol_device(&parsed),
         Command::Devices => list_devices(&parsed),
         Command::Revoke => revoke_device(&parsed),
@@ -289,6 +291,98 @@ fn vault(a: &Args) -> i32 {
     }
 }
 
+/// Records that a person looked at the phone, and clears a halt if it was sound.
+///
+/// The only way down from `HALT`, and it deliberately takes a human observation
+/// rather than a reading. ADR-0002 §6: software cannot measure a millimetre of
+/// deformation, so the check that matters is somebody putting the phone
+/// face-down on a table — and this is where that observation is recorded.
+fn inspect(a: &Args) -> i32 {
+    let Some(seen) = a.inspection else {
+        eprintln!("vayucell: inspect needs --lies-flat or --deformed");
+        return report::EXIT_USAGE;
+    };
+
+    match Governor::new(Thresholds::recommended()).after_inspection(seen) {
+        Ok(_) => {
+            if let Err(e) = halted::clear(&a.halt_record) {
+                eprintln!("vayucell: the halt record would not clear: {e}");
+                // Not reported as success. The person did their part; the
+                // device is still refusing, and saying otherwise would send
+                // them away believing it had resumed.
+                return report::EXIT_UNSAFE;
+            }
+            println!("Recorded: the phone lies flat and no edge is lifting.");
+            println!("The halt is cleared. `vayucell all` will serve again.");
+            println!();
+            println!("Check again next month. Nothing in this program can see a");
+            println!("cell beginning to swell; you can, in five seconds, by looking.");
+            0
+        }
+        Err(_) => {
+            // The record is left exactly where it is. A deformed cell does not
+            // resume, whatever any sensor says afterwards, and there is no flag
+            // that overrides this.
+            eprintln!("Recorded: the phone is deformed. The halt stands and will not clear.");
+            eprintln!();
+            eprintln!("Stop using it now. Unplug it, and take it to hazardous-waste or");
+            eprintln!("electronics recycling. Do not puncture it and do not put it in");
+            eprintln!("household rubbish.");
+            report::EXIT_UNSAFE
+        }
+    }
+}
+
+/// Refuses to start when a halt is standing, and says how to clear it.
+///
+/// Called before anything binds a socket or writes a ceiling, so a device that
+/// a person has not looked at never begins serving and then stops.
+fn refuse_if_halted(a: &Args) -> Option<i32> {
+    let standing = halted::read(&a.halt_record);
+    if standing.may_start_serving() {
+        return None;
+    }
+    eprintln!("vayucell: {}", standing.describe());
+    eprintln!();
+    eprintln!("Put the phone face-down on a flat table and look at it.");
+    eprintln!("  it lies flat, nothing lifting   ->  vayucell inspect --lies-flat");
+    eprintln!("  it rocks, or an edge is lifting ->  vayucell inspect --deformed");
+    Some(report::EXIT_UNSAFE)
+}
+
+/// The sentence a halt is recorded under.
+///
+/// The governor's own transition where there is one — it names the threshold
+/// and the reading that crossed it, which is what the operator needs. A halt
+/// reached without a transition on that tick still has to say something, and
+/// says that rather than nothing: an empty record is refused, and a refused
+/// record is a phone that comes back serving.
+fn halt_reason(transition: Option<&vayucell_core::governor::Transition>) -> String {
+    transition.map_or_else(
+        || "the governor reached HALT; the transition was not on this pass".to_owned(),
+        ToString::to_string,
+    )
+}
+
+/// Writes the halt down, so the next start inherits it.
+///
+/// A halt that is only ever printed is a log line. This is what makes the
+/// sentence beside it — *no restart clears it* — a true statement about the
+/// program rather than an intention.
+fn record_halt(path: &str, reason: &str) {
+    match vayucell_core::halt::Halt::new(reason).map(|h| halted::record(path, &h)) {
+        Ok(Ok(())) => eprintln!("vayucell: the halt is recorded in {path}."),
+        // Said out loud. If this failed, the next start will come back serving,
+        // and the operator is the only one who can know that.
+        Ok(Err(e)) => eprintln!(
+            "vayucell: THE HALT COULD NOT BE RECORDED: {e}\n\
+             \x20         Restarting will clear it. Do not restart until somebody has \n\
+             \x20         looked at the phone."
+        ),
+        Err(e) => eprintln!("vayucell: the halt reason was not usable as a record: {e}"),
+    }
+}
+
 /// Serves the panel, the site and the vault together, under one governor.
 ///
 /// # Why this is a command rather than three terminals
@@ -303,6 +397,10 @@ fn vault(a: &Args) -> i32 {
 /// stops a page on somebody's website reading the panel that reports whether
 /// their battery is safe, and it counts ports rather than paths.
 fn all(a: &Args) -> i32 {
+    if let Some(code) = refuse_if_halted(a) {
+        return code;
+    }
+
     let host = RealHost;
 
     let [panel_addr, site_addr, vault_addr] = match args::adjacent_ports(&a.bind) {
@@ -406,7 +504,7 @@ fn all(a: &Args) -> i32 {
         // The supervisor, in its own thread, holding the ceiling and owning the
         // governor the other three read. Spawned first, so a device already in
         // trouble is known to be in trouble before anything binds a socket.
-        scope.spawn(|| supervise(&governed, &supply, kind, a.assume_outage));
+        scope.spawn(|| supervise(&governed, &supply, kind, a.assume_outage, &a.halt_record));
 
         let panel = scope.spawn(|| {
             // The governed level rather than a fresh one, so the panel agrees
@@ -480,6 +578,7 @@ fn supervise(
     supply_dir: &str,
     kind: Option<Kind>,
     assume_outage: Option<core::time::Duration>,
+    halt_record: &str,
 ) {
     let mut host = RealHost;
     let mut clock = RealClock::new();
@@ -514,9 +613,15 @@ fn supervise(
         }
 
         if outcome.level == Level::Halt {
+            // Written before the message, so a power cut between the two leaves
+            // the record rather than only the sentence claiming there is one.
+            record_halt(halt_record, &halt_reason(outcome.transition.as_ref()));
             eprintln!(
                 "vayucell: the governor has halted. This requires a person who \
                  has looked at the phone; no restart clears it."
+            );
+            eprintln!(
+                "vayucell: clear it with `vayucell inspect --lies-flat` once you have looked."
             );
             // Flushed before exiting: stdout is block-buffered when it is not a
             // terminal, and the transition that explains the halt is the one
@@ -532,6 +637,10 @@ fn supervise(
 
 /// The supervisor loop, against the real machine and a clock that really sleeps.
 fn run(a: &Args, ticks: Option<u32>) -> i32 {
+    if let Some(code) = refuse_if_halted(a) {
+        return code;
+    }
+
     let mut host = RealHost;
     let thresholds = Thresholds::recommended();
     let ceiling = Percent::clamped(i64::from(a.ceiling));
@@ -584,9 +693,13 @@ fn run(a: &Args, ticks: Option<u32>) -> i32 {
             // The governor halts and this process stops with it. Continuing to
             // loop after a hard stop would make HALT a log line rather than a
             // state, which is the one thing it must never become.
+            record_halt(&a.halt_record, &halt_reason(outcome.transition.as_ref()));
             eprintln!(
                 "vayucell: the governor has halted. This requires a person who \
                  has looked at the phone; no restart clears it."
+            );
+            eprintln!(
+                "vayucell: clear it with `vayucell inspect --lies-flat` once you have looked."
             );
             return report::EXIT_UNSAFE;
         }

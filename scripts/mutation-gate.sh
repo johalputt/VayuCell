@@ -135,6 +135,8 @@ AU=core/src/auth.rs
 LI=cli/src/listen.rs
 EN=cli/src/enrol.rs
 CL=cli/src/cell.rs
+HA=core/src/halt.rs
+HR=cli/src/halted.rs
 
 mutate "$T" a_guest_that_cannot_see_the_phone_reports_unverified_rather_than_guessing \
   "a bare VM is promoted to T2 without the shell's assertion" \
@@ -1270,6 +1272,55 @@ mutate "$RP" a_cool_cell_still_reports_the_governor_as_verified \
     assemble(host, supply_dir, ceiling, level)" \
   "    let _ = crate::device::observe(host, supply_dir);
     assemble(host, supply_dir, ceiling, Level::Halt)"
+
+mutate "$HA" a_record_nobody_could_read_is_not_treated_as_no_record \
+  "a halt record nobody could read lets the device serve" \
+  "            Self::Halted(_) | Self::Unreadable(_) => false," \
+  "            Self::Halted(_) => false,
+            Self::Unreadable(_) => true,"
+
+mutate "$HA" an_empty_record_is_refused_rather_than_read_as_a_halt_with_no_reason \
+  "an empty halt record parses as a halt that names nothing" \
+  "        if reason.is_empty() {
+            return Err(HaltError::Empty);
+        }" \
+  "        if false {
+            return Err(HaltError::Empty);
+        }"
+
+mutate "$HA" a_record_carrying_a_control_character_is_refused \
+  "a halt reason may carry a newline and rewrite the operator's terminal" \
+  "        if reason.chars().any(char::is_control) {" \
+  "        if false {"
+
+mutate "$G" a_recorded_halt_produces_a_governor_that_is_already_halted \
+  "an inherited halt comes back at NORMAL, so any restart clears a hard stop" \
+  "            level: Level::Halt,
+            thresholds,
+            history: Vec::new(),
+            consecutive_failures: 0,
+        }
+    }
+
+    /// How many consecutive read attempts have failed." \
+  "            level: Level::Normal,
+            thresholds,
+            history: Vec::new(),
+            consecutive_failures: 0,
+        }
+    }
+
+    /// How many consecutive read attempts have failed."
+
+mutate "$HR" a_record_that_exists_and_will_not_parse_is_unreadable_rather_than_clear \
+  "an unparseable record is read as no record, returning a halted phone to service" \
+  "            Err(e) => Standing::Unreadable(format!(\"{path}: {e}\"))," \
+  "            Err(_) => Standing::Clear,"
+
+mutate "$HR" a_recorded_halt_is_still_there_for_the_next_process \
+  "the halt record is never renamed into place, so the next start finds nothing" \
+  "    std::fs::rename(&temporary, path).map_err(|e| format!(\"{path}: {e}\"))?;" \
+  "    let _ = &temporary;"
 
 mutate "$CL" a_halted_supervisor_keeps_refusing_after_the_cell_cools \
   "the surfaces read only the fresh cell, so a cooled phone clears a hard stop" \

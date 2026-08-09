@@ -13,6 +13,8 @@
 
 use core::time::Duration;
 
+use vayucell_core::governor::Inspection;
+
 /// What the user asked for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
@@ -31,6 +33,9 @@ pub enum Command {
     Vault,
     /// Serve the panel, the site and the vault together, under one governor.
     All,
+    /// Record that a person has looked at the phone, and clear a halt if they
+    /// found it sound.
+    Inspect,
     /// Enrol a device and print its secret once.
     Enrol,
     /// List the devices enrolled on this cell.
@@ -67,6 +72,10 @@ pub struct Args {
     pub device: Option<String>,
     /// How many bytes the vault may hold.
     pub quota: u64,
+    /// Where the halt record lives.
+    pub halt_record: String,
+    /// What `inspect` was told the person saw. `None` means neither flag.
+    pub inspection: Option<Inspection>,
 }
 
 /// Why an invocation was refused.
@@ -256,6 +265,8 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
     let mut store = default_store();
     let mut device: Option<String> = None;
     let mut quota: u64 = DEFAULT_QUOTA;
+    let mut halt_record = crate::halted::default_path();
+    let mut inspection: Option<Inspection> = None;
 
     let mut i = 0;
     while i < argv.len() {
@@ -267,6 +278,7 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
             "site" => set_command(&mut command, Command::Site, arg)?,
             "vault" => set_command(&mut command, Command::Vault, arg)?,
             "all" => set_command(&mut command, Command::All, arg)?,
+            "inspect" => set_command(&mut command, Command::Inspect, arg)?,
             "enrol" | "enroll" => set_command(&mut command, Command::Enrol, arg)?,
             "devices" => set_command(&mut command, Command::Devices, arg)?,
             "revoke" => set_command(&mut command, Command::Revoke, arg)?,
@@ -290,6 +302,15 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
             "--store" => {
                 store = value_after(argv, &mut i, "--store")?;
             }
+            "--halt-record" => {
+                halt_record = value_after(argv, &mut i, "--halt-record")?;
+            }
+            // Two flags rather than `--inspection <WORD>`, because the two
+            // answers are not interchangeable values of one thing: one resumes
+            // a phone and the other retires it, and a typo between two words
+            // should not be able to pick the wrong one.
+            "--lies-flat" => set_inspection(&mut inspection, Inspection::LiesFlat)?,
+            "--deformed" => set_inspection(&mut inspection, Inspection::Deformed)?,
             "--device" => {
                 device = Some(value_after(argv, &mut i, "--device")?);
             }
@@ -394,6 +415,16 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
         ));
     }
 
+    if command == Command::Inspect && inspection.is_none() {
+        return Err(ArgError(
+            "inspect needs --lies-flat or --deformed. Put the phone face-down on \
+             a flat table first: --lies-flat if it lies flat and no edge is \
+             lifting, --deformed if it rocks or any edge is. There is no default, \
+             because the default would be this program deciding what you saw"
+                .to_owned(),
+        ));
+    }
+
     Ok(Args {
         command,
         supply_dir,
@@ -405,7 +436,26 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
         store,
         device,
         quota,
+        halt_record,
+        inspection,
     })
+}
+
+fn set_inspection(slot: &mut Option<Inspection>, seen: Inspection) -> Result<(), ArgError> {
+    match *slot {
+        // Refused rather than last-one-wins. Somebody who typed both does not
+        // know what they are asking for, and one of the two answers ends with a
+        // phone going in the bin.
+        Some(already) if already != seen => Err(ArgError(
+            "--lies-flat and --deformed say opposite things; pass whichever one \
+             you actually saw"
+                .to_owned(),
+        )),
+        _ => {
+            *slot = Some(seen);
+            Ok(())
+        }
+    }
 }
 
 fn set_command(slot: &mut Option<Command>, cmd: Command, name: &str) -> Result<(), ArgError> {
@@ -437,6 +487,8 @@ mod tests {
     use super::{parse, ArgError, Args, Command, DEFAULT_CEILING, DEFAULT_SUPPLY};
     use core::time::Duration;
 
+    use vayucell_core::governor::Inspection;
+
     fn argv(s: &[&str]) -> Vec<String> {
         s.iter().map(|x| (*x).to_owned()).collect()
     }
@@ -457,6 +509,8 @@ mod tests {
                 store: super::default_store(),
                 device: None,
                 quota: super::DEFAULT_QUOTA,
+                halt_record: crate::halted::default_path(),
+                inspection: None,
             }
         );
         assert_eq!(DEFAULT_CEILING, 60, "ADR-0002's recommended long-term hold");
@@ -670,6 +724,49 @@ mod tests {
         // operator already types stops working.
         let a = parse(&argv(&["vault", "--dir", "/srv/files"])).expect("parses");
         assert_eq!(a.vault_dir.as_deref(), Some("/srv/files"));
+    }
+
+    #[test]
+    fn inspect_needs_to_be_told_what_the_person_saw() {
+        // No default, because the default would be this program deciding what
+        // somebody saw when they looked at their phone.
+        let e = parse(&argv(&["inspect"])).expect_err("inspect needs an observation");
+        assert!(e.0.contains("--lies-flat"), "{}", e.0);
+        assert!(e.0.contains("--deformed"), "{}", e.0);
+        assert!(e.0.contains("flat table"), "{}", e.0);
+    }
+
+    #[test]
+    fn the_two_observations_are_carried_separately() {
+        let flat = parse(&argv(&["inspect", "--lies-flat"])).expect("parses");
+        assert_eq!(flat.command, Command::Inspect);
+        assert_eq!(flat.inspection, Some(Inspection::LiesFlat));
+
+        let bad = parse(&argv(&["inspect", "--deformed"])).expect("parses");
+        assert_eq!(bad.inspection, Some(Inspection::Deformed));
+    }
+
+    #[test]
+    fn contradicting_observations_are_refused_rather_than_last_one_winning() {
+        // One of these two answers ends with a phone going to hazardous waste.
+        // Somebody who typed both does not know which they mean, and silently
+        // taking the last is this program choosing on their behalf.
+        let e = parse(&argv(&["inspect", "--lies-flat", "--deformed"]))
+            .expect_err("both cannot be true");
+        assert!(e.0.contains("opposite"), "{}", e.0);
+
+        // The same flag twice is somebody being emphatic, not contradictory.
+        let ok = parse(&argv(&["inspect", "--lies-flat", "--lies-flat"])).expect("parses");
+        assert_eq!(ok.inspection, Some(Inspection::LiesFlat));
+    }
+
+    #[test]
+    fn the_halt_record_has_a_default_and_can_be_moved() {
+        let d = parse(&argv(&["status"])).expect("parses");
+        assert!(d.halt_record.ends_with("halted"), "{}", d.halt_record);
+
+        let moved = parse(&argv(&["status", "--halt-record", "/tmp/h"])).expect("parses");
+        assert_eq!(moved.halt_record, "/tmp/h");
     }
 
     #[test]

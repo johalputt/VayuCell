@@ -20,6 +20,44 @@ when the tag is cut.
 
 ### Added
 
+- **A halt now survives a restart, which is what the binary has been claiming.**
+  When the governor halts it prints *"This requires a person who has looked at
+  the phone; no restart clears it."* Any restart cleared it completely.
+
+  The mechanism was already there and unused. `Supervisor::new` takes a governor
+  rather than building one, its documentation saying *"so a device that was
+  halted before a restart comes back halted"*; `Governor::after_inspection` is
+  the way back down the ladder; `core/src/runtime_test.rs` even asserts that a
+  supervisor built around a halted governor comes back halted. Every caller in
+  the binary passed `Governor::new(thresholds)` — fresh, at `NORMAL`. So a phone
+  that halted on temperature came back serving the moment anything restarted it:
+  the operator, Android reclaiming memory, a power cut, a boot script.
+
+  `core/src/halt.rs` holds the decision and no I/O; `cli/src/halted.rs` holds the
+  file. `run` and `all` refuse to start while a halt stands, before anything
+  binds a socket, and record the halt before exiting — in that order, so a power
+  cut between the two leaves the record rather than only the sentence claiming
+  there is one. The write uses the vault's ordering, directory flush included,
+  because a halt is written exactly when a device may lose power a second later.
+
+  **An unreadable record is a halted device.** Three outcomes, not two: no
+  record, a record, and a record that exists and cannot be read. `NotFound` is
+  clear; anything else is not, because something wrote that file and the only
+  thing that writes it is a hard stop. Collapsing the two would mean a
+  permissions change or a half-mounted card silently returned a halted phone to
+  service.
+
+- **`vayucell inspect --lies-flat | --deformed`** — the only way down from
+  `HALT`, and it takes a human observation rather than a reading. ADR-0002 §6:
+  software cannot measure a millimetre of deformation.
+
+  `--deformed` does not clear the halt and there is no flag that overrides it: a
+  cell somebody has watched deform is not a cell to resume serving on, whatever
+  the sensors say afterwards. Neither flag has a default, because the default
+  would be this program deciding what somebody saw when they looked at their
+  phone, and passing both is refused rather than resolved last-one-wins — one of
+  the two answers ends with a phone going to hazardous waste.
+
 - **`scripts/msrv-gate.sh`, run by `local-ci.sh`.** The crate declares
   `rust-version = "1.80"` and the gates were only ever run against whatever
   stable happened to be installed — years ahead of it. `Option::expect` in a

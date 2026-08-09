@@ -21,6 +21,7 @@ pub mod capability;
 pub mod csp;
 pub mod durability;
 pub mod governor;
+pub mod halt;
 pub mod headers;
 pub mod host;
 pub mod ingress;
@@ -44,6 +45,8 @@ mod csp_test;
 mod durability_test;
 #[cfg(test)]
 mod governor_test;
+#[cfg(test)]
+mod halt_test;
 #[cfg(test)]
 mod headers_test;
 #[cfg(test)]
