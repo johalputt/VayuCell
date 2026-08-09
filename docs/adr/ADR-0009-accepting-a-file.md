@@ -100,6 +100,32 @@ Returning the order as data rather than performing it means a test with no
 filesystem asserts the *ordering*, and a mutation that swaps two steps turns that
 test red.
 
+### 4.1 The one operation that was not contained against links
+
+ADR-0008 §2 records that containment against symbolic links belongs in the
+binary, where real paths are resolved, and points at `read_contained`. The
+`remove` path says the same thing in its own comment — canonicalised *"for the
+same reason a read is"*. The sentence is equally true of a write, and a write was
+the one operation of the three with no such check.
+
+The temporary is the dangerous half. `OpenOptions::open` follows links, so a link
+sitting at the `.partial` path is opened, truncated and filled with the uploaded
+bytes **wherever it points** — and the `rename` afterwards moves the link rather
+than the content, so the upload lands outside the vault and the vault looks
+empty. The destination is the quieter half: `rename` replaces a link instead of
+following it, so nothing escapes, but an operator's link is destroyed without a
+word by a vault that would have refused to *read* through it. Two operations
+disagreeing about the same file is its own defect.
+
+Both are now refused before a byte is written, checked with `symlink_metadata`,
+which reports the link rather than what it points at. **What that does not
+close, stated rather than implied:** it is a check before an open, so a link
+created in the gap between them is not caught by it. Winning that race needs
+write access to the vault directory — the same user this process runs as — and
+ADR-0010 §2 already says plainly that the same user is not an adversary this
+design can hold off. The check is worth having because the ordinary way a link
+ends up in a served directory is that the operator put it there.
+
 ## §5. No receipt may say the file is safe
 
 `Receipt` has no `Durable` variant and will not get one.

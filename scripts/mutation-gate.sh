@@ -1060,6 +1060,26 @@ mutate "$SV" a_file_that_resolved_but_cannot_be_read_answers_exactly_like_a_typo
                 500,
                 \"Not Found\","
 
+mutate "$LI" a_write_cannot_reach_through_a_symlink_at_the_temporary_path \
+  "an upload opens its temporary through a link and lands outside the vault" \
+  "    for path in [plan.temporary(), plan.destination()] {" \
+  "    for path in [plan.destination()] {"
+
+mutate "$LI" a_write_does_not_silently_replace_a_symlink_at_the_destination \
+  "an upload destroys an operator's link that a read would have refused" \
+  "    for path in [plan.temporary(), plan.destination()] {" \
+  "    for path in [plan.temporary()] {"
+
+mutate "$LI" an_ordinary_write_over_a_real_file_is_still_allowed \
+  "the vault refuses to replace a file it stored itself" \
+  "        if is_symlink(path) {" \
+  "        if true {"
+
+mutate "$LI" a_write_cannot_reach_through_a_symlink_at_the_temporary_path \
+  "the link check follows the link, so it never sees one" \
+  "    std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink())" \
+  "    std::fs::metadata(path).is_ok_and(|m| m.file_type().is_symlink())"
+
 mutate "$LI" a_symlink_pointing_out_of_the_root_is_refused \
   "a symbolic link may lead out of the site directory" \
   "    if !real_file.starts_with(&real_root) {

@@ -249,6 +249,39 @@ fn used_bytes(dir: &str) -> Option<u64> {
 fn write_durably(plan: &vayucell_core::vault::WritePlan, bytes: &[u8]) -> Result<(), String> {
     use std::fs::{File, OpenOptions};
 
+    // 0. Neither path may already be a symbolic link.
+    //
+    // A read canonicalises, and a delete canonicalises "for the same reason a
+    // read is: a symbolic link inside the vault pointing at something outside it
+    // would otherwise let a delete reach a file that was never stored here". The
+    // same sentence is true of a write, and this was the one operation of the
+    // three with no such check.
+    //
+    // The temporary is the dangerous one. `OpenOptions::open` follows links, so
+    // a link sitting at the `.partial` path is opened, truncated and filled with
+    // the uploaded bytes wherever it points, and the rename afterwards moves the
+    // link — not the content — into place. The destination is the quieter one:
+    // `rename` replaces a link rather than following it, so nothing escapes, but
+    // an operator's link is destroyed without a word by a vault that would have
+    // refused to *read* through it. Refusing both is what makes the three
+    // operations agree.
+    //
+    // Checked with `symlink_metadata`, which reports the link rather than
+    // following it — the same reason `used_bytes` uses it. This is a check
+    // before an open, so a link created in the gap between them is not closed by
+    // it; that requires write access to the vault directory, which is the same
+    // user this process runs as, and the credential store already states that
+    // the same user is not an adversary this design can hold off. Said here
+    // rather than left for somebody to assume the stronger thing.
+    for path in [plan.temporary(), plan.destination()] {
+        if is_symlink(path) {
+            return Err(format!(
+                "{path} is a symbolic link, and the vault stores files rather than \
+                 writing through links to somewhere else; remove it and retry"
+            ));
+        }
+    }
+
     // 1. Write every byte to a temporary beside the destination.
     let mut temporary = OpenOptions::new()
         .write(true)
@@ -277,6 +310,16 @@ fn write_durably(plan: &vayucell_core::vault::WritePlan, bytes: &[u8]) -> Result
     File::open(plan.directory())
         .and_then(|d| d.sync_all())
         .map_err(|e| format!("{}: {e}", plan.directory()))
+}
+
+/// Whether this path is a symbolic link, without following it.
+///
+/// `symlink_metadata` reports the link itself. `metadata` would report whatever
+/// it points at, which for an absent target is an error and for a present one is
+/// indistinguishable from an ordinary file — either way the answer would be
+/// about the wrong object.
+fn is_symlink(path: &str) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink())
 }
 
 /// Reads a file, having first confirmed against the real filesystem that it is
@@ -851,6 +894,82 @@ mod durable_write_tests {
         )
         .plan(&root, &Name::new(name).expect("plain"))
         .expect("accepted")
+    }
+
+    #[test]
+    fn a_write_cannot_reach_through_a_symlink_at_the_temporary_path() {
+        // The one operation of the three that had no containment. A read
+        // canonicalises and a delete canonicalises; a write opened its temporary
+        // with OpenOptions, which follows links. A link sitting at the .partial
+        // path is opened, truncated and filled with the uploaded bytes wherever
+        // it points, and the rename afterwards moves the link rather than the
+        // content — so the upload lands outside the vault and the vault looks
+        // empty.
+        let s = Scratch::new("write-symlink-temp");
+        let outside = std::path::Path::new(&s.dir()).join("precious.txt");
+        std::fs::write(&outside, "KEEP").expect("a file outside the vault");
+        let root = std::path::Path::new(&s.dir()).join("vault");
+        std::fs::create_dir_all(&root).expect("the root");
+
+        let plan = plan_for(root.to_str().expect("utf-8"), "notes.txt");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&outside, plan.temporary()).expect("a symlink");
+        #[cfg(not(unix))]
+        return;
+
+        let refused = write_durably(&plan, b"UPLOADED").expect_err("a link is not a temporary");
+        assert!(refused.contains("symbolic link"), "{refused}");
+
+        assert_eq!(
+            std::fs::read_to_string(&outside).expect("still there"),
+            "KEEP",
+            "the upload was written through the link, outside the vault"
+        );
+    }
+
+    #[test]
+    fn a_write_does_not_silently_replace_a_symlink_at_the_destination() {
+        // The quieter half. `rename` replaces a link rather than following it,
+        // so nothing escapes here — but the vault would have *refused to read*
+        // through this link, and destroying it without a word is the two
+        // operations disagreeing about the same file.
+        let s = Scratch::new("write-symlink-dest");
+        let outside = std::path::Path::new(&s.dir()).join("elsewhere.txt");
+        std::fs::write(&outside, "THEIRS").expect("a file outside the vault");
+        let root = std::path::Path::new(&s.dir()).join("vault");
+        std::fs::create_dir_all(&root).expect("the root");
+
+        let plan = plan_for(root.to_str().expect("utf-8"), "notes.txt");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&outside, plan.destination()).expect("a symlink");
+        #[cfg(not(unix))]
+        return;
+
+        let refused = write_durably(&plan, b"UPLOADED").expect_err("a link is not a destination");
+        assert!(refused.contains("symbolic link"), "{refused}");
+        assert!(
+            std::fs::symlink_metadata(plan.destination())
+                .expect("still there")
+                .file_type()
+                .is_symlink(),
+            "the operator's link was destroyed without a word"
+        );
+    }
+
+    #[test]
+    fn an_ordinary_write_over_a_real_file_is_still_allowed() {
+        // The check is about links, not about overwriting. A vault that refused
+        // to replace a stored file would break the ordinary case the whole
+        // surface exists for.
+        let s = Scratch::new("write-overwrite");
+        let plan = plan_for(&s.dir(), "notes.txt");
+        std::fs::write(plan.destination(), b"OLD").expect("a real file");
+
+        write_durably(&plan, b"NEW").expect("an ordinary overwrite");
+        assert_eq!(
+            std::fs::read_to_string(plan.destination()).expect("read back"),
+            "NEW"
+        );
     }
 
     #[test]

@@ -116,6 +116,35 @@ when the tag is cut.
   presented anything, and revoking that name silently takes both. That is now
   what the ADR says and what the refusal message says.
 
+- **An upload was the one operation not contained against symbolic links.**
+  ADR-0008 §2 puts link containment in the binary, where real paths resolve, and
+  `read_contained` canonicalises for a read. `remove` canonicalises too, and says
+  why in its own comment: *"for the same reason a read is"*. That sentence is
+  equally true of a write, and a write had no such check.
+
+  The temporary is the dangerous half. `OpenOptions::open` follows links, so a
+  link sitting at the `.partial` path is opened, truncated and filled with the
+  uploaded bytes **wherever it points** — and the rename afterwards moves the
+  link rather than the content, so the upload lands outside the vault and the
+  vault looks empty. The destination is the quieter half: `rename` replaces a
+  link instead of following it, so nothing escapes, but an operator's link is
+  destroyed without a word by a vault that would have refused to *read* through
+  it. Two operations disagreeing about the same file is its own defect.
+
+  Both paths are now refused before a byte is written, checked with
+  `symlink_metadata`, which reports the link rather than what it points at.
+  Overwriting an ordinary stored file is unaffected and has its own test, because
+  a vault that refused to replace a file it stored itself would break the case
+  the surface exists for.
+
+  **What this does not close, said rather than implied:** it is a check before an
+  open, so a link created in the gap between them is not caught by it. Winning
+  that race needs write access to the vault directory — the same user this
+  process runs as — and ADR-0010 already states that the same user is not an
+  adversary this design can hold off. The check earns its place because the
+  ordinary way a link ends up in a served directory is that the operator put it
+  there.
+
 ## [0.0.9] — 2026-08-09
 
 ### Fixed
