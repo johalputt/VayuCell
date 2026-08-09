@@ -49,6 +49,31 @@ die() {
   exit 1
 }
 
+# ── Verifying a download ──────────────────────────────────────────────────────
+
+# Checks one downloaded asset against the published checksum list.
+#
+# A function, and defined up here before anything happens, so it can be tested
+# without a network, a release, or a device: scripts/install-gate.sh sources
+# this file and calls *this* function with planted inputs. A copy of it in the
+# gate would drift from the copy that ships, and the one that drifts is always
+# the one nobody runs.
+#
+# Returns non-zero for every way it can fail to establish a match. `grep -F`
+# finding nothing is one of those ways: it feeds `sha256sum -c` an empty list,
+# which reports no properly formatted lines and exits non-zero, so a build the
+# list does not mention is refused rather than passed.
+verify_download() {
+  ( cd "$1" && grep -F "$2" SHA256SUMS.txt | sha256sum -c - >/dev/null 2>&1 )
+}
+
+# Sourced by the gate to reach the function above. Nothing past this line runs
+# in that mode, and the variable is never set when the installer is executed
+# normally, so a person running this always gets the whole script.
+if [ -n "${VAYUCELL_VERIFY_ONLY:-}" ]; then
+  return 0 2>/dev/null || exit 0
+fi
+
 # ── Where are we ──────────────────────────────────────────────────────────────
 
 step "Checking what kind of device this is"
@@ -152,18 +177,31 @@ if [ -n "$ASSET" ] && curl -fsSL -o "$TMP/$ASSET" \
      "$RAW/releases/latest/download/$ASSET" 2>/dev/null; then
   good "Downloaded a published build"
 
-  # Checksums and signature. A download nobody verified is a download.
-  if curl -fsSL -o "$TMP/SHA256SUMS.txt" \
+  # A download nobody verified is a download.
+  #
+  # This used to warn and carry on when the checksum file would not download,
+  # which made every other check here decorative: anything able to fail one
+  # request — a proxy, a captive portal, a bad minute — silently downgraded the
+  # install to no verification at all, behind a yellow mark that scrolls past.
+  # Absence is never protection, and this is the first thing a stranger runs.
+  if ! curl -fsSL -o "$TMP/SHA256SUMS.txt" \
        "$RAW/releases/latest/download/SHA256SUMS.txt" 2>/dev/null; then
-    if ( cd "$TMP" && grep -F "$ASSET" SHA256SUMS.txt | sha256sum -c - >/dev/null 2>&1 ); then
-      good "Checksum matches"
-    else
-      die "the downloaded file does not match its published checksum" \
-          "Do not use it. This can mean a broken download — try again — or that the file was tampered with"
-    fi
-  else
-    warn "no checksum file published alongside this build; continuing unverified"
+    die "the published checksums could not be downloaded, so this build cannot be checked" \
+        "Try again in a minute. If it keeps failing, do not install: an unverified binary is not worth the wait"
   fi
+  if verify_download "$TMP" "$ASSET"; then
+    good "Checksum matches the published one"
+  else
+    die "the downloaded file does not match its published checksum" \
+        "Do not use it. This can mean a broken download — try again — or a file that is not the one that was published"
+  fi
+  # Said rather than implied. The checksum proves this file is the one the
+  # release lists; it is not an independent signature check, because the file
+  # and the list came from the same place over the same connection. The release
+  # publishes a cosign signature over the list for anyone who wants the stronger
+  # property, and this says so rather than letting a green tick imply it.
+  say  "     (checksum only — the release also publishes SHA256SUMS.txt.sig for"
+  say  "      anyone who wants to verify it with cosign)"
 
   tar -xzf "$TMP/$ASSET" -C "$TMP" \
     || die "the downloaded archive could not be opened" "Run the installer again; the download may have been cut short"

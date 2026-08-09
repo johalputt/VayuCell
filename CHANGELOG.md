@@ -18,6 +18,45 @@ traffic before it.
 The heading says *unreleased* rather than carrying a date. The date is written
 when the tag is cut.
 
+### Fixed
+
+- **The installer continued unverified when it could not download the
+  checksums.** `install.sh` verified a published build against
+  `SHA256SUMS.txt`, and when that file would not download it printed
+  `no checksum file published alongside this build; continuing unverified`
+  and installed the binary anyway.
+
+  That made every other check in the download path decorative. Anything able to
+  fail one request — a proxy, a captive portal, a bad minute of connectivity —
+  silently downgraded the install to no verification at all, behind a yellow
+  mark that scrolls past on a phone screen. **Absence is never protection**, and
+  this is the first thing a stranger runs.
+
+  It now refuses, naming what to do. The comparison itself was sound and is
+  unchanged: a tampered archive and a build the list does not mention were both
+  already refused, and both are now tested rather than assumed.
+
+- **The install gate only tested the happy path.** It ran the installer and
+  grepped the output for `Checksum matches`, so it could only ever confirm that
+  a good download passes. It could not have caught the defect above, and did
+  not.
+
+  `verify_download` is now a function defined before the installer does
+  anything, and the gate **sources the shipped file and calls that function** —
+  not a copy of it, because a copy in the gate drifts from the copy that ships
+  and the one that drifts is the one nobody runs. Four cases are planted: a
+  matching download, a tampered one, a build absent from the list, and no list
+  at all. Verified by reintroducing both defects and watching the gate go red
+  for each.
+
+### Changed
+
+- **The installer says what the checksum proves and what it does not.** It is
+  not an independent signature check: the archive and the checksum list come
+  from the same place over the same connection. The release publishes a cosign
+  signature over the list, and the installer now points at it rather than
+  letting a green tick imply it was used.
+
 ## [0.0.7] — 2026-08-09
 
 ### Added

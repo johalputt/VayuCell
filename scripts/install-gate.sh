@@ -97,6 +97,49 @@ else
     # *published* build, which is what a person gets — but it is then no longer
     # a test of the working tree, and saying so is cheaper than someone assuming
     # otherwise.
+    # The verification itself, exercised against planted files rather than only
+    # observed on a run that happened to succeed. Every case below is one a live
+    # install cannot be made to produce on demand, and one of them was a real
+    # hole: a checksum list that would not download used to warn and continue.
+    v="$(mktemp -d)"
+    # The shipped function, not a copy of it. A copy here would keep passing
+    # after the real one changed.
+    # shellcheck source=/dev/null
+    VAYUCELL_VERIFY_ONLY=1 . ./install.sh
+
+    printf 'payload\n' > "$v/vayucell-t.tar.gz"
+    ( cd "$v" && sha256sum vayucell-t.tar.gz > SHA256SUMS.txt )
+    verify_download "$v" "vayucell-t.tar.gz" \
+      && pass "a download matching its published checksum is accepted" \
+      || fail "a good download was refused"
+
+    printf 'tampered\n' > "$v/vayucell-t.tar.gz"
+    verify_download "$v" "vayucell-t.tar.gz" \
+      && fail "a tampered download was accepted" \
+      || pass "a download that does not match its checksum is refused"
+
+    printf 'payload\n' > "$v/vayucell-t.tar.gz"
+    ( cd "$v" && sha256sum SHA256SUMS.txt > SHA256SUMS.txt.new && mv SHA256SUMS.txt.new SHA256SUMS.txt )
+    verify_download "$v" "vayucell-t.tar.gz" \
+      && fail "a build absent from the checksum list was accepted" \
+      || pass "a build the checksum list does not mention is refused"
+    rm -rf "$v"
+
+    # And the hole itself: no checksum list at all must stop the install, not
+    # warn past it. Asserted against the script's text, because the branch
+    # cannot be reached without failing a real download.
+    if grep -q 'continuing unverified' install.sh; then
+      fail "the installer still continues when it cannot verify a download"
+    else
+      pass "an unverifiable download stops the install rather than warning"
+    fi
+
+    if grep -q 'the published checksums could not be downloaded' install.sh; then
+      pass "a missing checksum list is refused by name"
+    else
+      fail "nothing refuses a missing checksum list"
+    fi
+
     if grep -q 'Downloaded a published build' "$work/out"; then
       printf '  --    it took the download path; the tree itself was not compiled here\n'
       grep -q 'Checksum matches' "$work/out" \
