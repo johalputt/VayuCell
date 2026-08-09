@@ -20,6 +20,40 @@ when the tag is cut.
 
 ### Fixed
 
+- **One idle TCP connection silenced the safety panel.** Each surface ran a
+  single accept loop, reading one connection to completion before looking at the
+  next, so a caller who opened a socket and sent nothing held the whole surface
+  until the read timeout expired. One new silent connection per second held it
+  indefinitely.
+
+  Measured against the running binary rather than reasoned about: **zero
+  successful panel reads in thirty seconds**, from a caller sending no bytes,
+  presenting no credential, and needing nothing but the ability to open a TCP
+  connection from the same network. The panel is the surface that answers
+  whether the battery in somebody's house is safe.
+
+  Each surface now runs a small pool of workers accepting from the same
+  listener, and the idle timeout drops from ten seconds to five. Both matter,
+  and the arithmetic is why: a caller opening silent connections at `r` per
+  second keeps about `r × timeout` of them stalled at once, and the surface
+  answers while that stays under the worker count. Eight workers alone still
+  left four requests in thirty seconds timing out; eight with a five-second
+  timeout answered all sixty, median one millisecond.
+
+  **This is not immunity and is not described as such.** Blocking I/O with a
+  fixed number of workers cannot be made immune to a caller who opens
+  connections faster than they time out; that needs an event loop, and an event
+  loop without dependencies is a large amount of subtle code this project would
+  then have to be right about. The limit is recorded next to the constant that
+  bounds it.
+
+  Three tests hold it, one of which had to be fixed before it held anything: the
+  first version asserted the surface answered "faster than the read timeout",
+  which a single-worker surface does — it answers the instant the stall ahead of
+  it expires. The mutation reducing the pool to one worker survived it. The
+  bound is now a quarter of the timeout, because a pool that is absorbing stalls
+  answers in milliseconds and a bound has to be nowhere near the thing it
+  distinguishes itself from.
 - **A red check named the wrong thing.** The gate self-test ran as a second step
   inside the job called *"Charter · Articles III–IX enforced"*. The self-test
   refuses to run whenever another gate is already failing on a clean tree —

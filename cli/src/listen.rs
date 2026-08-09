@@ -27,18 +27,35 @@ use vayucell_core::serve::{
 use vayucell_core::site::{Availability, SiteRoot};
 use vayucell_core::vault::Quota;
 
-/// How long a client may take to send its request line.
+/// How long a connection may go silent before it is dropped.
 ///
-/// A connection that opens and never speaks otherwise holds a thread for as long
-/// as it likes, on a phone whose battery this project exists to protect.
-const READ_TIMEOUT: Duration = Duration::from_secs(10);
+/// Applied to the socket, so it bounds each read rather than the whole
+/// exchange: an upload that keeps sending is never cut off, and one that stops
+/// dead for this long is.
+///
+/// # It is half of the arithmetic that decides whether a surface survives
+///
+/// A stalled connection occupies one worker for at most this long, so a caller
+/// opening silent connections at `r` per second keeps roughly `r × timeout` of
+/// them stalled at once. The surface keeps answering while that stays under
+/// [`WORKERS`], and stops when it does not.
+///
+/// At ten seconds and eight workers, one silent connection per second was
+/// enough to saturate it — measured, not reasoned: four requests in thirty
+/// seconds still timed out. At five seconds the same attack leaves half the
+/// pool free. Neither number makes it immune, and [`WORKERS`] says why.
+///
+/// Five is generous for the legitimate case it must not break. A request line
+/// and its headers cross a home network in milliseconds, and this is an idle
+/// timeout, so a healthy upload never approaches it.
+const READ_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Serves until the process is stopped.
 ///
 /// # Errors
 ///
 /// Returns the reason the listener could not be established.
-pub fn serve(addr: &str, panel: &dyn Fn() -> String) -> Result<(), String> {
+pub fn serve(addr: &str, panel: &(dyn Fn() -> String + Sync)) -> Result<(), String> {
     let listener = TcpListener::bind(addr).map_err(|e| format!("{addr}: {e}"))?;
     let bound = listener
         .local_addr()
@@ -70,7 +87,7 @@ pub fn serve(addr: &str, panel: &dyn Fn() -> String) -> Result<(), String> {
 pub fn serve_site(
     addr: &str,
     root: &SiteRoot,
-    availability: &dyn Fn() -> Availability,
+    availability: &(dyn Fn() -> Availability + Sync),
 ) -> Result<(), String> {
     let listener = TcpListener::bind(addr).map_err(|e| format!("{addr}: {e}"))?;
     let bound = listener
@@ -103,7 +120,7 @@ pub fn serve_vault(
     addr: &str,
     root: &vayucell_core::vault::VaultRoot,
     credentials: &vayucell_core::auth::Credentials,
-    context: &dyn Fn() -> (vayucell_core::governor::Level, vayucell_core::shed::Stage),
+    context: &(dyn Fn() -> (vayucell_core::governor::Level, vayucell_core::shed::Stage) + Sync),
     limit: u64,
 ) -> Result<(), String> {
     let listener = TcpListener::bind(addr).map_err(|e| format!("{addr}: {e}"))?;
@@ -297,13 +314,65 @@ fn read_contained(root: &str, path: &str) -> Option<Vec<u8>> {
 }
 
 /// Answers one parsed request. The body is empty for every read surface.
-type Responder<'a> = dyn Fn(&Request, &Headers, &[u8]) -> Response + 'a;
+///
+/// `Sync`, because several workers hold this at once — see [`WORKERS`].
+type Responder<'a> = dyn Fn(&Request, &Headers, &[u8]) -> Response + Sync + 'a;
+
+/// How many connections one surface will work on at a time.
+///
+/// # This was one, and one was a denial of service
+///
+/// A single accept loop reads each connection to completion before looking at
+/// the next. A client that opens a socket and sends nothing therefore holds the
+/// whole surface until [`READ_TIMEOUT`] expires — and one new silent connection
+/// per second holds it permanently. Measured against the running binary: **zero
+/// successful panel reads in thirty seconds**, from a caller sending no bytes,
+/// presenting no credential and needing nothing but the ability to open a TCP
+/// connection.
+///
+/// The panel is the surface that answers whether the battery in somebody's house
+/// is safe. Silencing it is the worst available outcome of this project's own
+/// design, and it took one socket.
+///
+/// # What this fixes, and what it does not
+///
+/// Eight workers means eight concurrent stalls are needed rather than one, and
+/// [`READ_TIMEOUT`] bounds each. That is a real change in cost and it is **not**
+/// immunity: blocking I/O with a fixed number of workers cannot be made immune
+/// to a caller who opens connections faster than they time out. Fixing that
+/// properly means an event loop, and an event loop without dependencies is a
+/// large amount of subtle code this project would then have to be right about.
+///
+/// So the limit is stated rather than implied away. VayuCell binds loopback
+/// unless told otherwise, and reaching the home network is a flag somebody
+/// types — see ADR-0003 §3. On that network, a determined caller can still
+/// exhaust this pool, and no amount of tuning the number changes that.
+///
+/// Eight rather than more: these are threads on a phone whose battery is the
+/// entire point, and they exist to absorb stalls, not to serve load.
+const WORKERS: usize = 8;
 
 fn accept_loop(
     listener: &TcpListener,
     surface: Surface,
     respond: &Responder<'_>,
 ) -> Result<(), String> {
+    // Every worker accepts from the same listener. The kernel hands each
+    // connection to one of them, so there is no queue to size, nothing to
+    // hand off between threads, and no state that two workers could disagree
+    // about — which is the only reason a pool is affordable under a rule that
+    // forbids reaching for a runtime.
+    std::thread::scope(|scope| {
+        for _ in 1..WORKERS {
+            scope.spawn(|| accept_serially(listener, surface, respond));
+        }
+        accept_serially(listener, surface, respond);
+    });
+    Ok(())
+}
+
+/// One worker: accept, answer, repeat. Never returns while the socket is open.
+fn accept_serially(listener: &TcpListener, surface: Surface, respond: &Responder<'_>) {
     for stream in listener.incoming() {
         match stream {
             Ok(s) => {
@@ -314,7 +383,6 @@ fn accept_loop(
             Err(e) => eprintln!("vayucell: a connection failed before it began: {e}"),
         }
     }
-    Ok(())
 }
 
 fn handle(stream: TcpStream, surface: Surface, respond: &Responder<'_>) -> Result<(), String> {
@@ -934,5 +1002,101 @@ mod usage_tests {
         std::fs::create_dir(s.0.join("sub")).expect("a subdirectory");
         std::fs::write(s.0.join("sub/big.bin"), vec![0u8; 5000]).expect("written");
         assert_eq!(used_bytes(&s.dir()), Some(4));
+    }
+}
+
+#[cfg(test)]
+mod pool_tests {
+    use super::{accept_loop, READ_TIMEOUT, WORKERS};
+    use std::io::{Read as _, Write as _};
+    use std::net::{TcpListener, TcpStream};
+    use std::time::{Duration, Instant};
+    use vayucell_core::serve::{Headers, Request, Response, Surface};
+
+    /// A surface on an ephemeral port, answering everything the same way.
+    fn surface() -> std::net::SocketAddr {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("a port");
+        let addr = listener
+            .local_addr()
+            .expect("the socket says what it bound");
+        std::thread::spawn(move || {
+            let respond = |_: &Request, _: &Headers, _: &[u8]| Response::text("ok\n".to_owned());
+            let _ = accept_loop(&listener, Surface::Control, &respond);
+        });
+        addr
+    }
+
+    /// What "answering" means here.
+    ///
+    /// Not merely "faster than the timeout". A surface with one worker answers
+    /// a queued request the instant the stall ahead of it expires, which lands
+    /// just *under* `READ_TIMEOUT` and passed the first version of these tests —
+    /// the mutation that reduced the pool to one worker survived them. A pool
+    /// that is absorbing stalls answers in milliseconds, so the bound has to be
+    /// nowhere near the thing it is distinguishing itself from.
+    const PROMPTLY: Duration = READ_TIMEOUT.checked_div(4).expect("a positive divisor");
+
+    fn ask(addr: std::net::SocketAddr) -> Duration {
+        let start = Instant::now();
+        let mut s = TcpStream::connect(addr).expect("connects");
+        s.set_read_timeout(Some(READ_TIMEOUT)).expect("timeout set");
+        s.write_all(b"GET / HTTP/1.1\r\nHost: x\r\n\r\n")
+            .expect("writes");
+        let mut buf = [0u8; 64];
+        let _ = s.read(&mut buf).expect("answers");
+        start.elapsed()
+    }
+
+    #[test]
+    fn a_connection_that_never_speaks_does_not_hold_the_surface() {
+        // The defect this pool exists for. With one accept loop, a socket that
+        // opened and sent nothing held the whole surface until the read timeout
+        // expired — and one new silent connection per second held it for good.
+        // Measured against the running binary at the time: zero successful
+        // panel reads in thirty seconds.
+        let addr = surface();
+        assert!(ask(addr) < PROMPTLY, "the surface was not answering");
+
+        let _silent = TcpStream::connect(addr).expect("connects and says nothing");
+        std::thread::sleep(Duration::from_millis(200));
+
+        let took = ask(addr);
+        assert!(
+            took < PROMPTLY,
+            "a silent connection held the surface for {took:?}; the pool absorbs nothing"
+        );
+    }
+
+    #[test]
+    fn several_silent_connections_still_leave_the_surface_answering() {
+        // One is the interesting case; a handful is the realistic one. Fewer
+        // than WORKERS must never be enough to close a surface.
+        let addr = surface();
+        let silent: Vec<TcpStream> = (0..WORKERS - 1)
+            .map(|_| TcpStream::connect(addr).expect("connects"))
+            .collect();
+        std::thread::sleep(Duration::from_millis(200));
+
+        let took = ask(addr);
+        assert!(
+            took < PROMPTLY,
+            "{} silent connections closed the surface ({took:?})",
+            silent.len()
+        );
+    }
+
+    #[test]
+    fn the_pool_is_large_enough_for_the_timeout_it_is_paired_with() {
+        // The arithmetic the two constants are chosen against, asserted so that
+        // raising one without the other fails here rather than in somebody's
+        // house. A caller opening silent connections at one per second keeps
+        // roughly `timeout` of them stalled at once; the surface answers while
+        // that stays under WORKERS.
+        let stalled_at_one_per_second = usize::try_from(READ_TIMEOUT.as_secs()).expect("small");
+        assert!(
+            stalled_at_one_per_second < WORKERS,
+            "a silent connection per second stalls {stalled_at_one_per_second} of {WORKERS} \
+             workers, which saturates the surface"
+        );
     }
 }

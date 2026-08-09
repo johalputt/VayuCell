@@ -1072,6 +1072,16 @@ mutate "$LI" a_symbolic_link_counts_as_the_link_and_not_as_what_it_points_at \
   "        let metadata = entry.ok()?.path().symlink_metadata().ok()?;" \
   "        let metadata = entry.ok()?.path().metadata().ok()?;"
 
+mutate "$LI" a_connection_that_never_speaks_does_not_hold_the_surface \
+  "one accept loop again, so a single silent socket closes the whole surface" \
+  "const WORKERS: usize = 8;" \
+  "const WORKERS: usize = 1;"
+
+mutate "$LI" the_pool_is_large_enough_for_the_timeout_it_is_paired_with \
+  "the idle timeout is raised without the pool, so a stall per second saturates it" \
+  "const READ_TIMEOUT: Duration = Duration::from_secs(5);" \
+  "const READ_TIMEOUT: Duration = Duration::from_secs(30);"
+
 mutate "$LI" a_delete_cannot_reach_through_a_symlink_out_of_the_vault \
   "a delete follows a symbolic link out of the vault" \
   "        if !real_file.starts_with(&real_root) {
