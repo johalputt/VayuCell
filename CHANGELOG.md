@@ -13,6 +13,13 @@ traffic before it.
 
 ## [Unreleased]
 
+## [0.0.4] — unreleased
+
+Nothing has landed here yet. The heading exists because the release gate
+requires the version in `.release-version` to be documented, and it says
+*unreleased* rather than carrying a date, so that nobody reads it as a version
+they could have installed. The date is written at the moment the tag is cut.
+
 ## [0.0.3] — 2026-08-09
 
 ### Added
