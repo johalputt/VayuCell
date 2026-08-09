@@ -18,6 +18,21 @@ traffic before it.
 The heading says *unreleased* rather than carrying a date. The date is written
 when the tag is cut.
 
+### Added
+
+- **`scripts/msrv-gate.sh`, run by `local-ci.sh`.** The crate declares
+  `rust-version = "1.80"` and the gates were only ever run against whatever
+  stable happened to be installed — years ahead of it. `Option::expect` in a
+  const context is stable to call since 1.83 and a compile error at 1.80; it
+  reached `main`, and CI's MSRV job was the only thing that noticed.
+
+  The gate builds and tests against the declared version, clearing `RUSTFLAGS`
+  as CI does, because an older toolchain emits lints the current one has since
+  renamed and failing on those would be testing the compiler. When the toolchain
+  is not installed it reports **NOT CHECKED** and fails, rather than passing for
+  a check it never ran. Verified by reintroducing the defect and watching it go
+  red.
+
 ### Fixed
 
 - **One idle TCP connection silenced the safety panel.** Each surface ran a

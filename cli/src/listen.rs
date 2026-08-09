@@ -1034,7 +1034,12 @@ mod pool_tests {
     /// the mutation that reduced the pool to one worker survived them. A pool
     /// that is absorbing stalls answers in milliseconds, so the bound has to be
     /// nowhere near the thing it is distinguishing itself from.
-    const PROMPTLY: Duration = READ_TIMEOUT.checked_div(4).expect("a positive divisor");
+    ///
+    /// Arithmetic on whole milliseconds rather than `checked_div(4).expect(..)`:
+    /// `Option::expect` is not const-stable at this crate's declared MSRV, and
+    /// the MSRV job is the only thing that says so — the toolchain these gates
+    /// run on is years newer and compiles it happily.
+    const PROMPTLY: Duration = Duration::from_millis(READ_TIMEOUT.as_secs() * 1000 / 4);
 
     fn ask(addr: std::net::SocketAddr) -> Duration {
         let start = Instant::now();
