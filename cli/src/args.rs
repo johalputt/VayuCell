@@ -50,6 +50,47 @@ pub enum Command {
     Version,
 }
 
+impl Command {
+    /// Whether this command puts the device's storage or content in front of
+    /// somebody other than the person holding it.
+    ///
+    /// # Why this is a predicate and not a line in each command
+    ///
+    /// `run` and `all` refused to start while a halt record stood. `site` and
+    /// `vault` did not — they started, served `200`, and said nothing about it.
+    /// So a phone whose cell crossed a hard threshold went on serving a website
+    /// and **accepting uploads** as soon as somebody restarted it into a
+    /// different subcommand, while the binary's own halt message says *"no
+    /// restart clears it"*.
+    ///
+    /// Nothing was wrong with the check. It was written once per command, and
+    /// the two commands added later did not get it. Asking the enum settles it
+    /// for every command that exists and forces the question for every command
+    /// added — a new variant does not compile until this match answers for it.
+    ///
+    /// [`Command::Serve`] is **deliberately false**, and it is the only
+    /// interesting entry. It serves the panel, which is what a person needs to
+    /// read at exactly the moment the device has halted; taking it away would
+    /// be the shed ladder's mistake, made at the terminal. It already reports
+    /// the halt — the panel floors its level at the standing — so it tells the
+    /// truth rather than serving through it.
+    #[must_use]
+    pub const fn serves_traffic(&self) -> bool {
+        match self {
+            Self::Site | Self::Vault | Self::All | Self::Run { .. } => true,
+            Self::Serve
+            | Self::Status
+            | Self::Inspect
+            | Self::Report
+            | Self::Enrol
+            | Self::Devices
+            | Self::Revoke
+            | Self::Help
+            | Self::Version => false,
+        }
+    }
+}
+
 /// A parsed invocation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Args {
@@ -764,6 +805,54 @@ mod tests {
         // The same flag twice is somebody being emphatic, not contradictory.
         let ok = parse(&argv(&["inspect", "--lies-flat", "--lies-flat"])).expect("parses");
         assert_eq!(ok.inspection, Some(Inspection::LiesFlat));
+    }
+
+    #[test]
+    fn every_command_that_serves_traffic_is_named_as_one() {
+        // The defect this predicate replaced: `run` and `all` each carried their
+        // own halt check and the two commands added later did not get one, so a
+        // halted phone served a website and accepted uploads as soon as somebody
+        // restarted it into a different subcommand.
+        //
+        // Asserted by listing rather than by calling the function on itself,
+        // which would pass whatever the function said.
+        for c in [
+            Command::Site,
+            Command::Vault,
+            Command::All,
+            Command::Run { ticks: None },
+        ] {
+            assert!(c.serves_traffic(), "{c:?} serves traffic and is not marked");
+        }
+    }
+
+    #[test]
+    fn the_panel_is_the_one_surface_a_halt_does_not_take_away() {
+        // Deliberate, and the only interesting entry. `serve` renders the panel,
+        // which is what a person needs to read at exactly the moment the device
+        // has halted — and it already reports the halt rather than serving
+        // through it, because the panel floors its level at the standing.
+        //
+        // Taking it away would be the shed ladder's mistake made at the terminal.
+        assert!(!Command::Serve.serves_traffic());
+    }
+
+    #[test]
+    fn nothing_that_only_reads_or_prints_is_gated_by_a_halt() {
+        // A halted phone must still be able to tell somebody what is wrong with
+        // it, and must still let them record that they looked.
+        for c in [
+            Command::Status,
+            Command::Report,
+            Command::Inspect,
+            Command::Devices,
+            Command::Enrol,
+            Command::Revoke,
+            Command::Help,
+            Command::Version,
+        ] {
+            assert!(!c.serves_traffic(), "{c:?} is gated and should not be");
+        }
     }
 
     #[test]

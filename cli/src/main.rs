@@ -56,6 +56,19 @@ fn main() -> ExitCode {
         }
     };
 
+    // One place, asked of every command. `run` and `all` each carried their own
+    // copy of this check and the two commands added after them did not get one,
+    // so a halted phone went on serving a website and accepting uploads the
+    // moment somebody restarted it into a different subcommand — while the
+    // binary's own halt message says no restart clears it.
+    //
+    // Before anything binds a socket or writes a ceiling.
+    if parsed.command.serves_traffic() {
+        if let Some(code) = refuse_if_halted(&parsed) {
+            return ExitCode::from(u8::try_from(code).unwrap_or(64));
+        }
+    }
+
     let code = match parsed.command {
         Command::Help => {
             print!("{}", args::USAGE);
@@ -431,10 +444,6 @@ fn record_halt(path: &str, reason: &str) {
 /// stops a page on somebody's website reading the panel that reports whether
 /// their battery is safe, and it counts ports rather than paths.
 fn all(a: &Args) -> i32 {
-    if let Some(code) = refuse_if_halted(a) {
-        return code;
-    }
-
     let host = RealHost;
 
     let [panel_addr, site_addr, vault_addr] = match args::adjacent_ports(&a.bind) {
@@ -671,10 +680,6 @@ fn supervise(
 
 /// The supervisor loop, against the real machine and a clock that really sleeps.
 fn run(a: &Args, ticks: Option<u32>) -> i32 {
-    if let Some(code) = refuse_if_halted(a) {
-        return code;
-    }
-
     let mut host = RealHost;
     let thresholds = Thresholds::recommended();
     let ceiling = Percent::clamped(i64::from(a.ceiling));

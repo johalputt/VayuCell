@@ -112,13 +112,17 @@ when the tag is cut.
   everywhere else: a red row reading as *"checked and failing"* when it means
   something narrower.
 
-  **Branch-Protection** is real and open — there is no ruleset on `main`.
-  `.github/rulesets/main.json` ships the one to apply, reviewable in a diff
-  rather than described in prose; it restricts deletions and blocks force pushes
-  and deliberately does **not** require a pull request. It needs a maintainer,
-  because the settings API is not writable from where this code is developed,
-  and it also needs a `SCORECARD_TOKEN` — without which the check scores zero
-  whatever the repository is set to.
+  **Branch-Protection**: `main` is protected. The branch reports
+  `protected: true`; it is classic branch protection rather than a ruleset, which
+  is why `/rulesets` returns an empty list and says nothing about it. This entry
+  first claimed the branch was unprotected on the strength of that empty list —
+  **a check is only enforcing where it looks**, which is the same lesson the
+  charter gate had just been fixed for, applied to the verification of it.
+
+  `.github/rulesets/main.json` remains as the equivalent expressed as a ruleset,
+  for anyone who prefers to manage it that way. The alert stays open regardless
+  until a `SCORECARD_TOKEN` with `Administration: read` exists, because the check
+  scores zero whatever the branch is set to when it cannot read the setting.
 
   **Code-Review** scores zero because every commit is pushed straight to `main`,
   which is the stated model rather than an oversight. The trade is written down
@@ -132,6 +136,29 @@ when the tag is cut.
   nobody has submitted.
 
 ### Fixed
+
+- **A halted phone went on serving a website and accepting uploads.** `run` and
+  `all` refused to start while a halt record stood. `site` and `vault` did not:
+  they started, answered `200`, and said nothing about it. So a cell that crossed
+  a hard threshold served content and **took files** as soon as somebody
+  restarted the binary into a different subcommand — while its own halt message
+  says *"no restart clears it"*.
+
+  Verified on the built binary before and after: a phone halted at 61.5 °C and
+  cooled to 25 °C, with nobody having looked at it, served `GET / -> 200` and
+  accepted `PUT -> 200`.
+
+  Nothing was wrong with the check. It was written once per command, and the two
+  commands added after it did not get one. It now lives in the dispatch and is
+  keyed by `Command::serves_traffic()`, so a variant added later **does not
+  compile** until that match answers for it.
+
+  `serve` is deliberately exempt and is the only interesting entry: it renders
+  the panel, which is what a person needs to read at exactly the moment the
+  device has halted, and it already reports the halt rather than serving through
+  it. Taking it away would be the shed ladder's mistake made at the terminal.
+  `inspect`, `status` and `report` stay ungated too — a halted phone must still
+  be able to say what is wrong with it and let somebody record that they looked.
 
 - **The device report claimed something about this binary that is not true.** It
   printed *"this program has no network code"*. The same binary runs three HTTP

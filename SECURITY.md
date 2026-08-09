@@ -67,27 +67,31 @@ and none of them is closed by changing code. They are recorded here because an
 alert nobody explains is the same defect this project refuses everywhere else: a
 red row that reads as "checked and failing" when it means something narrower.
 
-### Branch-Protection — real, and open
+### Branch-Protection — protected, and the alert still needs one more thing
 
-There is no ruleset on `main`. That is a genuine gap and it needs a maintainer,
-because the repository settings API is not writable from the environment this
-code is developed in.
+`main` **is** protected. The GitHub API reports `protected: true` on the branch;
+it is classic branch protection rather than a ruleset, which is why querying
+`/rulesets` returns an empty list and says nothing about it. Both forms count,
+and checking only one of them is how this section first came to claim the branch
+was unprotected when it was not — a check is only enforcing where it looks.
 
-`.github/rulesets/main.json` is the ruleset to apply — reviewable in the diff
-rather than described in prose. It restricts deletions and blocks force pushes,
-and it deliberately does **not** require a pull request, because that would
-contradict the next section. Apply it under *Settings → Rules → Rulesets →
-New ruleset → Import*, or:
+`.github/rulesets/main.json` is the equivalent expressed as a ruleset, for anyone
+who would rather manage it that way. It restricts deletions and blocks force
+pushes, and it deliberately does **not** require a pull request, because that
+would contradict the next section. Applying it is optional while classic
+protection is on:
 
 ```sh
 gh api -X POST repos/johalputt/VayuCell/rulesets --input .github/rulesets/main.json
 ```
 
-Scorecard also needs a fine-grained token with `Administration: read`, stored as
-the repository secret `SCORECARD_TOKEN`. **Without it the check scores zero
-whatever the repository is configured to do** — so a maintainer who applies the
-ruleset and watches the alert stay open has been told nothing. The workflow says
-so on every run rather than leaving it to be discovered.
+**The alert will stay open until Scorecard can read the setting.** The check
+needs a fine-grained token with `Administration: read`, stored as the repository
+secret `SCORECARD_TOKEN`; the default `GITHUB_TOKEN` cannot read repository
+settings. Without it the check scores zero **whatever the branch is actually
+configured to do**, so protecting the branch alone looks like it changed
+nothing. The workflow prints which of the two states it is in on every run
+rather than leaving that to be discovered.
 
 ### Code-Review — a deliberate deviation
 

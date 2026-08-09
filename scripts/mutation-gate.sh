@@ -739,6 +739,27 @@ mutate "$DU" an_unreachable_replica_is_not_filtered_out_as_noise \
   "            Self::Unreachable(_) => false,
             Self::NeverReplicated | Self::NoReplica => true,"
 
+mutate "$AR" every_command_that_serves_traffic_is_named_as_one \
+  "a halted phone serves a website and accepts uploads after a restart" \
+  "            Self::Site | Self::Vault | Self::All | Self::Run { .. } => true,
+            Self::Serve" \
+  "            Self::All | Self::Run { .. } => true,
+            Self::Site
+            | Self::Vault
+            | Self::Serve"
+
+mutate "$AR" the_panel_is_the_one_surface_a_halt_does_not_take_away \
+  "a halt takes away the panel the person needs to read" \
+  "            Self::Serve
+            | Self::Status" \
+  "            Self::Status"
+
+mutate "$AR" nothing_that_only_reads_or_prints_is_gated_by_a_halt \
+  "a halted phone will not let anybody record that they looked at it" \
+  "            | Self::Inspect
+            | Self::Report" \
+  "            | Self::Report"
+
 mutate "$WR" a_range_is_reported_as_its_worse_end \
   "a wear range is reported at its kinder end" \
   "        Some(step) => WearIndicator::Readable(step.saturating_mul(10))," \
