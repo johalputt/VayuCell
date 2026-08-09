@@ -89,6 +89,35 @@ fn a_standing_says_which_of_the_three_it_is_rather_than_just_refusing() {
     assert!(held.contains("looking at it"), "{held}");
 }
 
+#[test]
+fn a_standing_halt_floors_any_report_at_halt() {
+    // The panel reads the cell, and the cell has usually cooled by the time
+    // anybody looks at it. Without a floor, `vayucell status` on a phone with a
+    // halt recorded prints "governor at NORMAL; no threshold crossed" — which is
+    // exactly the defect the governor row was fixed for once already, arriving
+    // from a different direction.
+    assert_eq!(Standing::Clear.floor(), Level::Normal);
+    assert_eq!(Standing::Halted(halted()).floor(), Level::Halt);
+    assert_eq!(
+        Standing::Unreadable("permission denied".to_owned()).floor(),
+        Level::Halt
+    );
+}
+
+#[test]
+fn the_floor_never_lowers_a_reading_that_is_already_worse() {
+    // Taken as a maximum, so a device that is hot *now* is not reported as
+    // merely halted-earlier, and one that is halted-earlier is not reported as
+    // fine because it has cooled.
+    let clear = Standing::Clear;
+    assert_eq!(Level::Halt.max(clear.floor()), Level::Halt);
+    assert_eq!(Level::Derated.max(clear.floor()), Level::Derated);
+    assert_eq!(
+        Level::Normal.max(Standing::Halted(halted()).floor()),
+        Level::Halt
+    );
+}
+
 // ── The governor it produces ──────────────────────────────────────────────────
 
 #[test]

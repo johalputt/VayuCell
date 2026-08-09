@@ -85,7 +85,12 @@ fn status(a: &Args) -> i32 {
     // passed as a literal `Level::Normal` here, which made the governor row read
     // `VERIFIED — no threshold crossed` on a phone the governor would have
     // halted: the panel asserting, in green, a state nobody had computed.
-    let panel = report::observed(&host, &a.supply_dir, Percent::clamped(i64::from(a.ceiling)));
+    let panel = report::observed(
+        &host,
+        &a.supply_dir,
+        Percent::clamped(i64::from(a.ceiling)),
+        &halted::read(&a.halt_record),
+    );
     print!("{}", panel.render());
     report::exit_code(panel.overall())
 }
@@ -100,7 +105,11 @@ fn serve(a: &Args) -> i32 {
     // and so is a panel that is rebuilt every time around a level that was never
     // read. The governor row now comes from the cell, per request, like the
     // rest of it.
-    let panel = move || report::observed(&RealHost, &dir, ceiling).render();
+    // The record is re-read per request, like everything else on this surface.
+    // A panel that read it once at startup would keep reporting a halt after
+    // somebody cleared it, and keep reporting health after one arrived.
+    let record = a.halt_record.clone();
+    let panel = move || report::observed(&RealHost, &dir, ceiling, &halted::read(&record)).render();
     match listen::serve(&a.bind, &panel) {
         Ok(()) => 0,
         Err(e) => {

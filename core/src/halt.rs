@@ -39,6 +39,8 @@
 
 use core::fmt;
 
+use crate::governor::Level;
+
 /// A halt that was recorded, and why.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Halt {
@@ -153,6 +155,25 @@ impl Standing {
         match self {
             Self::Clear => true,
             Self::Halted(_) | Self::Unreadable(_) => false,
+        }
+    }
+
+    /// The level no report about this device may sit below.
+    ///
+    /// A standing halt is a fact about the device that a fresh reading cannot
+    /// see. The cell may be cool now — it usually is by the time anybody looks —
+    /// and the panel must still not say the governor is at `NORMAL` with no
+    /// threshold crossed, because a record on disk says one was crossed and
+    /// nobody has been to look at the phone.
+    ///
+    /// Callers take the worse of this and whatever they measured. That is the
+    /// same rule [`crate::runtime::Supervisor`] users follow for a latched
+    /// level, applied to a latch that outlives the process.
+    #[must_use]
+    pub const fn floor(&self) -> Level {
+        match self {
+            Self::Clear => Level::Normal,
+            Self::Halted(_) | Self::Unreadable(_) => Level::Halt,
         }
     }
 

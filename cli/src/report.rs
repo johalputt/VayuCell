@@ -18,6 +18,7 @@
 
 use vayucell_core::battery::Percent;
 use vayucell_core::governor::Level;
+use vayucell_core::halt::Standing;
 use vayucell_core::host::Host;
 use vayucell_core::panel::{
     Confidence, Evidence, Finding, Overall, Panel, RiskLevel, SwellingRisk,
@@ -57,10 +58,22 @@ pub const fn exit_code(overall: Overall) -> i32 {
 /// `serve` printed a green, positively worded assertion about a comparison
 /// nobody had made, on a phone the governor would have halted. This exists so
 /// that the correct call is also the shorter one.
+///
+/// `standing` floors the level. A halt recorded earlier is a fact about the
+/// device that no fresh reading can see — the cell has usually cooled by the
+/// time anybody looks — and without the floor this function printed
+/// `VERIFIED  battery governor  governor at NORMAL; no threshold crossed` on a
+/// phone whose halt record, sitting on the same disk, said a threshold had been
+/// crossed and nobody had been to look at it.
+///
+/// The panel is deliberately still *served* on a halted device rather than
+/// withheld: `run` and `all` refuse to start, and the one surface that reports
+/// whether the battery is safe is the last thing to take away from somebody
+/// whose battery is not. So it stays, and tells the truth.
 #[must_use]
-pub fn observed(host: &dyn Host, supply_dir: &str, ceiling: Percent) -> Panel {
+pub fn observed(host: &dyn Host, supply_dir: &str, ceiling: Percent, standing: &Standing) -> Panel {
     let (level, _) = crate::device::observe(host, supply_dir);
-    assemble(host, supply_dir, ceiling, level)
+    assemble(host, supply_dir, ceiling, level.max(standing.floor()))
 }
 
 /// Builds the panel for a device as it is right now.
@@ -137,6 +150,7 @@ mod tests {
     use super::{assemble, exit_code, EXIT_PROTECTED, EXIT_UNSAFE, EXIT_UNVERIFIED};
     use vayucell_core::battery::Percent;
     use vayucell_core::governor::Level;
+    use vayucell_core::halt::{Halt, Standing};
     use vayucell_core::host::FakeHost;
     use vayucell_core::panel::Overall;
     use vayucell_core::sysfs::SUPPLY;
@@ -163,7 +177,13 @@ mod tests {
         // passed Level::Normal, and the governor row is the one row that renders
         // Verified — so a 60 degree phone printed a green "no threshold crossed"
         // while every other row was busy being honest.
-        let hot = observed(&overheating_device(), SUPPLY, Percent::clamped(60)).render();
+        let hot = observed(
+            &overheating_device(),
+            SUPPLY,
+            Percent::clamped(60),
+            &Standing::Clear,
+        )
+        .render();
         assert!(
             hot.contains("governor at HALT"),
             "a halting cell reported no threshold crossed: {hot}"
@@ -178,7 +198,13 @@ mod tests {
     fn a_cool_cell_still_reports_the_governor_as_verified() {
         // The other direction, so that "read the cell" cannot be satisfied by a
         // function that reports trouble unconditionally.
-        let cool = observed(&readable_device(), SUPPLY, Percent::clamped(60)).render();
+        let cool = observed(
+            &readable_device(),
+            SUPPLY,
+            Percent::clamped(60),
+            &Standing::Clear,
+        )
+        .render();
         assert!(
             cool.contains("no threshold crossed"),
             "a cool cell was reported as having crossed one: {cool}"
@@ -188,11 +214,94 @@ mod tests {
     #[test]
     fn a_cell_that_cannot_be_read_is_never_reported_as_a_quiet_governor() {
         // Absence is never protection, on the row most likely to be skimmed.
-        let out = observed(&FakeHost::new(), SUPPLY, Percent::clamped(60)).render();
+        let out = observed(
+            &FakeHost::new(),
+            SUPPLY,
+            Percent::clamped(60),
+            &Standing::Clear,
+        )
+        .render();
         assert!(
             !out.contains("no threshold crossed"),
             "an unreadable cell produced a green governor row: {out}"
         );
+    }
+
+    fn standing_halt() -> Standing {
+        Standing::Halted(Halt::new("pack temperature exceeded 60 °C").expect("ordinary"))
+    }
+
+    #[test]
+    fn a_recorded_halt_reaches_the_panel_even_though_the_cell_has_cooled() {
+        // The defect this argument exists for, and one I introduced myself: the
+        // halt record made a restart refuse, and left the panel — the surface a
+        // person actually reads to decide whether their phone is safe — printing
+        // a green "no threshold crossed" beside a record saying one was crossed.
+        // By the time anybody looks, the cell has always cooled.
+        let out = observed(
+            &readable_device(),
+            SUPPLY,
+            Percent::clamped(60),
+            &standing_halt(),
+        )
+        .render();
+        assert!(out.contains("governor at HALT"), "{out}");
+        assert!(!out.contains("no threshold crossed"), "{out}");
+    }
+
+    #[test]
+    fn a_record_nobody_could_read_reaches_the_panel_the_same_way() {
+        let out = observed(
+            &readable_device(),
+            SUPPLY,
+            Percent::clamped(60),
+            &Standing::Unreadable("permission denied".to_owned()),
+        )
+        .render();
+        assert!(out.contains("governor at HALT"), "{out}");
+    }
+
+    #[test]
+    fn the_standing_floors_the_reading_rather_than_replacing_it() {
+        // A phone that is hot *now* and also has a halt on record is reported on
+        // what it is doing now. Taking the standing instead of the maximum would
+        // lose a live reading behind an old one.
+        let hot = observed(
+            &overheating_device(),
+            SUPPLY,
+            Percent::clamped(60),
+            &standing_halt(),
+        )
+        .render();
+        assert!(hot.contains("governor at HALT"), "{hot}");
+
+        // The case that actually distinguishes the two, and which the first
+        // version of this test was missing: a live reading worse than the
+        // standing. Replacing the level with the floor instead of taking the
+        // maximum passes both assertions above and loses this one entirely —
+        // the mutation survived until this line existed.
+        let hot_but_never_recorded = observed(
+            &overheating_device(),
+            SUPPLY,
+            Percent::clamped(60),
+            &Standing::Clear,
+        )
+        .render();
+        assert!(
+            hot_but_never_recorded.contains("governor at HALT"),
+            "a cell that is hot right now was reported from the record instead: \
+             {hot_but_never_recorded}"
+        );
+
+        // And a clear standing never invents trouble.
+        let fine = observed(
+            &readable_device(),
+            SUPPLY,
+            Percent::clamped(60),
+            &Standing::Clear,
+        )
+        .render();
+        assert!(fine.contains("no threshold crossed"), "{fine}");
     }
 
     #[test]

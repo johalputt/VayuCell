@@ -18,6 +18,31 @@ traffic before it.
 The heading says *unreleased* rather than carrying a date. The date is written
 when the tag is cut.
 
+### Fixed
+
+- **`vayucell status` reported a halted phone as fine, and I put that there.**
+  0.0.5 taught `run` and `all` to refuse while a halt stands, and left the panel
+  alone. The panel reads the cell, and by the time anybody looks at a phone that
+  halted on temperature the cell has cooled — so `status` printed
+  `VERIFIED  battery governor  governor at NORMAL; no threshold crossed` next to
+  a record on the same disk saying a threshold had been crossed and nobody had
+  been to look.
+
+  That is the same defect 0.0.3 fixed, arriving from the other direction: then
+  the level came from a literal, now it came from a reading that could not see
+  the whole state. `Standing::floor` names the rule and `report::observed` takes
+  the **maximum** of the reading and the floor, so a cell that is hot right now
+  is still reported as hot rather than as halted-earlier, and one that has cooled
+  is still reported as halted.
+
+  The panel is deliberately still served on a halted device. `run` and `all`
+  refuse to start, but the surface that reports whether the battery is safe is
+  the last thing to take away from somebody whose battery is not — there is a
+  mutation asserting exactly that, and it predates this.
+
+  The record is re-read per request, like everything else on that surface, so
+  clearing a halt is visible without a restart.
+
 ## [0.0.5] — 2026-08-09
 
 ### Added

@@ -1262,16 +1262,31 @@ mutate "$B" a_charge_full_near_the_integer_limit_does_not_crash_the_reading \
 mutate "$RP" the_governor_row_comes_from_the_cell_rather_than_from_a_literal \
   "the panel reports a quiet governor without reading the cell" \
   "    let (level, _) = crate::device::observe(host, supply_dir);
-    assemble(host, supply_dir, ceiling, level)" \
+    assemble(host, supply_dir, ceiling, level.max(standing.floor()))" \
   "    let _ = crate::device::observe(host, supply_dir);
-    assemble(host, supply_dir, ceiling, Level::Normal)"
+    assemble(host, supply_dir, ceiling, Level::Normal.max(standing.floor()))"
 
 mutate "$RP" a_cool_cell_still_reports_the_governor_as_verified \
   "the panel reports trouble on every cell, quiet or not" \
   "    let (level, _) = crate::device::observe(host, supply_dir);
-    assemble(host, supply_dir, ceiling, level)" \
+    assemble(host, supply_dir, ceiling, level.max(standing.floor()))" \
   "    let _ = crate::device::observe(host, supply_dir);
-    assemble(host, supply_dir, ceiling, Level::Halt)"
+    assemble(host, supply_dir, ceiling, Level::Halt.max(standing.floor()))"
+
+mutate "$HA" a_standing_halt_floors_any_report_at_halt \
+  "a recorded halt stops reaching the panel, so it reports a cooled cell as fine" \
+  "            Self::Halted(_) | Self::Unreadable(_) => Level::Halt," \
+  "            Self::Halted(_) | Self::Unreadable(_) => Level::Normal,"
+
+mutate "$RP" the_standing_floors_the_reading_rather_than_replacing_it \
+  "the panel reports the recorded halt instead of the cell, hiding a live reading" \
+  "    assemble(host, supply_dir, ceiling, level.max(standing.floor()))" \
+  "    assemble(host, supply_dir, ceiling, standing.floor())"
+
+mutate "$RP" a_recorded_halt_reaches_the_panel_even_though_the_cell_has_cooled \
+  "the panel ignores the halt record entirely and reports only the cell" \
+  "    assemble(host, supply_dir, ceiling, level.max(standing.floor()))" \
+  "    assemble(host, supply_dir, ceiling, level)"
 
 mutate "$HA" a_record_nobody_could_read_is_not_treated_as_no_record \
   "a halt record nobody could read lets the device serve" \
