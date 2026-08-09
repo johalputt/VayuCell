@@ -13,6 +13,8 @@ traffic before it.
 
 ## [Unreleased]
 
+## [0.0.3] — 2026-08-09
+
 ### Added
 
 - **`vayucell all`** — the panel, the site and the vault in one process, on
@@ -331,10 +333,6 @@ traffic before it.
   at a time: a stranger could tell "this exists and I cannot have it" from "this
   does not exist". Both are now 404 on the wire, with the reason logged where the
   operator — and only the operator — can read it.
-
-## [0.0.3] — 2026-08-08
-
-### Fixed
 
 - **A failing gate did not fail CI.** The install job was added to `ci.yml` and
   left out of the aggregating required-checks list. It then failed on its very
