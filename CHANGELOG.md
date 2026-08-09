@@ -13,10 +13,7 @@ traffic before it.
 
 ## [Unreleased]
 
-## [0.0.7] — unreleased
-
-The heading says *unreleased* rather than carrying a date. The date is written
-when the tag is cut.
+## [0.0.7] — 2026-08-09
 
 ### Added
 
@@ -46,6 +43,13 @@ when the tag is cut.
   Nothing reads a serial number, an IMEI, a MAC address, a hostname, a username
   or any network configuration. The only path that can carry a name is a
   `--supply-dir` the operator chose, and the report flags that line as theirs.
+
+  One exception to that claim was found by tracing it rather than trusting it:
+  the tier probe quotes an unrecognised `VAYUCELL_HOST_ASSERTION` back verbatim,
+  which is correct — somebody who set it wrongly needs to see what they set — and
+  means whatever they typed lands in a report headed for a public issue. It is
+  now named beside the claim, as `--supply-dir` already was. A claim with an
+  exception nobody mentions is a false claim.
 
 - **`sysfs::NODES`**, the published list of what a reading consults. The report
   is pinned to it rather than keeping a copy, because two lists drift and the one

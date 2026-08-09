@@ -1286,6 +1286,16 @@ mutate "$SY" the_report_says_what_it_holds_and_what_it_leaves_out \
   "        \"CONTAINS   the version, what was probed on this device, which power-supply\\n\\" \
   "        \"contents withheld\\n\\"
 
+mutate "$SY" an_operator_set_assertion_is_flagged_because_the_probe_quotes_it \
+  "a value the operator set is quoted into a public report without being flagged" \
+  "    if let Some(value) = host.env(SHELL_ASSERTION_ENV) {" \
+  "    if let Some(value) = None::<String> {"
+
+mutate "$SY" a_report_with_nothing_operator_set_claims_no_exceptions \
+  "the report claims an operator-set value on every device, including none" \
+  "    if let Some(value) = host.env(SHELL_ASSERTION_ENV) {" \
+  "    if let Some(value) = host.env(SHELL_ASSERTION_ENV).or(Some(String::new())) {"
+
 mutate "$SY" a_supply_directory_the_operator_chose_is_flagged_as_theirs \
   "a path the operator chose is included without being flagged as theirs" \
   "    if supply_dir != SUPPLY {" \

@@ -41,7 +41,7 @@ use vayucell_core::battery::Percent;
 use vayucell_core::halt::Standing;
 use vayucell_core::host::Host;
 use vayucell_core::sysfs::{detect_mechanism, NODES, PROBE_ORDER, SUPPLY};
-use vayucell_core::tier::{detect, Verdict};
+use vayucell_core::tier::{detect, Verdict, SHELL_ASSERTION_ENV};
 
 /// Builds the report.
 ///
@@ -67,12 +67,26 @@ pub fn report(host: &dyn Host, supply_dir: &str, version: &str, standing: &Stand
         \x20          no hostname, no username, and nothing from your site or vault\n\
         \x20          folders."
     );
+    // The values in this report that the operator chose themselves, and so the
+    // only ones that can carry anything personal. The OMITS block above is a
+    // claim, and a claim with an exception nobody mentions is a false one — so
+    // each exception is named where the claim is made rather than left for a
+    // reader to find further down.
     if supply_dir != SUPPLY {
-        // The one path in this report that the operator chose, so the one that
-        // could carry a name. Named rather than silently included.
         let _ = writeln!(
             out,
-            "           You passed --supply-dir, so the path below is one you chose."
+            "YOURS      you passed --supply-dir, so the path below is one you chose."
+        );
+    }
+    if let Some(value) = host.env(SHELL_ASSERTION_ENV) {
+        // An unrecognised assertion is echoed verbatim by the tier probe, which
+        // is right — an operator who set it to the wrong thing needs to see what
+        // they set. It also means whatever they put in it lands in a report
+        // going into a public issue.
+        let _ = writeln!(
+            out,
+            "YOURS      you set {SHELL_ASSERTION_ENV}={value:?}; it appears below because\n\
+            \x20          the tier probe quotes what it was given."
         );
     }
 
@@ -158,6 +172,7 @@ mod tests {
     use vayucell_core::halt::{Halt, Standing};
     use vayucell_core::host::FakeHost;
     use vayucell_core::sysfs::{NODES, SUPPLY};
+    use vayucell_core::tier::SHELL_ASSERTION_ENV;
 
     fn phone() -> FakeHost {
         let mut h = FakeHost::new();
@@ -243,6 +258,32 @@ mod tests {
             );
         }
         assert!(out.contains("no network code"), "{out}");
+    }
+
+    #[test]
+    fn an_operator_set_assertion_is_flagged_because_the_probe_quotes_it() {
+        // The tier probe echoes an unrecognised VAYUCELL_HOST_ASSERTION verbatim,
+        // which is right — somebody who set it wrong needs to see what they set.
+        // It also means whatever they typed lands in a report going into a public
+        // issue, so the claim above it has to say so.
+        let mine = phone().with_env(SHELL_ASSERTION_ENV, "alices-spare-pixel");
+        let out = report(&mine, SUPPLY, "0.0.0", &Standing::Clear);
+        assert!(
+            out.contains("alices-spare-pixel"),
+            "the probe stopped quoting it:\n{out}"
+        );
+        assert!(
+            out.contains(&format!("you set {SHELL_ASSERTION_ENV}")),
+            "an operator-set value reached the report unflagged:\n{out}"
+        );
+    }
+
+    #[test]
+    fn a_report_with_nothing_operator_set_claims_no_exceptions() {
+        // The other direction, so "flag what they chose" cannot be satisfied by
+        // a line that is always printed.
+        let out = report(&phone(), SUPPLY, "0.0.0", &Standing::Clear);
+        assert!(!out.contains("YOURS"), "{out}");
     }
 
     #[test]
