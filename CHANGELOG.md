@@ -18,6 +18,46 @@ traffic before it.
 The heading says *unreleased* rather than carrying a date. The date is written
 when the tag is cut.
 
+### Fixed
+
+- **A verified ingress path stayed verified for ever.** ADR-0003 §4 has said
+  since it was written that the round trip "re-runs on a schedule, because the
+  failure that matters is the path that worked for six weeks and then stopped",
+  and `Reachability::Unverified` said in its own doc comment that it was *"also
+  the state a mode returns to when its check is overdue… a verification that
+  never expires cannot notice it"*.
+
+  Nothing computed overdue. `Verified` carried a free-form string that no code
+  in the crate ever compared to a clock, and `is_verified` took no time
+  argument, so one completed round trip marked a path verified for the rest of
+  the process's life. The type was, precisely, the thing its own comment named
+  as the failure mode.
+
+  A completed round trip now stands for `FRESH_FOR` — fifteen minutes — and
+  **time is a mandatory argument**: `is_verified(now)` and `describe(now)`
+  cannot be called without saying when you are asking, which is what stops the
+  next caller doing what every previous caller did. A `compile_fail` doctest
+  proves the no-argument form does not compile. The stamp is monotonic and
+  taken from the supervisor's clock, so a restarted cell has verified nothing —
+  the process that watched the round trip is gone. A stamp *ahead* of the clock
+  cannot be aged and is therefore not evidence. A standing that has lapsed
+  reports **unverified, not failed**: nothing failed, nobody looked, and sending
+  an operator to debug a working path is its own defect. `due_in` answers "when
+  is the next check due" out of the same arithmetic the panel reads, so a
+  scheduler cannot hold an idea of overdue that disagrees with the row in front
+  of the operator.
+
+  The expiry tests are written against literal durations rather than against
+  `FRESH_FOR`, because a test that pins a constant by referring to it stays
+  green when the constant is widened to a century — which is the exact change
+  that puts the defect back. Both directions are pinned by the mutation gate: a
+  century-long `FRESH_FOR`, a zero-length one, a future stamp read as fresh, and
+  a lapsed standing that reports itself as the round trip it used to be.
+
+  No ingress mode is implemented, so nothing shipped was reporting a stale path
+  as current. What shipped was a type that could not have noticed — found by
+  reading a claim in a doc comment against the mechanism meant to keep it.
+
 ## [0.0.8] — 2026-08-09
 
 ### Fixed

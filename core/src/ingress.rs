@@ -26,6 +26,27 @@
 //! "the daemon returned success". [`Reachability`] has no variant for any of
 //! those, because a loopback test proves nothing about a path whose entire
 //! difficulty is external. See [`Reachability::Verified`].
+//!
+//! # And it stops meaning it
+//!
+//! ADR-0003 §4 requires the round trip to *re-run on a schedule*, "because the
+//! failure that matters is the path that worked for six weeks and then
+//! stopped". [`Reachability::Unverified`] has said, in its own documentation,
+//! that it is also the state a mode returns to when its check is overdue — and
+//! nothing computed overdue. `Verified` carried a free-form string that no code
+//! ever compared to a clock, so the type was, exactly and literally, *a
+//! verification that never expires*: the thing its own comment named as unable
+//! to notice the failure that matters.
+//!
+//! The repair is [`FRESH_FOR`] and a mandatory argument. There is no way to ask
+//! whether a path is verified without saying **when** you are asking —
+//! [`Reachability::is_verified`] and [`Reachability::describe`] both take the
+//! clock's reading, so a caller cannot leave time out the way every caller of
+//! the old signature did. A round trip older than [`FRESH_FOR`] is unverified,
+//! and so is one stamped ahead of the clock, because an age that cannot be
+//! established is not an age.
+
+use core::time::Duration;
 
 use crate::governor::Level;
 
@@ -274,6 +295,19 @@ pub fn shed_for(level: Level, running: &[Mode]) -> Vec<Mode> {
         .collect()
 }
 
+/// How long a completed round trip stands before it must be repeated.
+///
+/// ADR-0003 §4 requires the check to re-run on a schedule and does not say how
+/// often. Short enough that a path which stops working is noticed within one
+/// sitting rather than one season, and long enough that the check is not itself
+/// the sustained load the governor exists to shed.
+///
+/// The tests that pin the expiry use literal durations rather than this
+/// constant. A test written against the constant it is pinning stays green when
+/// the constant is widened to a century, which is the exact change that
+/// reintroduces the defect.
+pub const FRESH_FOR: Duration = Duration::from_secs(15 * 60);
+
 /// Whether an ingress path has actually been shown to work. ADR-0003 §4.
 ///
 /// There is deliberately no variant for a running process:
@@ -285,6 +319,16 @@ pub fn shed_for(level: Level, running: &[Mode]) -> Vec<Mode> {
 /// let r: Reachability = Reachability::ProcessRunning;
 /// ```
 ///
+/// And there is no way to ask whether a path is verified without saying when
+/// you are asking:
+///
+/// ```compile_fail
+/// use core::time::Duration;
+/// use vayucell_core::ingress::Reachability;
+/// let r = Reachability::Verified { at: Duration::from_secs(0) };
+/// let _: bool = r.is_verified();
+/// ```
+///
 /// ADR-0001 makes read-back unwaivable, and for ingress the read-back is a real
 /// round trip. A loopback test proves nothing about a path whose entire
 /// difficulty is external.
@@ -293,39 +337,121 @@ pub enum Reachability {
     /// A request originating **outside** the device traversed the path and was
     /// served, and the cell observed itself serving it.
     Verified {
-        /// When the round trip completed.
-        at: String,
+        /// The clock's reading when the round trip completed.
+        ///
+        /// Monotonic, taken from [`crate::runtime::Clock::elapsed`], and
+        /// therefore measured from the start of *this* process. That is the
+        /// property wanted: a wall-clock stamp survives a restart the observing
+        /// process did not, and the cell would go on reporting a round trip
+        /// nothing in it ever watched. A restarted cell has verified nothing.
+        at: Duration,
     },
     /// A round trip was attempted and did not complete.
     Failed(String),
-    /// No round trip has completed. The state every mode starts in.
+    /// No round trip stands for this path. The state every mode starts in.
     ///
     /// Also the state a mode returns to when its check is overdue: the failure
     /// that matters is the path that worked for six weeks and then stopped, and
-    /// a verification that never expires cannot notice it.
+    /// a verification that never expires cannot notice it. [`Reachability::as_of`]
+    /// is what makes that sentence true rather than aspirational.
     Unverified(String),
 }
 
 impl Reachability {
-    /// Whether this path has been shown to work from outside.
+    /// Whether this path has been shown to work from outside, **as of `now`**.
+    ///
+    /// `now` is the clock's reading, and it is required. The predicate cannot be
+    /// asked without it, which is the whole repair: the previous signature let
+    /// every caller treat a round trip from six weeks ago as current, and every
+    /// caller did.
+    ///
+    /// A stamp the clock cannot account for — one ahead of `now` — is not
+    /// evidence. It cannot be aged, and something that cannot be checked is
+    /// never reported clean.
+    ///
+    /// Written as a match rather than `matches!` so a variant added later fails
+    /// to compile here instead of quietly falling on whichever side its author
+    /// did not think about.
     #[must_use]
-    pub const fn is_verified(&self) -> bool {
-        matches!(self, Reachability::Verified { .. })
+    pub const fn is_verified(&self, now: Duration) -> bool {
+        match self {
+            Self::Verified { at } => match now.checked_sub(*at) {
+                // `age >= FRESH_FOR` without a const comparison operator: the
+                // subtraction saturates to `None` exactly while age is short.
+                Some(age) => age.checked_sub(FRESH_FOR).is_none(),
+                None => false,
+            },
+            Self::Failed(_) | Self::Unverified(_) => false,
+        }
     }
 
-    /// What to render. Never "up".
+    /// This standing as it must be reported at `now`.
+    ///
+    /// A round trip that has aged past [`FRESH_FOR`] becomes
+    /// [`Reachability::Unverified`] naming how old it is — not
+    /// [`Reachability::Failed`], because nothing failed. Nobody looked.
     #[must_use]
-    pub fn describe(&self) -> String {
-        match self {
-            Reachability::Verified { at } => format!(
-                "a request from outside this device was served at {at}; that is \
-                 what verified means here"
+    pub fn as_of(&self, now: Duration) -> Self {
+        let Self::Verified { at } = self else {
+            return self.clone();
+        };
+        if self.is_verified(now) {
+            return self.clone();
+        }
+        Self::Unverified(match now.checked_sub(*at) {
+            Some(age) => format!(
+                "the last round trip completed {} ago and one stands for {}",
+                spell(age),
+                spell(FRESH_FOR)
             ),
-            Reachability::Failed(why) => format!("the last round trip did not complete: {why}"),
-            Reachability::Unverified(why) => format!(
-                "no request from outside has been served ({why}), so this path is \
-                 unverified — which is not the same as down, and not the same as up"
+            None => "the last round trip is stamped ahead of this cell's clock, \
+                     so its age cannot be established"
+                .to_owned(),
+        })
+    }
+
+    /// How long this standing has left before a check is due.
+    ///
+    /// `None` when a check is due now — which includes every path that has never
+    /// had one. A scheduler asking "when next?" and a panel asking "is it
+    /// current?" are then answering out of the same arithmetic rather than each
+    /// keeping its own idea of overdue.
+    #[must_use]
+    pub fn due_in(&self, now: Duration) -> Option<Duration> {
+        match self {
+            Self::Verified { at } if self.is_verified(now) => {
+                FRESH_FOR.checked_sub(now.checked_sub(*at)?)
+            }
+            _ => None,
+        }
+    }
+
+    /// What to render, as of `now`. Never "up".
+    #[must_use]
+    pub fn describe(&self, now: Duration) -> String {
+        match self.as_of(now) {
+            Self::Verified { at } => format!(
+                "a request from outside this device was served {} ago and this \
+                 stands for another {}; that is what verified means here",
+                spell(now.saturating_sub(at)),
+                spell(FRESH_FOR.saturating_sub(now.saturating_sub(at)))
+            ),
+            Self::Failed(why) => format!("the last round trip did not complete: {why}"),
+            Self::Unverified(why) => format!(
+                "nothing currently stands as a request from outside ({why}), so \
+                 this path is unverified — which is not the same as down, and not \
+                 the same as up"
             ),
         }
     }
+}
+
+/// A duration in the words an operator reads, rather than in seconds they have
+/// to divide.
+fn spell(d: Duration) -> String {
+    let secs = d.as_secs();
+    if secs < 60 {
+        return format!("{secs} seconds");
+    }
+    format!("{} minutes {} seconds", secs / 60, secs % 60)
 }

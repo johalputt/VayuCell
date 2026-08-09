@@ -7,10 +7,23 @@
 //! follows pins those corrections, because a correction with no test is a
 //! paragraph somebody will helpfully undo.
 
+use core::time::Duration;
+
 use crate::governor::Level;
 use crate::ingress::{
     disclosures, shed_for, CompromiseStory, Dependency, Mode, Reachability, ThermalClass, DEFAULT,
+    FRESH_FOR,
 };
+
+/// A completed round trip, stamped at the clock's origin.
+///
+/// Every expiry test below then reads as an age, because `now` *is* the age.
+fn verified_at_start() -> Reachability {
+    Reachability::Verified { at: Duration::ZERO }
+}
+
+const MINUTE: Duration = Duration::from_secs(60);
+const DAY: Duration = Duration::from_secs(24 * 60 * 60);
 
 // ── The default ───────────────────────────────────────────────────────────────
 
@@ -200,12 +213,9 @@ fn only_a_round_trip_from_outside_counts_as_verified() {
     // "the daemon returned success" — the compile_fail proof on Reachability
     // pins that there is no variant for any of them. A loopback test proves
     // nothing about a path whose entire difficulty is external.
-    assert!(Reachability::Verified {
-        at: "2026-08-07T10:04:00Z".into()
-    }
-    .is_verified());
-    assert!(!Reachability::Failed("connection timed out".into()).is_verified());
-    assert!(!Reachability::Unverified("never attempted".into()).is_verified());
+    assert!(verified_at_start().is_verified(MINUTE));
+    assert!(!Reachability::Failed("connection timed out".into()).is_verified(MINUTE));
+    assert!(!Reachability::Unverified("never attempted".into()).is_verified(MINUTE));
 }
 
 #[test]
@@ -213,17 +223,101 @@ fn an_unverified_path_is_neither_up_nor_down() {
     // The word "up" is what this type exists to prevent. A path nobody has
     // completed a round trip over is not down — it may well work — and it is
     // certainly not up.
-    let r = Reachability::Unverified("no check has run yet".into());
-    let d = r.describe();
+    let d = Reachability::Unverified("no check has run yet".into()).describe(MINUTE);
     assert!(d.contains("not the same as down"), "{d}");
     assert!(d.contains("not the same as up"), "{d}");
 }
 
 #[test]
 fn a_verified_path_says_what_verified_meant() {
-    let d = Reachability::Verified {
-        at: "2026-08-07T10:04:00Z".into(),
-    }
-    .describe();
+    let d = verified_at_start().describe(MINUTE);
     assert!(d.contains("from outside this device"), "{d}");
+}
+
+// ── Verification expires, which is the whole of ADR-0003 §4's schedule ────────
+
+#[test]
+fn a_day_old_round_trip_does_not_still_stand() {
+    // The defect this section exists for. `Verified` carried a free-form string
+    // that no code compared to a clock, so a path that worked once was verified
+    // for ever — and ADR-0003 §4 says in as many words that the failure that
+    // matters is the path that worked for six weeks and then stopped.
+    //
+    // A literal day, deliberately, and not `FRESH_FOR * 96`: a test written
+    // against the constant it is pinning stays green when somebody widens that
+    // constant to a century, which is precisely the change that puts the defect
+    // back.
+    assert!(!verified_at_start().is_verified(DAY));
+    assert!(verified_at_start().due_in(DAY).is_none());
+}
+
+#[test]
+fn a_round_trip_from_a_minute_ago_still_stands() {
+    // The other side of the same literal. An expiry set to zero would make every
+    // path permanently unverified, which is safe, useless, and would leave the
+    // test above green.
+    assert!(verified_at_start().is_verified(MINUTE));
+    assert_eq!(verified_at_start().as_of(MINUTE), verified_at_start());
+    assert!(verified_at_start().due_in(MINUTE).is_some());
+}
+
+#[test]
+fn a_standing_verification_is_short_enough_to_notice_a_path_that_stopped() {
+    // Both bounds literal for the same reason. Inside an hour, so a path that
+    // stopped is noticed within one sitting; over a minute, so re-checking is
+    // not itself the sustained load the governor exists to shed.
+    assert!(FRESH_FOR <= Duration::from_secs(60 * 60), "{FRESH_FOR:?}");
+    assert!(FRESH_FOR >= MINUTE, "{FRESH_FOR:?}");
+}
+
+#[test]
+fn a_lapsed_verification_reports_unverified_rather_than_failed() {
+    // Nothing failed. Nobody looked. Reporting a stale standing as a failure
+    // would send an operator to debug a path that may be working perfectly.
+    let lapsed = verified_at_start().as_of(DAY);
+    assert!(
+        matches!(lapsed, Reachability::Unverified(_)),
+        "{lapsed:?} — a check nobody ran is not a check that failed"
+    );
+
+    let d = verified_at_start().describe(DAY);
+    assert!(d.contains("1440 minutes"), "{d}");
+    assert!(d.contains("not the same as down"), "{d}");
+}
+
+#[test]
+fn a_round_trip_stamped_ahead_of_the_clock_is_not_evidence() {
+    // The clock is monotonic and owned by this process, so this should not
+    // happen — which is exactly why it must be decided rather than assumed. An
+    // age that cannot be established is not an age, and this project does not
+    // report what it could not check as clean.
+    let ahead = Reachability::Verified { at: DAY };
+    assert!(!ahead.is_verified(MINUTE));
+    assert!(ahead.due_in(MINUTE).is_none());
+
+    let d = ahead.describe(MINUTE);
+    assert!(d.contains("ahead of this cell's clock"), "{d}");
+    assert!(d.contains("unverified"), "{d}");
+}
+
+#[test]
+fn a_check_falls_due_exactly_when_the_standing_lapses() {
+    // The scheduler and the panel read the same arithmetic. Two answers to
+    // "is it current?" is how a path ends up re-checked on a timer that
+    // disagrees with the row the operator is looking at.
+    let r = verified_at_start();
+    let due = r.due_in(MINUTE).expect("a fresh standing has time left");
+    let a_moment_before = (MINUTE + due).saturating_sub(Duration::from_secs(1));
+    assert!(r.is_verified(a_moment_before));
+    assert!(!r.is_verified(MINUTE + due));
+}
+
+#[test]
+fn a_path_that_never_had_a_check_is_due_one_now() {
+    assert!(Reachability::Unverified("never attempted".into())
+        .due_in(MINUTE)
+        .is_none());
+    assert!(Reachability::Failed("connection timed out".into())
+        .due_in(MINUTE)
+        .is_none());
 }

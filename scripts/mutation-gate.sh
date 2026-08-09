@@ -842,8 +842,34 @@ mutate "$IN" choosing_an_onion_discloses_the_audience_limit_and_the_permanent_co
 
 mutate "$IN" only_a_round_trip_from_outside_counts_as_verified \
   "a path that merely failed a check counts as verified" \
-  "        matches!(self, Reachability::Verified { .. })" \
-  "        !matches!(self, Reachability::Unverified(_))"
+  "            Self::Failed(_) | Self::Unverified(_) => false," \
+  "            Self::Failed(_) | Self::Unverified(_) => true,"
+
+mutate "$IN" a_day_old_round_trip_does_not_still_stand \
+  "a round trip verifies a path for the next century" \
+  "pub const FRESH_FOR: Duration = Duration::from_secs(15 * 60);" \
+  "pub const FRESH_FOR: Duration = Duration::from_secs(100 * 365 * 24 * 60 * 60);"
+
+mutate "$IN" a_round_trip_from_a_minute_ago_still_stands \
+  "a round trip stops standing the instant it completes" \
+  "pub const FRESH_FOR: Duration = Duration::from_secs(15 * 60);" \
+  "pub const FRESH_FOR: Duration = Duration::from_secs(0);"
+
+mutate "$IN" a_round_trip_stamped_ahead_of_the_clock_is_not_evidence \
+  "a stamp the clock cannot account for is read as a fresh round trip" \
+  "                Some(age) => age.checked_sub(FRESH_FOR).is_none(),
+                None => false," \
+  "                Some(age) => age.checked_sub(FRESH_FOR).is_none(),
+                None => true,"
+
+mutate "$IN" a_lapsed_verification_reports_unverified_rather_than_failed \
+  "a standing that has aged out is still reported as the round trip it was" \
+  "        if self.is_verified(now) {
+            return self.clone();
+        }" \
+  "        if true {
+            return self.clone();
+        }"
 
 mutate "$SV" traversal_is_refused_rather_than_normalised_away \
   "a path that walks out of the document root is stripped and served" \

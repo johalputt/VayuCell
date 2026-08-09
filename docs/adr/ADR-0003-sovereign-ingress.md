@@ -125,6 +125,39 @@ path that worked for six weeks and then stopped.
 Where a round-trip cannot be completed, the mode reports **unverified** — never
 "up".
 
+### §4.1. The schedule was named and not built
+
+This section said "it re-runs on a schedule" from the day it was written, and
+`Reachability::Unverified` said in its own documentation that it was *"also the
+state a mode returns to when its check is overdue"*. Neither sentence was true.
+`Verified` carried a free-form string, nothing in the crate ever compared that
+string to a clock, and `is_verified` took no time argument — so a path that
+completed one round trip was verified for the rest of the process's life. The
+type was literally the thing its own comment named as the failure mode: a
+verification that never expires cannot notice the path that worked for six weeks
+and then stopped.
+
+The repair is structural rather than a scheduler:
+
+- **`FRESH_FOR`** — a completed round trip stands for fifteen minutes. Short
+  enough that a path which stops is noticed within one sitting; long enough that
+  re-checking is not itself the sustained load §5 exists to shed.
+- **Time is a mandatory argument.** `is_verified(now)` and `describe(now)`
+  cannot be called without it. The previous signature let every caller treat an
+  ancient round trip as current, and every caller did.
+- **The stamp is monotonic**, taken from the supervisor's clock, and therefore
+  measured from the start of *this* process. A restarted cell has verified
+  nothing, which is the honest answer: the process that observed the round trip
+  is gone.
+- **A stamp ahead of the clock is not evidence.** Its age cannot be established,
+  and Article IV.3 does not permit reporting what could not be checked as clean.
+- **A lapsed standing reports unverified, not failed.** Nothing failed. Nobody
+  looked, and sending an operator to debug a working path is its own defect.
+
+`due_in` answers "when next?" out of the same arithmetic the panel reads, so a
+future scheduler cannot hold an idea of overdue that disagrees with the row in
+front of the operator.
+
 ## §5. The thermal contract with ADR-0002
 
 This section exists because its absence was the design's worst defect.
