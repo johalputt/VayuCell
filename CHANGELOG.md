@@ -13,6 +13,18 @@ traffic before it.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A clippy lint that this machine could not see failed CI.**
+  `clippy::byte_char_slices` landed after the toolchain the gates are run on,
+  and flagged `[b'a', b'b']` in a test that had been passing locally for weeks.
+  The lint is right; the local gate was not wrong, it simply could not see it.
+
+  `scripts/local-ci.sh` now prints, on every green run, which clippy it used and
+  that CI installs whatever `stable` is on the day — so a green local run stops
+  reading as a promise about CI. It is the same rule the code follows: a check
+  that could not be made must not render as one that was.
+
 ## [0.0.4] — 2026-08-09
 
 ### Fixed

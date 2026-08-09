@@ -171,7 +171,7 @@ fn the_comparison_agrees_with_equality_on_every_case_that_matters() {
 fn the_comparison_is_exhaustively_right_on_short_inputs() {
     // A hand-written comparison is worth checking against the language's own,
     // over every short case rather than a chosen few.
-    let alphabet = [b'a', b'b'];
+    let alphabet = *b"ab";
     let mut cases: Vec<Vec<u8>> = vec![Vec::new()];
     for _ in 0..3 {
         let mut next = Vec::new();

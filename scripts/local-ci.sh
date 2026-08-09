@@ -88,4 +88,19 @@ if [ ${#FAILED[@]} -ne 0 ]; then
 fi
 echo "All gates passed in $((SECONDS - START_ALL))s."
 [ "$FAST" = "1" ] && echo "Note: --fast skipped the mutation gate, the gate self-test and coverage."
+
+# Said on every green run, because a green run here is the moment somebody
+# concludes CI will be green too.
+#
+# CI installs `stable` on the day it runs. This machine has whatever it has, and
+# clippy gains lints between releases — `byte_char_slices` landed after 1.94 and
+# failed CI on a line that had been passing locally for weeks. The lint was
+# right and the local gate was not wrong; it simply could not see it.
+#
+# So the limit is stated rather than left to be discovered. This is the same
+# rule the code follows: a check that could not be made must not read as one
+# that was.
+echo "Note: clippy here is $(cargo clippy --version 2>/dev/null | cut -d' ' -f2), and CI"
+echo "      installs whatever \`stable\` is on the day. A lint added since this"
+echo "      toolchain can fail there having passed here. Green is not parity."
 exit 0
