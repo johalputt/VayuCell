@@ -18,6 +18,41 @@ traffic before it.
 The heading says *unreleased* rather than carrying a date. The date is written
 when the tag is cut.
 
+### Added
+
+- **`vayucell report`** — a device report somebody can paste, for a project that
+  has never seen a phone.
+
+  Every device-facing claim in this repository rests on a fake host, and the
+  only thing that changes that is a person running this on real hardware and
+  saying what happened. The issue template asked four free-text questions and
+  never asked for the program's own output — so the half of a hardware database
+  nobody can type from memory, which power-supply nodes the kernel exposes and
+  which of the four charge mechanisms exist, was being discarded at the point of
+  collection. The template now asks for it.
+
+  **Absence is the most useful line in it.** A node the handset does not have is
+  printed as `ABSENT` rather than omitted, because a missing line cannot be told
+  apart from a node nobody looked for.
+
+  **It prints and does not send.** There is no network code in it and there is
+  not going to be: the README's headline is "No account. No telemetry.", and a
+  device report that phoned home would make that false quietly, in the one
+  direction nobody checks.
+
+  **It says what it holds and what it leaves out, in what it prints.** A promise
+  in a document nobody reads is not a control, so the claim travels with the text
+  it describes and whoever is about to paste it can check one against the other.
+  Nothing reads a serial number, an IMEI, a MAC address, a hostname, a username
+  or any network configuration. The only path that can carry a name is a
+  `--supply-dir` the operator chose, and the report flags that line as theirs.
+
+- **`sysfs::NODES`**, the published list of what a reading consults. The report
+  is pinned to it rather than keeping a copy, because two lists drift and the one
+  that drifts is the report — the only thing anybody would have to go on about a
+  handset nobody here is holding. A test removes each node in turn and requires
+  the reader to fail naming it.
+
 ## [0.0.6] — 2026-08-09
 
 ### Fixed

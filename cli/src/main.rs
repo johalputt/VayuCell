@@ -26,6 +26,7 @@ mod enrol;
 mod halted;
 mod listen;
 mod report;
+mod survey;
 
 use std::process::ExitCode;
 
@@ -69,6 +70,18 @@ fn main() -> ExitCode {
         Command::Vault => vault(&parsed),
         Command::All => all(&parsed),
         Command::Inspect => inspect(&parsed),
+        Command::Report => {
+            print!(
+                "{}",
+                survey::report(
+                    &RealHost,
+                    &parsed.supply_dir,
+                    env!("CARGO_PKG_VERSION"),
+                    &halted::read(&parsed.halt_record),
+                )
+            );
+            0
+        }
         Command::Enrol => enrol_device(&parsed),
         Command::Devices => list_devices(&parsed),
         Command::Revoke => revoke_device(&parsed),

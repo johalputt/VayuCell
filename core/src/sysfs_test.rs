@@ -264,3 +264,33 @@ fn a_capacity_larger_than_the_design_capacity_is_unknown_rather_than_flattering(
         StateOfHealth::Measured(Percent::clamped(100))
     );
 }
+
+#[test]
+fn the_published_node_list_matches_what_a_read_actually_consults() {
+    // Two lists drift, and the one that drifts is the device report — which is
+    // the only thing anybody would have to go on about a handset nobody here is
+    // holding. So the list is checked against the reader: remove any one node
+    // and the read must fail naming it.
+    use crate::host::FakeHost;
+
+    for missing in crate::sysfs::NODES {
+        let mut host = FakeHost::new();
+        for node in crate::sysfs::NODES {
+            if node != missing {
+                let value = if node == "health" { "Good" } else { "1" };
+                host = host.with_file(&format!("{SUPPLY}/{node}"), value);
+            }
+        }
+        let outcome = read_battery(&host, SUPPLY);
+        if missing == "health" {
+            // The documented exception, asserted rather than assumed.
+            assert!(outcome.is_ok(), "health is allowed to be absent");
+        } else {
+            let e = outcome.expect_err("a required node was missing");
+            assert!(
+                e.to_string().contains(missing),
+                "removing {missing} produced: {e}"
+            );
+        }
+    }
+}

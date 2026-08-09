@@ -36,6 +36,8 @@ pub enum Command {
     /// Record that a person has looked at the phone, and clear a halt if they
     /// found it sound.
     Inspect,
+    /// Print a device report to paste into an issue.
+    Report,
     /// Enrol a device and print its secret once.
     Enrol,
     /// List the devices enrolled on this cell.
@@ -196,6 +198,9 @@ COMMANDS:
     all                 Serve the panel, the site and the vault together, on
                         three consecutive ports, under one governor and one
                         outage ladder. This is the one to run on a phone
+    report              Print a device report to paste into an issue. Nothing
+                        is sent anywhere; it says what it contains and what it
+                        leaves out, so you can check before pasting
     enrol               Add a device to the credential store and print its
                         secret. It is shown once and never again
     devices             List the devices enrolled here. Never prints a secret
@@ -279,6 +284,7 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
             "vault" => set_command(&mut command, Command::Vault, arg)?,
             "all" => set_command(&mut command, Command::All, arg)?,
             "inspect" => set_command(&mut command, Command::Inspect, arg)?,
+            "report" => set_command(&mut command, Command::Report, arg)?,
             "enrol" | "enroll" => set_command(&mut command, Command::Enrol, arg)?,
             "devices" => set_command(&mut command, Command::Devices, arg)?,
             "revoke" => set_command(&mut command, Command::Revoke, arg)?,

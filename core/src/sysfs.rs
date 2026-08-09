@@ -78,6 +78,26 @@ fn read_i64(host: &dyn Host, dir: &str, node: &'static str) -> Result<i64, ReadE
         })
 }
 
+/// Every node under the supply directory that [`read_battery`] consults.
+///
+/// Published so a device report can say which of them a handset actually has
+/// without keeping its own list. Two lists would drift, and the one that drifts
+/// is the report — which is the only thing anybody would have to go on about a
+/// device nobody here is holding.
+///
+/// `health` is included and is the one that may be absent without failing a
+/// read: vendors report "Good" on visibly swollen cells, so nothing acts on it.
+pub const NODES: [&str; 8] = [
+    "capacity",
+    "voltage_now",
+    "current_now",
+    "temp",
+    "cycle_count",
+    "charge_full",
+    "charge_full_design",
+    "health",
+];
+
 /// Takes one sample of the cell.
 ///
 /// # Errors

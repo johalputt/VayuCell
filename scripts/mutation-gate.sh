@@ -137,6 +137,7 @@ EN=cli/src/enrol.rs
 CL=cli/src/cell.rs
 HA=core/src/halt.rs
 HR=cli/src/halted.rs
+SY=cli/src/survey.rs
 
 mutate "$T" a_guest_that_cannot_see_the_phone_reports_unverified_rather_than_guessing \
   "a bare VM is promoted to T2 without the shell's assertion" \
@@ -1272,6 +1273,29 @@ mutate "$RP" a_cool_cell_still_reports_the_governor_as_verified \
     assemble(host, supply_dir, ceiling, level.max(standing.floor()))" \
   "    let _ = crate::device::observe(host, supply_dir);
     assemble(host, supply_dir, ceiling, Level::Halt.max(standing.floor()))"
+
+mutate "$SY" a_node_this_handset_does_not_have_is_named_rather_than_omitted \
+  "an absent node is left out of the report, so nobody can tell it was looked for" \
+  "            None => {
+                let _ = writeln!(out, \"  ABSENT   {node}\");
+            }" \
+  "            None => {}"
+
+mutate "$SY" the_report_says_what_it_holds_and_what_it_leaves_out \
+  "the report stops saying what it contains, so nobody can check before pasting" \
+  "        \"CONTAINS   the version, what was probed on this device, which power-supply\\n\\" \
+  "        \"contents withheld\\n\\"
+
+mutate "$SY" a_supply_directory_the_operator_chose_is_flagged_as_theirs \
+  "a path the operator chose is included without being flagged as theirs" \
+  "    if supply_dir != SUPPLY {" \
+  "    if false {"
+
+mutate "$SF" the_published_node_list_matches_what_a_read_actually_consults \
+  "the published node list loses an entry the reader still requires" \
+  "    \"cycle_count\",
+    \"charge_full\"," \
+  "    \"charge_full\","
 
 mutate "$HA" a_standing_halt_floors_any_report_at_halt \
   "a recorded halt stops reaching the panel, so it reports a cooled cell as fine" \

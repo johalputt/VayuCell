@@ -10,6 +10,24 @@ body:
         specification sheet claims. A field you did not test is left empty — an
         empty field is honest, and a guessed one is worse than nothing because
         somebody will trust it with their mail.
+
+        **No VayuCell release has run on a physical phone.** If you are filling
+        this in, you are ahead of everyone who has worked on it, including a
+        report that says it did not work at all.
+  - type: textarea
+    id: report
+    attributes:
+      label: Output of `vayucell report`
+      description: >
+        Run `vayucell report` on the phone and paste the whole thing. It names
+        every power-supply node the kernel exposes and every one it does not,
+        which is the half of a hardware database nobody can type from memory.
+        Nothing is sent anywhere by the command itself — it prints, and you
+        decide. It opens by listing what it contains and what it leaves out, so
+        read it before pasting, and delete anything you would rather not post.
+      render: text
+    validations:
+      required: false
   - type: input
     id: model
     attributes:

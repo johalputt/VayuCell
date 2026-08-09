@@ -484,3 +484,14 @@ You are, right now, closer to a first tester than a user. If you run this, a
 [device report](https://github.com/johalputt/VayuCell/issues/new?template=device-report.yml)
 is the most useful thing you can contribute — including one that says it did not
 work.
+
+There is a command for it:
+
+```bash
+vayucell report
+```
+
+It prints what your phone actually exposes — which battery files the kernel
+provides, which it does not, and whether any charge limit exists — and **sends
+nothing anywhere**. It opens by listing what it contains and what it leaves out,
+so read it, delete anything you would rather not post, and paste the rest.
