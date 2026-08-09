@@ -13,6 +13,11 @@ traffic before it.
 
 ## [Unreleased]
 
+## [0.0.10] — unreleased
+
+The heading says *unreleased* rather than carrying a date. The date is written
+when the tag is cut.
+
 ## [0.0.9] — 2026-08-09
 
 ### Fixed
