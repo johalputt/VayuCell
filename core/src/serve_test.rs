@@ -494,7 +494,7 @@ fn context(c: &Ctx, level: Level, stage: Stage) -> crate::serve::VaultContext<'_
 /// A filesystem the tests describe rather than inhabit.
 struct FakeIo {
     stored: std::cell::RefCell<std::collections::BTreeMap<String, Vec<u8>>>,
-    write_fails: Option<String>,
+    write_fails: Option<crate::serve::StorageFailure>,
     seen_plan: std::cell::RefCell<Option<(String, String)>>,
 }
 
@@ -513,7 +513,12 @@ impl FakeIo {
         self
     }
     fn failing(mut self, why: &str) -> Self {
-        self.write_fails = Some(why.to_owned());
+        self.write_fails = Some(crate::serve::StorageFailure::Failed(why.to_owned()));
+        self
+    }
+
+    fn conflicting(mut self, why: &str) -> Self {
+        self.write_fails = Some(crate::serve::StorageFailure::Conflict(why.to_owned()));
         self
     }
 }
@@ -522,18 +527,22 @@ impl crate::serve::VaultIo for FakeIo {
     fn read(&self, path: &str) -> Option<Vec<u8>> {
         self.stored.borrow().get(path).cloned()
     }
-    fn write(&self, plan: &crate::vault::WritePlan, bytes: &[u8]) -> Result<(), String> {
+    fn write(
+        &self,
+        plan: &crate::vault::WritePlan,
+        bytes: &[u8],
+    ) -> Result<(), crate::serve::StorageFailure> {
         *self.seen_plan.borrow_mut() =
             Some((plan.temporary().to_owned(), plan.destination().to_owned()));
-        if let Some(why) = &self.write_fails {
-            return Err(why.clone());
+        if let Some(failure) = &self.write_fails {
+            return Err(failure.clone());
         }
         self.stored
             .borrow_mut()
             .insert(plan.destination().to_owned(), bytes.to_vec());
         Ok(())
     }
-    fn remove(&self, path: &str) -> Result<bool, String> {
+    fn remove(&self, path: &str) -> Result<bool, crate::serve::StorageFailure> {
         Ok(self.stored.borrow_mut().remove(path).is_some())
     }
 }
@@ -544,10 +553,14 @@ impl crate::serve::VaultIo for NeverIo {
     fn read(&self, _: &str) -> Option<Vec<u8>> {
         panic!("the filesystem must not be touched")
     }
-    fn write(&self, _: &crate::vault::WritePlan, _: &[u8]) -> Result<(), String> {
+    fn write(
+        &self,
+        _: &crate::vault::WritePlan,
+        _: &[u8],
+    ) -> Result<(), crate::serve::StorageFailure> {
         panic!("the filesystem must not be touched")
     }
-    fn remove(&self, _: &str) -> Result<bool, String> {
+    fn remove(&self, _: &str) -> Result<bool, crate::serve::StorageFailure> {
         panic!("the filesystem must not be touched")
     }
 }
@@ -721,6 +734,42 @@ fn a_failed_write_is_reported_rather_than_reported_as_stored() {
     );
     assert_eq!(r.status, 500);
     assert!(text(&r).contains("disk went away"), "{}", text(&r));
+}
+
+#[test]
+fn something_stored_in_the_way_answers_conflict_rather_than_server_error() {
+    // 500 said the server had broken. It had not: the request was well formed,
+    // the device is fine, and something in the vault needs a person. A caller
+    // told 500 retries; a caller told 409 stops and tells somebody, which is the
+    // only thing that will ever clear it.
+    let host = vault_host();
+    let c = ctx(&host);
+    let r = crate::serve::route_vault(
+        &put("/a.txt"),
+        &bearer(&a_secret()),
+        &context(&c, Level::Normal, Stage::Serving),
+        b"x",
+        &FakeIo::new().conflicting("a symbolic link is stored under that name"),
+    );
+    assert_eq!(r.status, 409);
+    assert!(text(&r).contains("symbolic link"), "{}", text(&r));
+}
+
+#[test]
+fn the_two_storage_failures_answer_with_different_statuses() {
+    // Written against the type rather than a route, because the distinction is
+    // the type's whole reason for existing and a route test would pass with both
+    // arms returning the same number.
+    use crate::serve::StorageFailure;
+    assert_eq!(
+        StorageFailure::Conflict("x".to_owned()).status(),
+        (409, "Conflict")
+    );
+    assert_eq!(
+        StorageFailure::Failed("x".to_owned()).status(),
+        (500, "Internal Server Error")
+    );
+    assert_eq!(StorageFailure::Failed("why".to_owned()).told(), "why");
 }
 
 #[test]

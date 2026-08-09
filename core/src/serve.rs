@@ -484,6 +484,60 @@ pub fn route_site(
     }
 }
 
+/// Why a stored file could not be written or removed.
+///
+/// This replaced a bare `String`, and the `String` is the point. The trait
+/// documented it as "what went wrong, **for the operator's log**" — and
+/// [`route_vault`] put it straight into the response body, so the operator's log
+/// went to the caller. On this project's own filesystem layout that meant a
+/// `PUT` answered with an absolute path to the vault directory.
+///
+/// [`route_site`] already had the rule, in as many words: *"the operator gets
+/// the reason in the log on the device they own; the wire gets the same answer
+/// either way."* The write path did the opposite of its sibling.
+///
+/// Two answers rather than one, because 500 was also saying the wrong thing. A
+/// symbolic link stored under the requested name is not this server having
+/// broken — the request was well formed, the device is fine, and something in
+/// the vault needs a person. That is a conflict, and it is the caller's cue to
+/// stop retrying and tell somebody.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StorageFailure {
+    /// Something already stored under that name blocks the write, and no retry
+    /// will clear it.
+    Conflict(String),
+    /// The operation was attempted against the filesystem and did not complete.
+    Failed(String),
+}
+
+impl StorageFailure {
+    /// The status and reason this answers with.
+    ///
+    /// 409 for a conflict: the request was well formed and the server is not
+    /// broken, the target is. 500 for a failure, which is what a server that
+    /// could not do its job is.
+    #[must_use]
+    pub const fn status(&self) -> (u16, &'static str) {
+        match self {
+            Self::Conflict(_) => (409, "Conflict"),
+            Self::Failed(_) => (500, "Internal Server Error"),
+        }
+    }
+
+    /// What the caller is told.
+    ///
+    /// **Never a filesystem path.** The caller cannot act on where the vault
+    /// lives, and on a device somebody else has already reached it is a map. The
+    /// implementor puts the path in the log, which is on the operator's own
+    /// device, and puts the *class* of problem here.
+    #[must_use]
+    pub fn told(&self) -> &str {
+        match self {
+            Self::Conflict(told) | Self::Failed(told) => told,
+        }
+    }
+}
+
 /// The filesystem, as the vault route needs it.
 ///
 /// A trait rather than three closures. With two it was a pair of arguments a
@@ -502,8 +556,10 @@ pub trait VaultIo {
     ///
     /// # Errors
     ///
-    /// Returns what went wrong, for the operator's log.
-    fn write(&self, plan: &WritePlan, bytes: &[u8]) -> Result<(), String>;
+    /// Returns what the caller may be told. The detail — which path, which
+    /// errno — belongs in the implementor's log, not in the return value: this
+    /// value reaches the wire.
+    fn write(&self, plan: &WritePlan, bytes: &[u8]) -> Result<(), StorageFailure>;
 
     /// Removes `path`, answering whether anything was there.
     ///
@@ -513,8 +569,9 @@ pub trait VaultIo {
     ///
     /// # Errors
     ///
-    /// Returns what went wrong, for the operator's log.
-    fn remove(&self, path: &str) -> Result<bool, String>;
+    /// Returns what the caller may be told, under the same rule as
+    /// [`VaultIo::write`].
+    fn remove(&self, path: &str) -> Result<bool, StorageFailure>;
 }
 
 /// Everything the vault route needs to know about the device and its owner.
@@ -610,8 +667,12 @@ pub fn route_vault(
                     Response::text(format!("{}\n", receipt.describe()))
                 }
                 // The plan was sound and the device agreed; the write itself
-                // failed. That is the operator's to fix and theirs to see.
-                Err(why) => Response::refused(500, "Internal Server Error", &why),
+                // did not happen. The caller learns which kind of not-happened
+                // it was and nothing about where this vault lives.
+                Err(failure) => {
+                    let (status, reason) = failure.status();
+                    Response::refused(status, reason, failure.told())
+                }
             }
         }
         Method::Delete => {
@@ -631,7 +692,10 @@ pub fn route_vault(
                 Ok(false) => {
                     Response::refused(404, "Not Found", "nothing is stored under that name")
                 }
-                Err(why) => Response::refused(500, "Internal Server Error", &why),
+                Err(failure) => {
+                    let (status, reason) = failure.status();
+                    Response::refused(status, reason, failure.told())
+                }
             }
         }
     }

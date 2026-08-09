@@ -126,6 +126,34 @@ ADR-0010 §2 already says plainly that the same user is not an adversary this
 design can hold off. The check is worth having because the ordinary way a link
 ends up in a served directory is that the operator put it there.
 
+### 4.2 A refusal tells the caller the class, and the log tells the operator where
+
+`VaultIo`'s error was a `String`, documented as *"what went wrong, for the
+operator's log"* — and `route_vault` put it straight into the response body. The
+operator's log went to the caller. On a real deployment that meant a `PUT` was
+answered with an absolute path to the vault directory.
+
+ADR-0008 already settled this for reads, in as many words: a file that resolved
+and could not be read answers exactly like a typo, because *"the operator gets
+the reason in the log on the device they own; the wire gets the same 404 either
+way."* The write path did the opposite of its sibling.
+
+Two answers now, not one, because the status was also saying the wrong thing:
+
+| | Status | When |
+| --- | --- | --- |
+| `StorageFailure::Conflict` | **409** | Something already stored blocks the write. The request was well formed and the server is not broken — the *target* is, and no retry will clear it |
+| `StorageFailure::Failed` | **500** | The operation was attempted against the filesystem and did not complete |
+
+A caller told 500 retries. A caller told 409 stops and tells somebody, which is
+the only thing that will ever clear a symbolic link sitting in the vault.
+
+`told()` is what reaches the wire and **never carries a filesystem path**; a test
+asserts no separator appears in either variant's text. Which of the four ordering
+steps failed is not told apart either — that is the operator's diagnostic, and
+distinguishing them on the wire would leak the shape of the write ordering to
+anything that can send traffic.
+
 ## §5. No receipt may say the file is safe
 
 `Receipt` has no `Durable` variant and will not get one.

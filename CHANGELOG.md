@@ -18,6 +18,36 @@ traffic before it.
 The heading says *unreleased* rather than carrying a date. The date is written
 when the tag is cut.
 
+### Fixed
+
+- **A refused upload answered with the vault's absolute filesystem path.**
+  `VaultIo`'s error was a `String`, documented as *"what went wrong, for the
+  operator's log"* — and `route_vault` put it straight into the response body.
+  The operator's log went to the caller. Found by running the published v0.0.10
+  binary and reading the 500 it gave back, not by reading the code.
+
+  ADR-0008 had already settled this for reads, in as many words: a file that
+  resolved and could not be read answers exactly like a typo, because *"the
+  operator gets the reason in the log on the device they own; the wire gets the
+  same 404 either way."* The write path did the opposite of its sibling.
+
+  `StorageFailure` replaces the string. `told()` is what reaches the wire and
+  **never carries a filesystem path** — a test asserts no separator appears in
+  either variant. The path, the errno and which of the four ordering steps failed
+  go to the log; the wire is not told them apart, because distinguishing them
+  would leak the shape of the write ordering to anything that can send traffic.
+
+- **A conflict with something already stored was reported as the server
+  breaking.** Every write failure answered `500`, including the one added in
+  0.0.10 for a symbolic link stored under the requested name. That is not the
+  server having broken: the request was well formed, the device is fine, and
+  something in the vault needs a person.
+
+  Those now answer **409**, and the distinction is the point — a caller told 500
+  retries, and a caller told 409 stops and tells somebody, which is the only
+  thing that will ever clear a link sitting in the vault. A delete that genuinely
+  fails, and a write whose filesystem step genuinely fails, still answer 500.
+
 ## [0.0.10] — 2026-08-09
 
 ### Fixed

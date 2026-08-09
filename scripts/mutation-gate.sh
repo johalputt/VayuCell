@@ -1060,6 +1060,27 @@ mutate "$SV" a_file_that_resolved_but_cannot_be_read_answers_exactly_like_a_typo
                 500,
                 \"Not Found\","
 
+mutate "$SV" something_stored_in_the_way_answers_conflict_rather_than_server_error \
+  "a conflict with something already stored is reported as the server breaking" \
+  "            Self::Conflict(_) => (409, \"Conflict\")," \
+  "            Self::Conflict(_) => (500, \"Internal Server Error\"),"
+
+mutate "$SV" the_two_storage_failures_answer_with_different_statuses \
+  "a write that genuinely failed is reported as somebody else's conflict" \
+  "            Self::Failed(_) => (500, \"Internal Server Error\")," \
+  "            Self::Failed(_) => (409, \"Conflict\"),"
+
+mutate "$LI" nothing_the_caller_is_told_about_a_write_carries_a_filesystem_path \
+  "the caller is handed the path the write failed on" \
+  "fn logged_failure(doing: &str, path: &str, e: &std::io::Error) -> StorageFailure {
+    eprintln!(\"vayucell: {doing} {path}: {e}\");
+    not_completed()
+}" \
+  "fn logged_failure(doing: &str, path: &str, e: &std::io::Error) -> StorageFailure {
+    eprintln!(\"vayucell: {doing} {path}: {e}\");
+    StorageFailure::Failed(format!(\"{doing} {path}: {e}\"))
+}"
+
 mutate "$LI" a_write_cannot_reach_through_a_symlink_at_the_temporary_path \
   "an upload opens its temporary through a link and lands outside the vault" \
   "    for path in [plan.temporary(), plan.destination()] {" \

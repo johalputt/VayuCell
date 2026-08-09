@@ -22,7 +22,8 @@ use vayucell_core::csp::Nonce;
 use vayucell_core::host::RealHost;
 use vayucell_core::serve::{
     parse_headers, parse_request_line, refuse, route, route_site, route_vault, BadRequest, Headers,
-    Method, Request, Response, Surface, VaultContext, MAX_HEADERS, MAX_REQUEST_LINE,
+    Method, Request, Response, StorageFailure, Surface, VaultContext, MAX_HEADERS,
+    MAX_REQUEST_LINE,
 };
 use vayucell_core::site::{Availability, SiteRoot};
 use vayucell_core::vault::Quota;
@@ -184,16 +185,25 @@ impl vayucell_core::serve::VaultIo for RealVaultIo<'_> {
         read_contained(self.root, path)
     }
 
-    fn write(&self, plan: &vayucell_core::vault::WritePlan, bytes: &[u8]) -> Result<(), String> {
+    fn write(
+        &self,
+        plan: &vayucell_core::vault::WritePlan,
+        bytes: &[u8],
+    ) -> Result<(), StorageFailure> {
         write_durably(plan, bytes)
     }
 
-    fn remove(&self, path: &str) -> Result<bool, String> {
+    fn remove(&self, path: &str) -> Result<bool, StorageFailure> {
         // Canonicalised first, for the same reason a read is: a symbolic link
         // inside the vault pointing at something outside it would otherwise let
         // a delete reach a file that was never stored here.
         let Ok(real_root) = std::fs::canonicalize(self.root) else {
-            return Err(format!("{}: the vault directory went away", self.root));
+            eprintln!("vayucell: {}: the vault directory went away", self.root);
+            return Err(StorageFailure::Failed(
+                "the vault directory is not there, so nothing can be removed from it; \
+                 the reason is in this cell's log"
+                    .to_owned(),
+            ));
         };
         let Ok(real_file) = std::fs::canonicalize(path) else {
             // Absent, which is not an error — the caller wanted it gone.
@@ -210,7 +220,12 @@ impl vayucell_core::serve::VaultIo for RealVaultIo<'_> {
         match std::fs::remove_file(&real_file) {
             Ok(()) => Ok(true),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
-            Err(e) => Err(format!("{path}: {e}")),
+            Err(e) => {
+                eprintln!("vayucell: removing {path}: {e}");
+                Err(StorageFailure::Failed(
+                    "the delete did not complete; the reason is in this cell's log".to_owned(),
+                ))
+            }
         }
     }
 }
@@ -246,7 +261,10 @@ fn used_bytes(dir: &str) -> Option<u64> {
 /// The plan is data and this is the only place that acts on it. Every step is
 /// here, including the directory flush, which is the one that is invisible until
 /// a real power cut.
-fn write_durably(plan: &vayucell_core::vault::WritePlan, bytes: &[u8]) -> Result<(), String> {
+fn write_durably(
+    plan: &vayucell_core::vault::WritePlan,
+    bytes: &[u8],
+) -> Result<(), StorageFailure> {
     use std::fs::{File, OpenOptions};
 
     // 0. Neither path may already be a symbolic link.
@@ -275,9 +293,17 @@ fn write_durably(plan: &vayucell_core::vault::WritePlan, bytes: &[u8]) -> Result
     // rather than left for somebody to assume the stronger thing.
     for path in [plan.temporary(), plan.destination()] {
         if is_symlink(path) {
-            return Err(format!(
-                "{path} is a symbolic link, and the vault stores files rather than \
-                 writing through links to somewhere else; remove it and retry"
+            // The path goes to the operator's log, on the operator's device.
+            // The caller gets the class of problem and no map of the vault.
+            eprintln!(
+                "vayucell: refusing to write {path} — it is a symbolic link, and the \
+                 vault stores files rather than writing through links to somewhere else"
+            );
+            return Err(StorageFailure::Conflict(
+                "a symbolic link is stored under that name, and this vault will not \
+                 write through one; retrying will not clear it, so tell whoever runs \
+                 this cell"
+                    .to_owned(),
             ));
         }
     }
@@ -288,28 +314,57 @@ fn write_durably(plan: &vayucell_core::vault::WritePlan, bytes: &[u8]) -> Result
         .create(true)
         .truncate(true)
         .open(plan.temporary())
-        .map_err(|e| format!("{}: {e}", plan.temporary()))?;
+        .map_err(|e| logged_failure("opening the temporary", plan.temporary(), &e))?;
     temporary
         .write_all(bytes)
-        .map_err(|e| format!("{}: {e}", plan.temporary()))?;
+        .map_err(|e| logged_failure("writing the temporary", plan.temporary(), &e))?;
 
     // 2. Ask the device to put the file's own bytes on the medium.
     temporary
         .sync_all()
-        .map_err(|e| format!("{}: {e}", plan.temporary()))?;
+        .map_err(|e| logged_failure("flushing the temporary", plan.temporary(), &e))?;
     drop(temporary);
 
     // 3. The one atomic step.
     std::fs::rename(plan.temporary(), plan.destination()).map_err(|e| {
         // Leaving the temporary behind would be debris nobody recognises.
         let _ = std::fs::remove_file(plan.temporary());
-        format!("{} -> {}: {e}", plan.temporary(), plan.destination())
+        eprintln!(
+            "vayucell: renaming {} -> {}: {e}",
+            plan.temporary(),
+            plan.destination()
+        );
+        not_completed()
     })?;
 
     // 4. The step everyone forgets: without it the rename is what is lost.
     File::open(plan.directory())
         .and_then(|d| d.sync_all())
-        .map_err(|e| format!("{}: {e}", plan.directory()))
+        .map_err(|e| logged_failure("flushing the directory", plan.directory(), &e))
+}
+
+/// Logs what happened, where, and returns what the caller may be told.
+///
+/// The split exists because the two audiences need different things. The
+/// operator is at the device and needs the path and the errno; the caller is on
+/// somebody's phone, can act on neither, and must not be handed the vault's
+/// location — `route_site` has answered this way for reads since it was written.
+fn logged_failure(doing: &str, path: &str, e: &std::io::Error) -> StorageFailure {
+    eprintln!("vayucell: {doing} {path}: {e}");
+    not_completed()
+}
+
+/// The one sentence a caller is told about a write that did not complete.
+///
+/// Deliberately the same for every step. Which of the four failed is the
+/// operator's diagnostic, and telling a caller apart-by-step would leak the
+/// shape of the write ordering to anything that can send traffic.
+fn not_completed() -> StorageFailure {
+    StorageFailure::Failed(
+        "the write did not complete, and nothing was stored under that name; \
+         the reason is in this cell's log"
+            .to_owned(),
+    )
 }
 
 /// Whether this path is a symbolic link, without following it.
@@ -862,7 +917,7 @@ mod reading_tests {
 
 #[cfg(test)]
 mod durable_write_tests {
-    use super::write_durably;
+    use super::{write_durably, StorageFailure};
     use vayucell_core::vault::{Admission, Name, Quota, VaultRoot};
 
     struct Scratch(std::path::PathBuf);
@@ -918,7 +973,11 @@ mod durable_write_tests {
         return;
 
         let refused = write_durably(&plan, b"UPLOADED").expect_err("a link is not a temporary");
-        assert!(refused.contains("symbolic link"), "{refused}");
+        assert!(
+            matches!(refused, StorageFailure::Conflict(_)),
+            "{refused:?}"
+        );
+        assert!(refused.told().contains("symbolic link"), "{refused:?}");
 
         assert_eq!(
             std::fs::read_to_string(&outside).expect("still there"),
@@ -946,7 +1005,11 @@ mod durable_write_tests {
         return;
 
         let refused = write_durably(&plan, b"UPLOADED").expect_err("a link is not a destination");
-        assert!(refused.contains("symbolic link"), "{refused}");
+        assert!(
+            matches!(refused, StorageFailure::Conflict(_)),
+            "{refused:?}"
+        );
+        assert!(refused.told().contains("symbolic link"), "{refused:?}");
         assert!(
             std::fs::symlink_metadata(plan.destination())
                 .expect("still there")
@@ -1034,7 +1097,43 @@ mod durable_write_tests {
         let plan = plan_for(&s.dir(), "a.txt");
         std::fs::remove_dir_all(&s.0).expect("removes the directory");
         let e = write_durably(&plan, b"x").expect_err("nowhere to write");
-        assert!(!e.is_empty(), "the failure explained nothing");
+        assert!(
+            matches!(e, StorageFailure::Failed(_)),
+            "a vanished directory is the server failing, not a conflict: {e:?}"
+        );
+        assert!(!e.told().is_empty(), "the failure explained nothing");
+    }
+
+    #[test]
+    fn nothing_the_caller_is_told_about_a_write_carries_a_filesystem_path() {
+        // The trait's error was documented as being "for the operator's log" and
+        // went into the response body, so a PUT was answered with an absolute
+        // path to the vault directory. route_site has answered reads the other
+        // way since it was written: the reason goes to the log on the device the
+        // operator owns, and the wire gets the class of problem.
+        //
+        // A separator is the tell. Every path this code could name has one, and
+        // no sentence meant for a caller needs one.
+        let s = Scratch::new("no-paths");
+        let plan = plan_for(&s.dir(), "notes.txt");
+
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&s.0, plan.destination()).expect("a symlink");
+        #[cfg(not(unix))]
+        return;
+        let conflict = write_durably(&plan, b"x").expect_err("a link is not a destination");
+
+        std::fs::remove_file(plan.destination()).expect("clear the link");
+        std::fs::remove_dir_all(&s.0).expect("removes the directory");
+        let failed = write_durably(&plan, b"x").expect_err("nowhere to write");
+
+        for e in [conflict, failed] {
+            assert!(
+                !e.told().contains('/'),
+                "the caller was told where the vault lives: {}",
+                e.told()
+            );
+        }
     }
 }
 
