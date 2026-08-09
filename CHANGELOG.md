@@ -13,11 +13,7 @@ traffic before it.
 
 ## [Unreleased]
 
-## [0.0.4] — unreleased
-
-The heading says *unreleased* rather than carrying a date, so that nobody reads
-it as a version they could have installed. The date is written when the tag is
-cut.
+## [0.0.4] — 2026-08-09
 
 ### Fixed
 
