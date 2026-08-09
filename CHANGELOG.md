@@ -137,6 +137,36 @@ when the tag is cut.
 
 ### Fixed
 
+- **A node on battery announced its own shutdown and went on running.** The shed
+  ladder's last rung is `ShuttingDown` — *"shut down cleanly with charge
+  remaining"* — and both supervisor loops **printed it and kept ticking**.
+  `Stage::ShuttingDown` had no reference anywhere in the CLI outside tests.
+
+  Verified against the built binary on a cell at 8%, below the 10% reserve, with
+  mains lost: it walked the whole ladder, printed the last rung, and had to be
+  killed after forty-five seconds. That line is an obligation the caller was
+  meant to discharge, and the caller printed it instead — so a node runs to zero
+  and dies the ungraceful way ADR-0002 §8 exists to prevent. The claim that a
+  governed phone is a server with an integrated UPS rests entirely on it
+  stopping *while there is charge left*.
+
+  It stops now, and says why: *"stopping now, with charge remaining. Start it
+  again when mains is back — this is an outage, not a halt, and nothing needs to
+  be inspected."*
+
+  **No halt record is written.** An outage is not a governor halt: mains
+  returning is the whole remedy, and writing a record would earn a power cut a
+  hard stop that requires somebody to inspect the phone — and would make the halt
+  record mean two different things.
+
+  The decision is a free function rather than two copies inline in `main`, where
+  nothing could reach it: no test, and therefore no mutation that could turn one
+  red. It is asked of **the rungs entered this tick**, because `ShuttingDown` is
+  terminal — a later tick reports no rungs at all, so a check reading only the
+  current stage would never fire again. A late tick walking four rungs at once
+  has its own test, since reading only the first would leave the node running on
+  a cell at the reserve.
+
 - **A halted phone went on serving a website and accepting uploads.** `run` and
   `all` refused to start while a halt record stood. `site` and `vault` did not:
   they started, answered `200`, and said nothing about it. So a cell that crossed

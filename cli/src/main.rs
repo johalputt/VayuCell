@@ -40,7 +40,7 @@ use vayucell_core::governor::{Governor, Level, Thresholds};
 use vayucell_core::host::RealHost;
 use vayucell_core::runtime::{Clock, Power, RealClock, Supervisor};
 use vayucell_core::sampler::Sampler;
-use vayucell_core::shed::{Shed, ShedPlan};
+use vayucell_core::shed::{Shed, ShedPlan, Stage};
 use vayucell_core::site::SiteRoot;
 use vayucell_core::sysfs::{detect_mechanism, Kind, SysfsCeiling};
 use vayucell_core::vault::VaultRoot;
@@ -655,6 +655,28 @@ fn supervise(
             println!("vayucell: {rung}");
         }
 
+        // The ladder's last rung is an instruction, not a report. Printing
+        // "shut down cleanly with charge remaining" and then continuing to tick
+        // is the node announcing an action and not taking it — and the whole
+        // claim behind ADR-0002 §8, a phone that is a server with an integrated
+        // UPS, rests on the node actually stopping while there is charge left.
+        // One that keeps running drains to zero and dies the ungraceful way the
+        // ladder exists to prevent.
+        //
+        // No halt record is written. An outage is not a governor halt: mains
+        // returning is the fix, and requiring somebody to inspect the phone
+        // before it may serve again would be a hard stop earned by a power cut.
+        if outage_shutdown(&outcome.shed) {
+            println!("{STOPPING_FOR_OUTAGE}");
+            // The same shape HALT uses here: this runs in a thread, so returning
+            // would leave the surfaces serving on a node that just said it was
+            // shutting down. Flushed first, because the last line is the one the
+            // operator needs to still be there.
+            let _ = std::io::Write::flush(&mut std::io::stdout());
+            let _ = std::io::Write::flush(&mut std::io::stderr());
+            std::process::exit(report::EXIT_PROTECTED);
+        }
+
         if outcome.level == Level::Halt {
             // Written before the message, so a power cut between the two leaves
             // the record rather than only the sentence claiming there is one.
@@ -677,6 +699,37 @@ fn supervise(
         clock.sleep(outcome.next_in);
     }
 }
+
+/// Whether this tick's rungs oblige the node to stop.
+///
+/// The ladder's last rung is an instruction, not a report. `run` and `all` both
+/// printed *"shut down cleanly with charge remaining"* and went on ticking —
+/// verified against the built binary, which had to be killed after forty-five
+/// seconds. A node that announces the shutdown and keeps running drains to zero
+/// and dies the ungraceful way ADR-0002 §8 exists to prevent, and the claim that
+/// a governed phone is a server with an integrated UPS rests on it stopping
+/// while there is charge left.
+///
+/// A free function so the decision is testable without a clock, a socket or a
+/// forty-five-second wait. The behaviour lived inline in two loops in `main`,
+/// where nothing could reach it and no mutation could turn a test red.
+///
+/// Asked of **the rungs entered this tick** rather than the current stage,
+/// because that is the moment to act: [`Stage::ShuttingDown`] is terminal, so a
+/// later tick reports no rungs at all and a check reading only those would never
+/// fire again.
+fn outage_shutdown(rungs: &[vayucell_core::shed::ShedTransition]) -> bool {
+    rungs.iter().any(|r| r.stage == Stage::ShuttingDown)
+}
+
+/// What the node says as it stops for an outage.
+///
+/// Not a halt: no record is written, and starting again when mains returns is
+/// the whole remedy. Requiring somebody to inspect the phone before it may serve
+/// again would be a hard stop earned by a power cut, and it would make the halt
+/// record mean two different things.
+const STOPPING_FOR_OUTAGE: &str = "vayucell: stopping now, with charge remaining. Start it again \
+     when mains is back — this is an outage, not a halt, and nothing needs to be inspected.";
 
 /// The supervisor loop, against the real machine and a clock that really sleeps.
 fn run(a: &Args, ticks: Option<u32>) -> i32 {
@@ -726,6 +779,22 @@ fn run(a: &Args, ticks: Option<u32>) -> i32 {
         }
         for rung in &outcome.shed {
             println!("vayucell: {rung}");
+        }
+
+        // The ladder's last rung is an instruction, not a report. Printing
+        // "shut down cleanly with charge remaining" and then continuing to tick
+        // is the node announcing an action and not taking it — and the whole
+        // claim behind ADR-0002 §8, a phone that is a server with an integrated
+        // UPS, rests on the node actually stopping while there is charge left.
+        // One that keeps running drains to zero and dies the ungraceful way the
+        // ladder exists to prevent.
+        //
+        // No halt record is written. An outage is not a governor halt: mains
+        // returning is the fix, and requiring somebody to inspect the phone
+        // before it may serve again would be a hard stop earned by a power cut.
+        if outage_shutdown(&outcome.shed) {
+            println!("{STOPPING_FOR_OUTAGE}");
+            return report::EXIT_PROTECTED;
         }
 
         if outcome.level == Level::Halt {
@@ -800,5 +869,63 @@ fn announce_mechanism(kind: Option<Kind>) {
                  can be held. That is permanent on this hardware."
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::outage_shutdown;
+    use vayucell_core::battery::Percent;
+    use vayucell_core::shed::{ShedReason, ShedTransition, Stage};
+
+    fn rung(stage: Stage) -> ShedTransition {
+        ShedTransition {
+            stage,
+            reason: ShedReason::ReserveReached {
+                floor: Percent::clamped(10),
+                measured: Percent::clamped(8),
+            },
+        }
+    }
+
+    #[test]
+    fn the_ladders_last_rung_stops_the_node() {
+        // It printed "shut down cleanly with charge remaining" and kept ticking.
+        // The built binary had to be killed after forty-five seconds.
+        assert!(outage_shutdown(&[rung(Stage::ShuttingDown)]));
+    }
+
+    #[test]
+    fn a_rung_reached_on_the_way_down_does_not_stop_the_node() {
+        // Every earlier rung is work to do while still running. Stopping at
+        // Announced would turn a mains blip into an outage the node never
+        // rode out.
+        for stage in [
+            Stage::Serving,
+            Stage::Announced,
+            Stage::Shed,
+            Stage::Quiesced,
+        ] {
+            assert!(!outage_shutdown(&[rung(stage)]), "{stage:?}");
+        }
+    }
+
+    #[test]
+    fn the_last_rung_is_found_among_the_ones_walked_with_it() {
+        // A late tick walks several rungs at once, and the terminal one arrives
+        // in the same batch as the flush. Reading only the first would keep the
+        // node running on a cell at the reserve.
+        let walked = [
+            rung(Stage::Announced),
+            rung(Stage::Shed),
+            rung(Stage::Quiesced),
+            rung(Stage::ShuttingDown),
+        ];
+        assert!(outage_shutdown(&walked));
+    }
+
+    #[test]
+    fn a_tick_that_walked_nothing_does_not_stop_the_node() {
+        assert!(!outage_shutdown(&[]));
     }
 }

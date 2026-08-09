@@ -125,6 +125,7 @@ SH=core/src/shed.rs
 P=core/src/panel.rs
 RT=core/src/runtime.rs
 AR=cli/src/args.rs
+MN=cli/src/main.rs
 RP=cli/src/report.rs
 DU=core/src/durability.rs
 IN=core/src/ingress.rs
@@ -738,6 +739,22 @@ mutate "$DU" an_unreachable_replica_is_not_filtered_out_as_noise \
   "            Self::NeverReplicated | Self::Unreachable(_) | Self::NoReplica => true," \
   "            Self::Unreachable(_) => false,
             Self::NeverReplicated | Self::NoReplica => true,"
+
+mutate "$MN" the_ladders_last_rung_stops_the_node \
+  "the node announces the shutdown and goes on ticking until the cell is flat" \
+  "    rungs.iter().any(|r| r.stage == Stage::ShuttingDown)" \
+  "    let _ = rungs;
+    false"
+
+mutate "$MN" a_rung_reached_on_the_way_down_does_not_stop_the_node \
+  "a mains blip stops the node at the first rung instead of riding it out" \
+  "    rungs.iter().any(|r| r.stage == Stage::ShuttingDown)" \
+  "    !rungs.is_empty()"
+
+mutate "$MN" the_last_rung_is_found_among_the_ones_walked_with_it \
+  "a late tick walks to the reserve and only the first rung is looked at" \
+  "    rungs.iter().any(|r| r.stage == Stage::ShuttingDown)" \
+  "    rungs.first().is_some_and(|r| r.stage == Stage::ShuttingDown)"
 
 mutate "$AR" every_command_that_serves_traffic_is_named_as_one \
   "a halted phone serves a website and accepts uploads after a restart" \
