@@ -20,16 +20,16 @@
 //! seen from it. No handset has run this binary.
 
 mod args;
+mod cell;
 mod device;
 mod enrol;
 mod listen;
 mod report;
 
 use std::process::ExitCode;
-use std::sync::{Mutex, PoisonError};
-use std::time::Instant;
 
 use args::{Args, Command};
+use cell::Cell;
 use report::EXIT_USAGE;
 
 use vayucell_core::battery::Percent;
@@ -37,8 +37,8 @@ use vayucell_core::governor::{Governor, Level, Thresholds};
 use vayucell_core::host::RealHost;
 use vayucell_core::runtime::{Clock, Power, RealClock, Supervisor};
 use vayucell_core::sampler::Sampler;
-use vayucell_core::shed::{Shed, ShedPlan, Stage};
-use vayucell_core::site::{Availability, SiteRoot};
+use vayucell_core::shed::{Shed, ShedPlan};
+use vayucell_core::site::SiteRoot;
 use vayucell_core::sysfs::{detect_mechanism, Kind, SysfsCeiling};
 use vayucell_core::vault::VaultRoot;
 
@@ -66,6 +66,7 @@ fn main() -> ExitCode {
         Command::Serve => serve(&parsed),
         Command::Site => site(&parsed),
         Command::Vault => vault(&parsed),
+        Command::All => all(&parsed),
         Command::Enrol => enrol_device(&parsed),
         Command::Devices => list_devices(&parsed),
         Command::Revoke => revoke_device(&parsed),
@@ -78,12 +79,11 @@ fn main() -> ExitCode {
 /// One read, one panel, one verdict.
 fn status(a: &Args) -> i32 {
     let host = RealHost;
-    let panel = report::assemble(
-        &host,
-        &a.supply_dir,
-        Percent::clamped(i64::from(a.ceiling)),
-        Level::Normal,
-    );
+    // The level is derived from the same device this panel is about. It was
+    // passed as a literal `Level::Normal` here, which made the governor row read
+    // `VERIFIED — no threshold crossed` on a phone the governor would have
+    // halted: the panel asserting, in green, a state nobody had computed.
+    let panel = report::observed(&host, &a.supply_dir, Percent::clamped(i64::from(a.ceiling)));
     print!("{}", panel.render());
     report::exit_code(panel.overall())
 }
@@ -94,8 +94,11 @@ fn serve(a: &Args) -> i32 {
     let ceiling = Percent::clamped(i64::from(a.ceiling));
     // Re-assembled on every request rather than rendered once at startup. A
     // panel captured at boot is a panel that says NORMAL for as long as the
-    // process lives, which is the failure the whole project is built against.
-    let panel = move || report::assemble(&RealHost, &dir, ceiling, Level::Normal).render();
+    // process lives, which is the failure the whole project is built against —
+    // and so is a panel that is rebuilt every time around a level that was never
+    // read. The governor row now comes from the cell, per request, like the
+    // rest of it.
+    let panel = move || report::observed(&RealHost, &dir, ceiling).render();
     match listen::serve(&a.bind, &panel) {
         Ok(()) => 0,
         Err(e) => {
@@ -138,36 +141,12 @@ fn site(a: &Args) -> i32 {
         );
     }
 
-    let supply = a.supply_dir.clone();
-    let outage = a.assume_outage;
-    // The real ladder, not a recomputation from the clock. It latches: once a
-    // rung is entered it is never walked back up on its own, which is the
-    // property that makes shedding mean something. A pure function of elapsed
-    // time would quietly un-shed the moment the arithmetic said so.
-    let ladder = Mutex::new(Shed::new(ShedPlan::recommended()));
-    let started = Instant::now();
-
-    let availability = move || {
-        let (level, charge) = device::observe(&RealHost, &supply);
-
-        let stage = match outage {
-            // Mains detection is not implemented anywhere in this project — see
-            // the note on runtime::Power, where whether mains is present is an
-            // argument rather than something read. Claiming Serving here is
-            // therefore an assumption, and it is named as one rather than
-            // dressed up as a measurement.
-            None => Stage::Serving,
-            Some(since) => {
-                // Poisoning is recovered from rather than propagated: a panic in
-                // one request must not take the site down for every later one.
-                let mut ladder = ladder.lock().unwrap_or_else(PoisonError::into_inner);
-                ladder.on_tick(since.saturating_add(started.elapsed()), &charge);
-                ladder.stage()
-            }
-        };
-
-        Availability::of(level, stage)
-    };
+    // One cell, one ladder — see cell.rs. This command serves one surface, so
+    // the sharing buys nothing here; it is written this way so that `all`, which
+    // serves three, cannot end up with a second copy of the ladder by being
+    // written separately.
+    let cell = Cell::new(a.supply_dir.clone(), a.assume_outage);
+    let availability = || cell.availability(&RealHost);
 
     match listen::serve_site(&a.bind, &root, &availability) {
         Ok(()) => 0,
@@ -294,23 +273,8 @@ fn vault(a: &Args) -> i32 {
         }
     };
 
-    let supply = a.supply_dir.clone();
-    let outage = a.assume_outage;
-    let ladder = Mutex::new(Shed::new(ShedPlan::recommended()));
-    let started = Instant::now();
-
-    let context = move || {
-        let (level, charge) = device::observe(&RealHost, &supply);
-        let stage = match outage {
-            None => Stage::Serving,
-            Some(since) => {
-                let mut ladder = ladder.lock().unwrap_or_else(PoisonError::into_inner);
-                ladder.on_tick(since.saturating_add(started.elapsed()), &charge);
-                ladder.stage()
-            }
-        };
-        (level, stage)
-    };
+    let cell = Cell::new(a.supply_dir.clone(), a.assume_outage);
+    let context = || cell.context(&RealHost);
 
     match listen::serve_vault(&a.bind, &root, &credentials, &context, a.quota) {
         Ok(()) => 0,
@@ -319,6 +283,149 @@ fn vault(a: &Args) -> i32 {
             report::EXIT_UNSAFE
         }
     }
+}
+
+/// Serves the panel, the site and the vault together, under one governor.
+///
+/// # Why this is a command rather than three terminals
+///
+/// Because three processes are three [`Cell`]s, and a [`Cell`] owns a shed
+/// ladder that latches. Two of them on one phone measure from two different
+/// start instants and can disagree about which rung the node has reached — and
+/// the one that disagrees in the reassuring direction is the one still serving
+/// after the other has shed. There is one battery, so there is one ladder.
+///
+/// Each surface still gets its own port, because the same-origin policy is what
+/// stops a page on somebody's website reading the panel that reports whether
+/// their battery is safe, and it counts ports rather than paths.
+fn all(a: &Args) -> i32 {
+    let host = RealHost;
+
+    let [panel_addr, site_addr, vault_addr] = match args::adjacent_ports(&a.bind) {
+        Ok(addrs) => addrs,
+        Err(e) => {
+            eprintln!("vayucell: {e}");
+            return report::EXIT_USAGE;
+        }
+    };
+
+    // Everything that can be refused is refused here, before a single listener
+    // exists. A process that binds two ports and then discovers the third
+    // directory is missing has already published two things on the strength of
+    // an invocation that was never valid.
+    let site = match a.site_dir.as_deref().map(|dir| SiteRoot::open(&host, dir)) {
+        Some(Ok(root)) => Some(root),
+        Some(Err(e)) => {
+            eprintln!("vayucell: {e}");
+            return report::EXIT_USAGE;
+        }
+        None => None,
+    };
+
+    let vault = match a
+        .vault_dir
+        .as_deref()
+        .map(|dir| VaultRoot::open(&host, dir))
+    {
+        Some(Ok(root)) => Some(root),
+        Some(Err(e)) => {
+            eprintln!("vayucell: {e}");
+            return report::EXIT_USAGE;
+        }
+        None => None,
+    };
+
+    let credentials = if vault.is_some() {
+        match enrol::load(&a.store) {
+            Ok(c) => Some(c),
+            Err(e) => {
+                eprintln!("vayucell: {e}");
+                return report::EXIT_USAGE;
+            }
+        }
+    } else {
+        None
+    };
+
+    if let Some(root) = site.as_ref() {
+        if !root.has_index(&host) {
+            eprintln!(
+                "vayucell: there is no {} in {}, so / will not serve anything",
+                vayucell_core::site::INDEX,
+                root.dir()
+            );
+        }
+    }
+
+    let ceiling = Percent::clamped(i64::from(a.ceiling));
+    let supply = a.supply_dir.clone();
+    let cell = Cell::new(supply.clone(), a.assume_outage);
+
+    println!(
+        "vayucell: one governor, {} surface(s):",
+        1 + usize::from(site.is_some()) + usize::from(vault.is_some())
+    );
+    println!("  panel  http://{panel_addr}/   is the battery safe");
+    match site.as_ref() {
+        Some(root) => println!("  site   http://{site_addr}/   {}", root.dir()),
+        None => println!("  site   not served — pass --site-dir <DIR> to publish a folder"),
+    }
+    match vault.as_ref() {
+        Some(root) => println!("  vault  http://{vault_addr}/   {}", root.dir()),
+        None => println!("  vault  not served — pass --vault-dir <DIR> to store files"),
+    }
+
+    // Scoped threads, so every surface borrows the one cell rather than each
+    // being handed a copy. `scope` also joins on the way out, which is what
+    // makes "a listener stopped" observable rather than a process that quietly
+    // serves less than it announced.
+    let outcome = std::thread::scope(|scope| {
+        let panel = scope.spawn(|| {
+            let render = || report::observed(&RealHost, &supply, ceiling).render();
+            listen::serve(&panel_addr, &render)
+        });
+
+        let site_thread = site.as_ref().map(|root| {
+            scope.spawn(|| {
+                let availability = || cell.availability(&RealHost);
+                listen::serve_site(&site_addr, root, &availability)
+            })
+        });
+
+        let vault_thread = vault
+            .as_ref()
+            .zip(credentials.as_ref())
+            .map(|(root, creds)| {
+                scope.spawn(|| {
+                    let context = || cell.context(&RealHost);
+                    listen::serve_vault(&vault_addr, root, creds, &context, a.quota)
+                })
+            });
+
+        // A panicking listener is reported as one. Joining a panicked thread
+        // yields Err, and treating that as "finished" would let a surface
+        // disappear while the summary above still claims it is being served.
+        let mut failed = Vec::new();
+        let mut collect = |name: &str, joined: std::thread::Result<Result<(), String>>| match joined
+        {
+            Ok(Ok(())) => failed.push(format!("the {name} listener stopped on its own")),
+            Ok(Err(e)) => failed.push(format!("the {name} listener: {e}")),
+            Err(_) => failed.push(format!("the {name} listener panicked")),
+        };
+        collect("panel", panel.join());
+        if let Some(t) = site_thread {
+            collect("site", t.join());
+        }
+        if let Some(t) = vault_thread {
+            collect("vault", t.join());
+        }
+        failed
+    });
+
+    for why in &outcome {
+        eprintln!("vayucell: {why}");
+    }
+    report::EXIT_UNSAFE
 }
 
 /// The supervisor loop, against the real machine and a clock that really sleeps.

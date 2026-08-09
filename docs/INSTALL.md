@@ -19,6 +19,8 @@ And it can **store files** — upload, download and delete, with every device th
 may do so holding its own credential you can revoke on its own. See
 [Step 8](#step-8--store-files-optional).
 
+All of it runs from a single command — [Step 9](#step-9--the-command-to-actually-leave-running).
+
 **What it does not do yet, stated plainly:** nothing it serves is reachable from
 outside your own network. There is no sync, no folder that mirrors itself onto
 your laptop, no phone app, and no link you can send to somebody in another
@@ -252,9 +254,14 @@ project exists to prevent.
 
 ### Keep the panel too
 
-Run `vayucell-start` in a second Termux session (swipe from the left edge → **New
-session**). The panel and the site are separate ports on purpose, so a page on
-your site can never read the screen that reports whether your battery is safe.
+For trying things out, run `vayucell-start` in a second Termux session (swipe
+from the left edge → **New session**). The panel and the site are separate ports
+on purpose, so a page on your site can never read the screen that reports
+whether your battery is safe.
+
+Once you are past trying things out, do not run them separately at all —
+[Step 9](#step-9--the-command-to-actually-leave-running) runs everything from one
+command, and explains why that is a safety matter rather than a tidiness one.
 
 ---
 
@@ -341,9 +348,56 @@ phone can be dropped. **Keep your only copy somewhere else.**
 
 ### Keep it on its own port
 
-Run the vault and the website in separate Termux sessions on **different ports**
-(`--bind 0.0.0.0:8080` for one, `:8081` for the other). Pointing both at the same
-folder would publish everything anybody uploads.
+Never point the vault and the website at the **same folder** — that would
+publish everything anybody uploads. And do not run them as two separate
+commands either. Run them together, with the next step.
+
+---
+
+## Step 9 — The command to actually leave running
+
+Steps 5, 7 and 8 each start one thing, which is the right way to *learn* what
+this does. It is the wrong way to leave it running. This is the whole lot, in
+one command:
+
+```bash
+vayucell all --site-dir ~/mysite --vault-dir ~/files --bind 0.0.0.0:8080
+```
+
+It prints exactly what it is doing:
+
+```text
+vayucell: one governor, 3 surface(s):
+  panel  http://0.0.0.0:8080/   is the battery safe
+  site   http://0.0.0.0:8081/   /data/data/com.termux/files/home/mysite
+  vault  http://0.0.0.0:8082/   /data/data/com.termux/files/home/files
+```
+
+**One Termux session. Three addresses, counted up from the one you gave.** Leave
+off `--site-dir` and no website is served; leave off `--vault-dir` and no storage
+is. It says which, rather than letting you find out.
+
+### Why this is not just a convenience
+
+If you run the site and the vault as two separate commands, **you get two
+copies of the shutdown ladder.** That ladder is what walks the phone down
+through its stages during a power cut, and it latches: once a stage is entered it
+is never walked back up.
+
+Two copies, started at different moments, can disagree about which stage the
+phone has reached — and the one that disagrees in the reassuring direction is the
+one that carries on serving after the other has already stopped. One phone has
+one battery, so it should have one ladder.
+
+`vayucell all` is one process with one governor and one ladder, and every
+surface asks the same one.
+
+### They are still separate ports, on purpose
+
+The panel says whether your battery is safe. The site serves whatever you put in
+a folder. Your browser stops one reading the other by checking the **origin** —
+and it counts a different port as a different site, while a different path on the
+same port is the same site. So they get ports, not paths.
 
 ---
 
@@ -368,6 +422,9 @@ folder would publish everything anybody uploads.
 | Uploading says `507` | The quota is used up | Delete something, or restart with a larger `--quota`. Replacing a file needs room for both copies until the new one lands |
 | Uploading says `400` | The filename is really a path, hidden, or ends in a space or a dot | The message names which rule and what to change |
 | `vault needs --dir` | No folder given | There is no default on purpose. Pass `--dir ~/files` |
+| `all counts three ports from --bind` | The address has no number to count from | Use a numeric address and port, like `--bind 0.0.0.0:8080`, not a name |
+| `all needs --site-dir, --vault-dir, or both` | Neither was given | With neither, `all` would just be the panel. Say which one you want served |
+| `Address already in use` on one of the three | Something is already on that port | Another copy is probably still running. Close it, or pick a different `--bind` |
 
 Running the installer again is always safe. It will not duplicate anything.
 

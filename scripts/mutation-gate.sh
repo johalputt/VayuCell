@@ -134,6 +134,7 @@ VA=core/src/vault.rs
 AU=core/src/auth.rs
 LI=cli/src/listen.rs
 EN=cli/src/enrol.rs
+CL=cli/src/cell.rs
 
 mutate "$T" a_guest_that_cannot_see_the_phone_reports_unverified_rather_than_guessing \
   "a bare VM is promoted to T2 without the shell's assertion" \
@@ -1245,6 +1246,41 @@ mutate "$B" a_charge_full_near_the_integer_limit_does_not_crash_the_reading \
   "a charge_full near the integer limit overflows the health calculation again" \
   "self.charge_full_uah.checked_mul(100)" \
   "Some(self.charge_full_uah * 100)"
+
+mutate "$RP" the_governor_row_comes_from_the_cell_rather_than_from_a_literal \
+  "the panel reports a quiet governor without reading the cell" \
+  "    let (level, _) = crate::device::observe(host, supply_dir);
+    assemble(host, supply_dir, ceiling, level)" \
+  "    let _ = crate::device::observe(host, supply_dir);
+    assemble(host, supply_dir, ceiling, Level::Normal)"
+
+mutate "$RP" a_cool_cell_still_reports_the_governor_as_verified \
+  "the panel reports trouble on every cell, quiet or not" \
+  "    let (level, _) = crate::device::observe(host, supply_dir);
+    assemble(host, supply_dir, ceiling, level)" \
+  "    let _ = crate::device::observe(host, supply_dir);
+    assemble(host, supply_dir, ceiling, Level::Halt)"
+
+mutate "$CL" a_rung_entered_by_one_surface_is_seen_by_the_next \
+  "each surface gets its own ladder, so a shed node still serves on the other port" \
+  "                let mut ladder = self.ladder.lock().unwrap_or_else(PoisonError::into_inner);" \
+  "                let mut ladder = Shed::new(ShedPlan::recommended());"
+
+mutate "$CL" without_a_declared_outage_the_ladder_is_never_walked_at_all \
+  "the outage ladder is walked even when nobody claimed mains was lost" \
+  "            None => Stage::Serving," \
+  "            None => Stage::ShuttingDown,"
+
+mutate "$AR" a_port_too_near_the_top_is_refused_rather_than_wrapped \
+  "three ports are counted with wrapping, so the last one lands on whatever was spare" \
+  "    base.checked_add(2).ok_or_else(|| {" \
+  "    base.wrapping_add(2); Some(()).ok_or_else(|| {"
+
+mutate "$AR" port_zero_is_refused_because_there_is_no_next_one_along \
+  "port 0 is counted from, so two surfaces bind ports nobody chose" \
+  "    if base == 0 {" \
+  "    if false {"
+
 
 echo
 # The suite was green before the first mutation and every mutation was undone,

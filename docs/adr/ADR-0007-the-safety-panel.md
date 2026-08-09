@@ -171,3 +171,36 @@ test and nothing else.
 - **It has never been read by a user on a real device.** Nothing in this
   repository has. Every panel in the snapshot was rendered from a fake host
   describing a handset nobody here is holding.
+
+## Since this was accepted
+
+**The governor row was rendered from a literal for as long as it existed.**
+
+Every rule in this document is about not reporting a state nobody established,
+and the row that broke it is the only one on the panel that renders `Verified`
+with positively worded evidence: *"governor at NORMAL; no threshold crossed"*.
+
+`Panel::build` was right. `assemble` was right. Both callers that were not the
+supervisor — `vayucell status` and `vayucell serve` — passed a literal
+`Level::Normal`, so on a phone hot enough for the governor to halt, the ceiling
+row said it could not be confirmed, the reserve row said the cell could not be
+trusted to carry the node, and between them sat a green row asserting that no
+threshold had been crossed. Not a stale reading: a comparison nobody had made.
+
+`report::observed` now derives the level from the same device the panel
+describes, and both callers go through it. `run` still passes its own, and must:
+the supervisor's governor has latched across ticks, and a fresh reading would
+discard exactly the history that makes a hard stop hard.
+
+Two things made this survivable for as long as it was. The row is worded as
+reassurance, and reassurance is what a reader skims. And the parameter had a
+sensible-looking name at every call site — `Level::Normal` reads like a
+deliberate baseline rather than an unanswered question.
+
+**What it changes about this ADR.** A finding that can be constructed by a
+caller is a finding whose honesty is the caller's to preserve, and this document
+had nothing to say about that. It does now: a `Verified` row must be built from
+a value read in the same pass that renders it, and any caller that cannot supply
+one has no business constructing that row at all.
+
+It has still not run on a phone.

@@ -29,6 +29,8 @@ pub enum Command {
     Site,
     /// Serve the vault: authenticated storage.
     Vault,
+    /// Serve the panel, the site and the vault together, under one governor.
+    All,
     /// Enrol a device and print its secret once.
     Enrol,
     /// List the devices enrolled on this cell.
@@ -111,6 +113,60 @@ pub const DEFAULT_CEILING: u8 = 60;
 /// anything on their network, including whatever else is on the guest Wi-Fi.
 pub const DEFAULT_BIND: &str = "127.0.0.1:8080";
 
+/// The three addresses `all` serves on, counted from `bind`.
+///
+/// Panel, then site, then vault, on consecutive ports. Consecutive rather than
+/// three separate flags because three flags is three chances for a beginner to
+/// bind something to a port they did not mean, and the summary this prints is
+/// easier to read back than three arguments are to get right.
+///
+/// **Separate ports, not separate paths.** The panel reports whether the battery
+/// is safe; the site serves whatever the operator put in a folder. A page on one
+/// must never be able to read the other, and the browser rule that guarantees
+/// that is the same-origin policy — which counts a differing port as a different
+/// origin and a differing path as the same one.
+///
+/// # Errors
+///
+/// Returns the reason, phrased for somebody reading a terminal.
+pub fn adjacent_ports(bind: &str) -> Result<[String; 3], ArgError> {
+    let addr: std::net::SocketAddr = bind.parse().map_err(|_| {
+        // `serve` accepts a hostname because it binds one thing. Counting to the
+        // next port needs a number, and resolving a name here to find one would
+        // mean the address bound depended on DNS at the moment of parsing.
+        ArgError(format!(
+            "all counts three ports from --bind, so it needs a numeric address \
+             and port like 0.0.0.0:8080, not {bind:?}"
+        ))
+    })?;
+
+    let base = addr.port();
+    if base == 0 {
+        // Port 0 means "whichever port the kernel has spare". There is no such
+        // thing as the next one along.
+        return Err(ArgError(
+            "all cannot count from port 0, which asks the system to choose; name \
+             the port you want, like 0.0.0.0:8080"
+                .to_owned(),
+        ));
+    }
+    // Checked, not wrapped. 65535 + 1 is not port 0, and port 0 would hand the
+    // operator a listener on a port nobody chose.
+    base.checked_add(2).ok_or_else(|| {
+        ArgError(format!(
+            "all needs three consecutive ports and {base} leaves room for fewer; \
+             pick a port at or below 65533"
+        ))
+    })?;
+
+    let at = |port: u16| {
+        let mut a = addr;
+        a.set_port(port);
+        a.to_string()
+    };
+    Ok([at(base), at(base + 1), at(base + 2)])
+}
+
 /// What `--help` prints.
 pub const USAGE: &str = "\
 vayucell — report what a device can be trusted to do, and govern its cell
@@ -128,6 +184,9 @@ COMMANDS:
     vault               Serve authenticated storage: GET reads a file, PUT
                         stores one. Every request is checked against the
                         enrolled devices and against the governor
+    all                 Serve the panel, the site and the vault together, on
+                        three consecutive ports, under one governor and one
+                        outage ladder. This is the one to run on a phone
     enrol               Add a device to the credential store and print its
                         secret. It is shown once and never again
     devices             List the devices enrolled here. Never prints a secret
@@ -145,11 +204,17 @@ OPTIONS:
     --bind <ADDR>       Address for `serve`, `site` and `vault` [default:
                         127.0.0.1:8080]. The default is loopback: reaching the
                         rest of your network is something you type, not
-                        something you get
+                        something you get. `all` counts three ports from it —
+                        panel, then site, then vault — so it needs a numeric
+                        address rather than a name
     --dir <DIR>         The directory `site` or `vault` uses. Required by
                         both. Hidden names are never served, no directory
                         listing is ever generated, and a symbolic link pointing
                         outside this directory is refused
+    --site-dir <DIR>    The directory `all` publishes as a website. Omit it and
+                        no site is served, which `all` says out loud
+    --vault-dir <DIR>   The directory `all` keeps files in. Omit it and no
+                        vault is served, which `all` says out loud
     --store <FILE>      Credential store for `vault` and `enrol`
                         [default: ~/.vayucell/devices]. It holds secrets in the
                         clear, so it must not be readable by anyone else and
@@ -185,7 +250,9 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
     let mut ticks: Option<u32> = None;
     let mut assume_outage: Option<Duration> = None;
     let mut bind = DEFAULT_BIND.to_owned();
-    let mut site_dir: Option<String> = None;
+    let mut dir: Option<String> = None;
+    let mut site_only: Option<String> = None;
+    let mut vault_only: Option<String> = None;
     let mut store = default_store();
     let mut device: Option<String> = None;
     let mut quota: u64 = DEFAULT_QUOTA;
@@ -199,6 +266,7 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
             "serve" => set_command(&mut command, Command::Serve, arg)?,
             "site" => set_command(&mut command, Command::Site, arg)?,
             "vault" => set_command(&mut command, Command::Vault, arg)?,
+            "all" => set_command(&mut command, Command::All, arg)?,
             "enrol" | "enroll" => set_command(&mut command, Command::Enrol, arg)?,
             "devices" => set_command(&mut command, Command::Devices, arg)?,
             "revoke" => set_command(&mut command, Command::Revoke, arg)?,
@@ -211,7 +279,13 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
                 bind = value_after(argv, &mut i, "--bind")?;
             }
             "--dir" => {
-                site_dir = Some(value_after(argv, &mut i, "--dir")?);
+                dir = Some(value_after(argv, &mut i, "--dir")?);
+            }
+            "--site-dir" => {
+                site_only = Some(value_after(argv, &mut i, "--site-dir")?);
+            }
+            "--vault-dir" => {
+                vault_only = Some(value_after(argv, &mut i, "--vault-dir")?);
             }
             "--store" => {
                 store = value_after(argv, &mut i, "--store")?;
@@ -272,10 +346,17 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
         other => other,
     };
 
+    // `--dir` names whichever directory the command in hand is about; the
+    // specific flags exist because `all` is about two of them at once, and one
+    // flag cannot mean two folders. The specific one wins where both are given,
+    // rather than being silently ignored under a general one.
+    let site_dir = site_only.or_else(|| dir.clone());
+    let vault_dir = vault_only.or(dir);
+
     // Refused here rather than defaulted to the working directory. A `site`
     // with no --dir that quietly published whatever folder the operator happened
     // to be standing in is the single worst thing this command could do.
-    if command == Command::Vault && site_dir.is_none() {
+    if command == Command::Vault && vault_dir.is_none() {
         return Err(ArgError(
             "vault needs --dir <DIR>, the folder to keep files in; there is no \
              default, because a default would store somebody's files wherever you \
@@ -305,13 +386,21 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
         ));
     }
 
+    if command == Command::All && site_dir.is_none() && vault_dir.is_none() {
+        return Err(ArgError(
+            "all needs --site-dir <DIR>, --vault-dir <DIR>, or both; with neither \
+             it would be `vayucell serve` under a longer name"
+                .to_owned(),
+        ));
+    }
+
     Ok(Args {
         command,
         supply_dir,
         ceiling,
         assume_outage,
         bind,
-        vault_dir: site_dir.clone(),
+        vault_dir,
         site_dir,
         store,
         device,
@@ -472,6 +561,115 @@ mod tests {
                 "usage must say: {expected}"
             );
         }
+    }
+
+    #[test]
+    fn all_counts_three_consecutive_ports_from_the_bind_address() {
+        let [panel, site, vault] = super::adjacent_ports("0.0.0.0:8080").expect("numeric");
+        assert_eq!(panel, "0.0.0.0:8080");
+        assert_eq!(site, "0.0.0.0:8081");
+        assert_eq!(vault, "0.0.0.0:8082");
+    }
+
+    #[test]
+    fn the_three_ports_are_distinct_because_the_same_origin_policy_counts_ports() {
+        // Not decoration. The panel says whether the battery is safe and the
+        // site serves whatever somebody put in a folder; a shared origin would
+        // let one read the other.
+        let ports = super::adjacent_ports("127.0.0.1:9000").expect("numeric");
+        let unique: std::collections::BTreeSet<&String> = ports.iter().collect();
+        assert_eq!(unique.len(), 3, "{ports:?}");
+    }
+
+    #[test]
+    fn an_address_with_no_countable_port_is_refused_rather_than_guessed() {
+        // `serve` takes a hostname happily because it binds one thing. Counting
+        // to the next port needs a number, and resolving a name to find one
+        // would make the bound address depend on DNS at parse time.
+        for bad in ["localhost:8080", "0.0.0.0", "8080", ""] {
+            let e = super::adjacent_ports(bad).expect_err("{bad} was accepted");
+            assert!(e.0.contains("0.0.0.0:8080"), "{bad:?}: {}", e.0);
+        }
+    }
+
+    #[test]
+    fn port_zero_is_refused_because_there_is_no_next_one_along() {
+        // Port 0 asks the system to pick. "The one after whichever it picked" is
+        // not a thing, and binding two more would hand the operator surfaces on
+        // ports nobody chose.
+        let e = super::adjacent_ports("0.0.0.0:0").expect_err("port 0 is not countable");
+        assert!(e.0.contains("choose"), "{}", e.0);
+    }
+
+    #[test]
+    fn a_port_too_near_the_top_is_refused_rather_than_wrapped() {
+        // 65535 + 1 is not port 0. Wrapping would bind the vault to whatever the
+        // system had spare, which is the one thing the operator cannot check.
+        assert!(super::adjacent_ports("0.0.0.0:65533").is_ok());
+        for top in ["0.0.0.0:65534", "0.0.0.0:65535"] {
+            let e = super::adjacent_ports(top).expect_err("{top} left no room");
+            assert!(e.0.contains("65533"), "{top}: {}", e.0);
+        }
+    }
+
+    #[test]
+    fn an_ipv6_bind_keeps_its_brackets_so_the_listener_can_parse_it_back() {
+        let [panel, _, vault] = super::adjacent_ports("[::1]:8080").expect("numeric");
+        assert_eq!(panel, "[::1]:8080");
+        assert_eq!(vault, "[::1]:8082");
+    }
+
+    #[test]
+    fn all_takes_the_two_directories_separately_because_it_serves_both() {
+        let a = parse(&argv(&[
+            "all",
+            "--site-dir",
+            "/srv/site",
+            "--vault-dir",
+            "/srv/files",
+        ]))
+        .expect("parses");
+        assert_eq!(a.command, super::Command::All);
+        assert_eq!(a.site_dir.as_deref(), Some("/srv/site"));
+        assert_eq!(a.vault_dir.as_deref(), Some("/srv/files"));
+    }
+
+    #[test]
+    fn all_may_serve_only_one_of_the_two() {
+        let a = parse(&argv(&["all", "--site-dir", "/srv/site"])).expect("parses");
+        assert_eq!(a.site_dir.as_deref(), Some("/srv/site"));
+        assert_eq!(a.vault_dir, None);
+
+        let b = parse(&argv(&["all", "--vault-dir", "/srv/files"])).expect("parses");
+        assert_eq!(b.site_dir, None);
+        assert_eq!(b.vault_dir.as_deref(), Some("/srv/files"));
+    }
+
+    #[test]
+    fn all_with_neither_directory_is_refused_rather_than_serving_a_lone_panel() {
+        // With neither it is `serve` under a longer name, and somebody who typed
+        // `all` expecting their files to be reachable should be told, not left
+        // to discover it.
+        let e = parse(&argv(&["all"])).expect_err("all needs something to serve");
+        assert!(e.0.contains("--site-dir"), "{}", e.0);
+        assert!(e.0.contains("--vault-dir"), "{}", e.0);
+    }
+
+    #[test]
+    fn the_specific_directory_flag_wins_over_the_general_one() {
+        // Both given is somebody being explicit about one of them. Letting the
+        // general flag win would ignore the more specific instruction silently.
+        let a = parse(&argv(&["all", "--dir", "/both", "--vault-dir", "/files"])).expect("parses");
+        assert_eq!(a.site_dir.as_deref(), Some("/both"));
+        assert_eq!(a.vault_dir.as_deref(), Some("/files"));
+    }
+
+    #[test]
+    fn vault_still_reads_its_directory_from_the_general_flag() {
+        // The commands that serve one surface keep taking --dir, so nothing an
+        // operator already types stops working.
+        let a = parse(&argv(&["vault", "--dir", "/srv/files"])).expect("parses");
+        assert_eq!(a.vault_dir.as_deref(), Some("/srv/files"));
     }
 
     #[test]

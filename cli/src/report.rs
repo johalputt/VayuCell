@@ -45,6 +45,24 @@ pub const fn exit_code(overall: Overall) -> i32 {
     }
 }
 
+/// The panel for a device, with the governor's level read from that same device.
+///
+/// [`assemble`] takes the level as an argument because the supervisor holds one
+/// that has latched across ticks, and handing it a fresh reading would throw
+/// that history away. Every *other* caller has no governor to speak of and has
+/// to derive the level from the cell in front of it.
+///
+/// Both of them passed a literal `Level::Normal` instead. The governor row is
+/// the one row rendering `Verified` — *"no threshold crossed"* — so `status` and
+/// `serve` printed a green, positively worded assertion about a comparison
+/// nobody had made, on a phone the governor would have halted. This exists so
+/// that the correct call is also the shorter one.
+#[must_use]
+pub fn observed(host: &dyn Host, supply_dir: &str, ceiling: Percent) -> Panel {
+    let (level, _) = crate::device::observe(host, supply_dir);
+    assemble(host, supply_dir, ceiling, level)
+}
+
 /// Builds the panel for a device as it is right now.
 ///
 /// Nothing here defaults. A battery that could not be read produces an
@@ -115,6 +133,7 @@ fn evidence(what: &str) -> Evidence {
 
 #[cfg(test)]
 mod tests {
+    use super::observed;
     use super::{assemble, exit_code, EXIT_PROTECTED, EXIT_UNSAFE, EXIT_UNVERIFIED};
     use vayucell_core::battery::Percent;
     use vayucell_core::governor::Level;
@@ -131,6 +150,49 @@ mod tests {
             .with_file(&format!("{SUPPLY}/cycle_count"), "412\n")
             .with_file(&format!("{SUPPLY}/charge_full"), "3600000\n")
             .with_file(&format!("{SUPPLY}/charge_full_design"), "4000000\n")
+    }
+
+    /// The same device, hot enough that the governor halts.
+    fn overheating_device() -> FakeHost {
+        readable_device().with_file(&format!("{SUPPLY}/temp"), "600\n")
+    }
+
+    #[test]
+    fn the_governor_row_comes_from_the_cell_rather_than_from_a_literal() {
+        // The defect this function exists to prevent. `status` and `serve` both
+        // passed Level::Normal, and the governor row is the one row that renders
+        // Verified — so a 60 degree phone printed a green "no threshold crossed"
+        // while every other row was busy being honest.
+        let hot = observed(&overheating_device(), SUPPLY, Percent::clamped(60)).render();
+        assert!(
+            hot.contains("governor at HALT"),
+            "a halting cell reported no threshold crossed: {hot}"
+        );
+        assert!(
+            !hot.contains("no threshold crossed"),
+            "the green governor row survived on a halting cell: {hot}"
+        );
+    }
+
+    #[test]
+    fn a_cool_cell_still_reports_the_governor_as_verified() {
+        // The other direction, so that "read the cell" cannot be satisfied by a
+        // function that reports trouble unconditionally.
+        let cool = observed(&readable_device(), SUPPLY, Percent::clamped(60)).render();
+        assert!(
+            cool.contains("no threshold crossed"),
+            "a cool cell was reported as having crossed one: {cool}"
+        );
+    }
+
+    #[test]
+    fn a_cell_that_cannot_be_read_is_never_reported_as_a_quiet_governor() {
+        // Absence is never protection, on the row most likely to be skimmed.
+        let out = observed(&FakeHost::new(), SUPPLY, Percent::clamped(60)).render();
+        assert!(
+            !out.contains("no threshold crossed"),
+            "an unreadable cell produced a green governor row: {out}"
+        );
     }
 
     #[test]

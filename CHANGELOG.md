@@ -15,6 +15,33 @@ traffic before it.
 
 ### Added
 
+- **`vayucell all`** — the panel, the site and the vault in one process, on
+  three consecutive ports counted from `--bind`, under **one governor and one
+  outage ladder**.
+
+  This is the command to leave running on a phone, and it exists for a
+  correctness reason rather than a convenience one. See the fix below.
+
+  Each surface still gets its own port. That is not tidiness: the panel reports
+  whether somebody's battery is safe and the site serves whatever they put in a
+  folder, and the browser rule that stops one reading the other is the
+  same-origin policy — which counts a differing port as a different origin and a
+  differing path as the same one.
+
+  `--site-dir` and `--vault-dir` name the two directories, because `--dir`
+  cannot mean two folders at once. Omit either and that surface is simply not
+  served, which the startup summary says out loud rather than leaving the
+  operator to notice. Omit both and the command is refused, because with neither
+  it is `vayucell serve` under a longer name.
+
+  Ports are counted, not guessed: a `--bind` without a numeric port is refused
+  rather than resolved through DNS at parse time, port 0 is refused because
+  "the one after whichever the kernel picked" is not a thing, and a base port
+  above 65533 is refused rather than wrapped — 65535 + 1 is not port 0, and
+  binding port 0 would put a surface somewhere nobody chose.
+- **`cli/src/cell.rs`** — one cell, one ladder, however many surfaces are
+  serving from it. `site` and `vault` now borrow it rather than each building
+  their own.
 - **`DELETE`, `vayucell devices` and `vayucell revoke`** — the three things that
   turn the vault from a thing that accepts files into a thing somebody can
   actually run.
@@ -177,6 +204,34 @@ traffic before it.
 
 ### Fixed
 
+- **The safety panel asserted a governor level nobody had computed.** The
+  governor row is the one row on the panel that renders as `Verified`, with the
+  positively worded evidence *"governor at NORMAL; no threshold crossed"* — and
+  `vayucell status` and `vayucell serve` both passed a literal `Level::Normal`
+  into it. On a 60 °C phone, every other row did its job while that one printed
+  green and said no threshold had been crossed, which was not a stale reading
+  but a comparison nobody had made.
+
+  `report::observed` now derives the level from the same cell the panel is
+  about, and both callers go through it. `run` still passes its own level, and
+  should: the supervisor's governor has latched across ticks, and replacing that
+  with a fresh reading would throw the history away.
+
+  Found by running the binary against a fake sysfs tree and heating it, not by
+  reading the diff — which is now the third defect in this project found that
+  way and the third that every unit test was happy with.
+- **Two serving processes were two outage ladders.** `site` and `vault` each
+  built their own `Shed`, each measuring from its own start instant. One process
+  serving one surface is fine, and that is all there ever was — until
+  `docs/INSTALL.md` started telling beginners to run both, at which point one
+  phone with one battery had two ladders latching independently and able to
+  disagree about which rung the node had reached. The one that disagrees in the
+  reassuring direction is the one still serving after the other has shed.
+
+  The ladder now lives in `Cell` and the surfaces borrow it. The governor
+  reading is deliberately **not** shared: it is re-read per request through a
+  fresh governor that cannot latch, because the rung is history and the cell's
+  temperature is not.
 - **The vault quota was a number, not a limit.** It was built once at startup as
   `Quota::new(0, limit)` — usage fixed at zero, for the life of the process — so
   the only upload it could ever refuse was a single file larger than the whole
