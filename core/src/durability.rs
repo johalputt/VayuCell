@@ -323,19 +323,50 @@ pub enum GracefulShutdown {
     Failed,
 }
 
-/// Whether a backup has ever been restored from.
+/// How long a completed restore drill stands before another is due.
+///
+/// ADR-0004 §4 says the backup system "restores an archive **on a schedule**"
+/// and reports the time of the last verified restore. It does not set the
+/// interval. A month: long enough that the drill is not a standing thermal load
+/// on a phone — §4 makes it shed by the governor for exactly that reason — and
+/// short enough that a backup chain which broke is found inside a month rather
+/// than inside a year.
+///
+/// Pinned by tests written against literal durations, not against this constant.
+pub const DRILL_STANDS_FOR: Duration = Duration::from_secs(30 * 24 * 60 * 60);
+
+/// Whether a backup has ever been restored from, and whether that is still
+/// recent enough to mean anything.
 ///
 /// The P6 gate, and the reason this type is not a boolean. A backup nobody has
 /// restored is a file of the expected size — every property anybody checked is a
 /// property of the file, not of the restore. `NeverRestored` is therefore a
 /// first-class answer and it renders as unverified, permanently, until somebody
 /// does the one thing that settles it.
+///
+/// And a drill that ran once is not a schedule. ADR-0004 §4 says the archive is
+/// restored *on a schedule* precisely because a backup chain breaks silently —
+/// the upload keeps succeeding, and the thing that would notice is the restore
+/// nobody has run since March. So [`BackupState::Restored`] carries a wall-clock
+/// stamp, [`BackupState::is_proven`] takes the current date, and there is no
+/// `Display` impl to render one without it:
+///
+/// ```compile_fail
+/// use vayucell_core::durability::BackupState;
+/// let b = BackupState::NotConfigured;
+/// let s = format!("{b}");
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BackupState {
     /// A restore was performed and the result was checked.
     Restored {
-        /// When.
-        when: String,
+        /// Seconds since the Unix epoch when the drill ran and was checked.
+        ///
+        /// Wall clock, not [`crate::runtime::Clock::elapsed`], and deliberately:
+        /// this fact outlived the process that is reading it, and a monotonic
+        /// clock that started at zero on boot cannot date something that
+        /// happened last month.
+        at_unix: u64,
     },
     /// Backups are being written and none has been restored.
     NeverRestored,
@@ -346,35 +377,93 @@ pub enum BackupState {
 }
 
 impl BackupState {
-    /// Whether this backup has been shown to work.
+    /// Whether this backup has been shown to work, **as of `today`**.
     ///
-    /// Only [`BackupState::Restored`] qualifies. A written backup is evidence
-    /// that bytes were written.
+    /// Only a [`BackupState::Restored`] whose drill ran within
+    /// [`DRILL_STANDS_FOR`] qualifies. A written backup is evidence that bytes
+    /// were written, and a drill from eighteen months ago is evidence about an
+    /// archive that no longer exists.
+    ///
+    /// `today` is `None` when the host would not say what day it is, and that is
+    /// **not proven**. A cell that cannot date the drill cannot tell whether it
+    /// is current, and Charter Article IV.3 does not permit reporting what could
+    /// not be checked as clean. A stamp ahead of the clock is refused for the
+    /// same reason: an age that cannot be established is not an age.
     #[must_use]
-    pub const fn is_proven(&self) -> bool {
-        matches!(self, BackupState::Restored { .. })
+    pub const fn is_proven(&self, today: Option<u64>) -> bool {
+        match (self, today) {
+            (Self::Restored { at_unix }, Some(now)) => match now.checked_sub(*at_unix) {
+                Some(age) => age <= DRILL_STANDS_FOR.as_secs(),
+                None => false,
+            },
+            (Self::Restored { .. }, None)
+            | (Self::NeverRestored | Self::RestoreFailed(_) | Self::NotConfigured, _) => false,
+        }
+    }
+
+    /// What to tell the operator, as of `today`.
+    ///
+    /// A method rather than a [`core::fmt::Display`] impl, for the reason
+    /// [`RecoveryPoint::describe`] is: `Display` renders with no clock in scope,
+    /// and "a restore was performed and checked" is a sentence whose whole
+    /// meaning depends on when.
+    #[must_use]
+    pub fn describe(&self, today: Option<u64>) -> String {
+        match self {
+            Self::Restored { at_unix } => match today {
+                Some(now) if self.is_proven(today) => format!(
+                    "a restore was performed and checked {} days ago",
+                    (now.saturating_sub(*at_unix)) / (24 * 60 * 60)
+                ),
+                Some(now) if now >= *at_unix => format!(
+                    "the last restore drill was {} days ago and one is due every {}; \
+                     what is verified is that a backup worked then, not that this one \
+                     does",
+                    (now - *at_unix) / (24 * 60 * 60),
+                    spell_days(DRILL_STANDS_FOR)
+                ),
+                Some(_) => "the last restore drill is stamped ahead of this cell's clock, so \
+                     how old it is cannot be established and it is not evidence"
+                    .to_owned(),
+                None => "a restore drill was recorded and this cell cannot tell what day it \
+                     is, so whether it is still current is unknown — and unknown is not \
+                     recent"
+                    .to_owned(),
+            },
+            Self::NeverRestored => {
+                "backups are being written and none has ever been restored, so what \
+                 is verified is that files exist, not that they can be recovered"
+                    .to_owned()
+            }
+            Self::RestoreFailed(why) => {
+                format!("the last restore attempt did not produce a usable result: {why}")
+            }
+            Self::NotConfigured => "nothing is being backed up".to_owned(),
+        }
     }
 }
 
-impl core::fmt::Display for BackupState {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            BackupState::Restored { when } => {
-                write!(f, "a restore was performed and checked on {when}")
-            }
-            BackupState::NeverRestored => f.write_str(
-                "backups are being written and none has ever been restored, so what \
-                 is verified is that files exist, not that they can be recovered",
-            ),
-            BackupState::RestoreFailed(why) => {
-                write!(
-                    f,
-                    "the last restore attempt did not produce a usable result: {why}"
-                )
-            }
-            BackupState::NotConfigured => f.write_str("nothing is being backed up"),
-        }
-    }
+/// A duration in whole days, for the one sentence that needs it.
+fn spell_days(d: Duration) -> String {
+    format!("{} days", d.as_secs() / (24 * 60 * 60))
+}
+
+/// The two readings a storage posture needs to judge itself.
+///
+/// Bundled rather than passed as two arguments so a caller cannot supply one and
+/// forget the other, and so the reason there are two is written down where it is
+/// used: the replication lag is a duration inside this process and wants the
+/// monotonic clock; the restore drill happened before this process existed and
+/// only a wall clock can date it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Now {
+    /// How long this process's clock has advanced, from
+    /// [`crate::runtime::Clock::elapsed`].
+    pub since_start: Duration,
+    /// What day it is, from [`crate::runtime::Clock::wall_clock_unix`].
+    ///
+    /// `None` when the host would not say. Never read as recent.
+    pub today: Option<u64>,
 }
 
 /// Everything this software is willing to say about storage on this device.
@@ -414,20 +503,26 @@ impl Posture {
     ///
     /// Returns the reasons this device's storage is not settled. An empty slice
     /// means every one of them was answered — which requires, among other
-    /// things, a backup somebody has actually restored, and a replication lag
-    /// somebody is still measuring.
+    /// things, a replication lag somebody is still measuring and a backup
+    /// somebody has actually restored, recently enough for it to still be about
+    /// this backup.
     ///
-    /// `now` is the clock's reading and is required: without it this function
-    /// would report a dead replicator's last good number as no concern at all.
+    /// `now` carries both clock readings and is required: without the monotonic
+    /// one this would report a dead replicator's last good number as no concern,
+    /// and without the wall-clock one it would report a restore drill from
+    /// eighteen months ago as a working backup.
     #[must_use]
-    pub fn concerns(&self, lag_target: Duration, now: Duration) -> Vec<String> {
+    pub fn concerns(&self, lag_target: Duration, now: Now) -> Vec<String> {
         let mut out = Vec::new();
 
-        if self.recovery_point.needs_attention(lag_target, now) {
-            out.push(self.recovery_point.describe(now));
+        if self
+            .recovery_point
+            .needs_attention(lag_target, now.since_start)
+        {
+            out.push(self.recovery_point.describe(now.since_start));
         }
-        if !self.backup.is_proven() {
-            out.push(self.backup.to_string());
+        if !self.backup.is_proven(now.today) {
+            out.push(self.backup.describe(now.today));
         }
         match self.graceful_shutdown {
             GracefulShutdown::Failed => out.push(

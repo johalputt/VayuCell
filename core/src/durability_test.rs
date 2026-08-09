@@ -8,19 +8,47 @@
 use core::time::Duration;
 
 use crate::durability::{
-    BackupState, DurabilityClass, GracefulShutdown, LabVerification, Posture, RecoveryPoint,
-    WearIndicator, MEASUREMENT_STANDS_FOR,
+    BackupState, DurabilityClass, GracefulShutdown, LabVerification, Now, Posture, RecoveryPoint,
+    WearIndicator, DRILL_STANDS_FOR, MEASUREMENT_STANDS_FOR,
 };
 
 fn target() -> Duration {
     Duration::from_secs(60)
 }
 
-/// The clock reading every test below treats as "now".
+/// The monotonic clock reading every test below treats as "now".
 ///
 /// Non-zero so a measurement can sit both before and after it, which is what
 /// makes the ahead-of-the-clock case expressible at all.
 const NOW: Duration = Duration::from_secs(10_000);
+
+/// A wall-clock date, on a device that knows one. Arbitrary and fixed.
+const TODAY: u64 = 1_786_000_000;
+
+const DAY: u64 = 24 * 60 * 60;
+
+/// Both readings, on a device whose clocks are both answering.
+fn now() -> Now {
+    Now {
+        since_start: NOW,
+        today: Some(TODAY),
+    }
+}
+
+/// Both readings `d` later on the monotonic clock, with the date unchanged.
+fn now_after(d: Duration) -> Now {
+    Now {
+        since_start: NOW + d,
+        today: Some(TODAY),
+    }
+}
+
+/// A restore drill that ran `days` ago.
+fn drilled(days: u64) -> BackupState {
+    BackupState::Restored {
+        at_unix: TODAY - days * DAY,
+    }
+}
 
 /// A lag measured at `NOW`, so its age is zero and the figure is live.
 fn just_measured(secs: u64) -> RecoveryPoint {
@@ -158,18 +186,15 @@ fn a_stale_lag_reaches_the_operator_through_the_posture_too() {
         durability: DurabilityClass::AssumedUntrusted,
         wear: WearIndicator::Absent,
         graceful_shutdown: GracefulShutdown::Verified,
-        backup: BackupState::Restored {
-            when: "2026-08-09".into(),
-        },
+        backup: drilled(1),
     };
     assert!(
-        p.concerns(target(), NOW).is_empty(),
+        p.concerns(target(), now()).is_empty(),
         "{:?}",
-        p.concerns(target(), NOW)
+        p.concerns(target(), now())
     );
 
-    let hour_later = NOW + Duration::from_secs(60 * 60);
-    let concerns = p.concerns(target(), hour_later);
+    let concerns = p.concerns(target(), now_after(Duration::from_secs(60 * 60)));
     assert_eq!(concerns.len(), 1, "{concerns:?}");
     assert!(concerns[0].contains("no longer live"), "{concerns:?}");
 }
@@ -237,7 +262,10 @@ fn a_device_exposing_no_wear_indicator_is_absent_rather_than_healthy() {
     };
     // Absent is not a concern — it is not a fault — but it is also never
     // reported as a low wear figure.
-    assert!(!p.concerns(target(), NOW).iter().any(|c| c.contains("wear")));
+    assert!(!p
+        .concerns(target(), now())
+        .iter()
+        .any(|c| c.contains("wear")));
 }
 
 #[test]
@@ -247,7 +275,7 @@ fn a_wear_indicator_that_returned_nonsense_is_surfaced() {
         ..Posture::unconfigured()
     };
     assert!(p
-        .concerns(target(), NOW)
+        .concerns(target(), now())
         .iter()
         .any(|c| c.contains("65535") && c.contains("not usable")));
 }
@@ -260,21 +288,132 @@ fn a_backup_nobody_has_restored_is_never_proven() {
     // property anybody checked on a written backup is a property of the file —
     // its size, its checksum, that it appeared. None of them is a property of the
     // restore, which is the only thing anybody actually wants.
-    assert!(!BackupState::NeverRestored.is_proven());
-    assert!(!BackupState::NotConfigured.is_proven());
-    assert!(!BackupState::RestoreFailed("truncated archive".into()).is_proven());
-    assert!(BackupState::Restored {
-        when: "2026-08-07".into()
-    }
-    .is_proven());
+    let today = Some(TODAY);
+    assert!(!BackupState::NeverRestored.is_proven(today));
+    assert!(!BackupState::NotConfigured.is_proven(today));
+    assert!(!BackupState::RestoreFailed("truncated archive".into()).is_proven(today));
+    assert!(drilled(2).is_proven(today));
 }
 
 #[test]
 fn an_unrestored_backup_says_what_was_actually_verified() {
-    let s = BackupState::NeverRestored.to_string();
+    let s = BackupState::NeverRestored.describe(Some(TODAY));
     assert!(
         s.contains("files exist, not that they can be recovered"),
         "the distinction has to reach the operator: {s}"
+    );
+}
+
+// ── A drill that ran once is not a schedule ───────────────────────────────────
+
+#[test]
+fn a_restore_drill_from_last_year_no_longer_proves_anything() {
+    // ADR-0004 §4 says the archive is restored *on a schedule*, and the reason is
+    // that a backup chain breaks silently: the upload keeps succeeding, and the
+    // only thing that would notice is the restore nobody has run since March.
+    //
+    // A literal year rather than a multiple of DRILL_STANDS_FOR, for the reason
+    // every other expiry test here uses literals: written against the constant it
+    // pins, this stays green when somebody widens the constant.
+    assert!(!drilled(365).is_proven(Some(TODAY)));
+
+    let said = drilled(365).describe(Some(TODAY));
+    assert!(said.contains("365 days ago"), "{said}");
+    assert!(said.contains("not that this one does"), "{said}");
+}
+
+#[test]
+fn a_restore_drill_from_yesterday_still_proves_something() {
+    // The other side of the same literal. A standing period of zero would make
+    // every drill permanently worthless — safe, useless, and it would leave the
+    // test above green.
+    assert!(drilled(1).is_proven(Some(TODAY)));
+    assert!(drilled(1).describe(Some(TODAY)).contains("1 days ago"));
+}
+
+#[test]
+fn the_drill_interval_is_short_enough_to_find_a_backup_chain_that_broke() {
+    // Both bounds literal. Inside a quarter, so a chain that broke is found in
+    // months rather than years; over a day, because §4 makes the drill
+    // thermal-class-declared and a daily restore on a phone is its own failure.
+    assert!(
+        DRILL_STANDS_FOR <= Duration::from_secs(90 * 24 * 60 * 60),
+        "{DRILL_STANDS_FOR:?}"
+    );
+    assert!(
+        DRILL_STANDS_FOR > Duration::from_secs(24 * 60 * 60),
+        "{DRILL_STANDS_FOR:?}"
+    );
+}
+
+#[test]
+fn a_cell_that_cannot_tell_what_day_it_is_cannot_call_a_drill_current() {
+    // A phone with no network and a dead RTC is an ordinary phone. Reading None
+    // as "recent" would make the least capable device the most confident one,
+    // which is the inversion Article IV.3 exists to forbid.
+    assert!(!drilled(1).is_proven(None));
+
+    let said = drilled(1).describe(None);
+    assert!(said.contains("cannot tell what day it is"), "{said}");
+    assert!(said.contains("unknown is not recent"), "{said}");
+}
+
+#[test]
+fn a_drill_stamped_ahead_of_the_clock_is_not_evidence() {
+    let future = BackupState::Restored {
+        at_unix: TODAY + DAY,
+    };
+    assert!(!future.is_proven(Some(TODAY)));
+    assert!(future
+        .describe(Some(TODAY))
+        .contains("ahead of this cell's clock"));
+}
+
+#[test]
+fn a_stale_drill_reaches_the_operator_through_the_posture_too() {
+    // Same reason the stale lag has this test: a rule enforced only on the type
+    // the panel wraps is a rule the panel can route around.
+    let p = Posture {
+        recovery_point: just_measured(2),
+        durability: DurabilityClass::AssumedUntrusted,
+        wear: WearIndicator::Absent,
+        graceful_shutdown: GracefulShutdown::Verified,
+        backup: drilled(400),
+    };
+    let concerns = p.concerns(target(), now());
+    assert_eq!(concerns.len(), 1, "{concerns:?}");
+    assert!(concerns[0].contains("400 days ago"), "{concerns:?}");
+
+    // And the same posture with a fresh drill is settled.
+    let fresh = Posture {
+        backup: drilled(1),
+        ..p
+    };
+    assert!(
+        fresh.concerns(target(), now()).is_empty(),
+        "{:?}",
+        fresh.concerns(target(), now())
+    );
+}
+
+#[test]
+fn a_posture_on_a_dateless_device_reports_the_backup_as_unsettled() {
+    let p = Posture {
+        recovery_point: just_measured(2),
+        durability: DurabilityClass::AssumedUntrusted,
+        wear: WearIndicator::Absent,
+        graceful_shutdown: GracefulShutdown::Verified,
+        backup: drilled(1),
+    };
+    let dateless = Now {
+        since_start: NOW,
+        today: None,
+    };
+    let concerns = p.concerns(target(), dateless);
+    assert_eq!(concerns.len(), 1, "{concerns:?}");
+    assert!(
+        concerns[0].contains("unknown is not recent"),
+        "{concerns:?}"
     );
 }
 
@@ -288,7 +427,7 @@ fn an_unrestored_backup_is_a_standing_concern_that_no_amount_of_backing_up_clear
         graceful_shutdown: GracefulShutdown::Verified,
         ..Posture::unconfigured()
     };
-    let concerns = p.concerns(target(), NOW);
+    let concerns = p.concerns(target(), now());
     assert_eq!(concerns.len(), 1, "{concerns:?}");
     assert!(
         concerns[0].contains("none has ever been restored"),
@@ -307,7 +446,7 @@ fn a_shed_ladder_nobody_has_watched_complete_is_not_credited() {
     let p = Posture::unconfigured();
     assert_eq!(p.graceful_shutdown, GracefulShutdown::NeverObserved);
     assert!(p
-        .concerns(target(), NOW)
+        .concerns(target(), now())
         .iter()
         .any(|c| c.contains("never been observed")));
 }
@@ -319,7 +458,7 @@ fn a_shed_ladder_that_ran_and_left_an_inconsistent_database_says_whose_failure_i
         ..Posture::unconfigured()
     };
     assert!(p
-        .concerns(target(), NOW)
+        .concerns(target(), now())
         .iter()
         .any(|c| c.contains("ours rather than the")));
 }
@@ -336,9 +475,9 @@ fn an_unconfigured_device_reports_every_field_at_its_least_reassuring_value() {
     assert_eq!(p.backup, BackupState::NotConfigured);
     assert_eq!(p.graceful_shutdown, GracefulShutdown::NeverObserved);
     assert!(
-        p.concerns(target(), NOW).len() >= 3,
+        p.concerns(target(), now()).len() >= 3,
         "an unconfigured device has several: {:?}",
-        p.concerns(target(), NOW)
+        p.concerns(target(), now())
     );
 }
 
@@ -353,14 +492,12 @@ fn a_settled_device_still_required_somebody_to_restore_a_backup() {
         durability: DurabilityClass::AssumedUntrusted,
         wear: WearIndicator::Readable(4),
         graceful_shutdown: GracefulShutdown::Verified,
-        backup: BackupState::Restored {
-            when: "2026-08-07".into(),
-        },
+        backup: drilled(1),
     };
     assert!(
-        p.concerns(target(), NOW).is_empty(),
+        p.concerns(target(), now()).is_empty(),
         "{:?}",
-        p.concerns(target(), NOW)
+        p.concerns(target(), now())
     );
 }
 
@@ -374,9 +511,7 @@ fn assuming_the_flash_lies_is_never_itself_a_concern() {
         durability: DurabilityClass::AssumedUntrusted,
         wear: WearIndicator::Absent,
         graceful_shutdown: GracefulShutdown::Verified,
-        backup: BackupState::Restored {
-            when: "2026-08-07".into(),
-        },
+        backup: drilled(1),
     };
-    assert!(settled.concerns(target(), NOW).is_empty());
+    assert!(settled.concerns(target(), now()).is_empty());
 }

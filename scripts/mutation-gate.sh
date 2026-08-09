@@ -765,13 +765,47 @@ mutate "$DU" a_measurement_stamped_ahead_of_the_clock_is_not_a_live_figure \
 
 mutate "$DU" a_stale_lag_reaches_the_operator_through_the_posture_too \
   "the panel checks the lag against its target and not against its age" \
-  "        if self.recovery_point.needs_attention(lag_target, now) {" \
+  "        if self
+            .recovery_point
+            .needs_attention(lag_target, now.since_start)
+        {" \
   "        if !matches!(self.recovery_point, RecoveryPoint::Behind { lag, .. } if lag <= lag_target) {"
 
 mutate "$DU" a_backup_nobody_has_restored_is_never_proven \
   "a backup that was merely written counts as proven" \
-  "        matches!(self, BackupState::Restored { .. })" \
-  "        !matches!(self, BackupState::NotConfigured)"
+  "            (Self::Restored { .. }, None)
+            | (Self::NeverRestored | Self::RestoreFailed(_) | Self::NotConfigured, _) => false," \
+  "            (Self::Restored { .. }, None) => false,
+            (Self::NeverRestored | Self::RestoreFailed(_), _) => true,
+            (Self::NotConfigured, _) => false,"
+
+mutate "$DU" a_restore_drill_from_last_year_no_longer_proves_anything \
+  "a restore drill proves the backup for the next century" \
+  "pub const DRILL_STANDS_FOR: Duration = Duration::from_secs(30 * 24 * 60 * 60);" \
+  "pub const DRILL_STANDS_FOR: Duration = Duration::from_secs(100 * 365 * 24 * 60 * 60);"
+
+mutate "$DU" a_restore_drill_from_yesterday_still_proves_something \
+  "a restore drill is worthless the instant it completes" \
+  "pub const DRILL_STANDS_FOR: Duration = Duration::from_secs(30 * 24 * 60 * 60);" \
+  "pub const DRILL_STANDS_FOR: Duration = Duration::from_secs(0);"
+
+mutate "$DU" a_cell_that_cannot_tell_what_day_it_is_cannot_call_a_drill_current \
+  "a cell that cannot date a drill calls it current anyway" \
+  "            (Self::Restored { at_unix }, Some(now)) => match now.checked_sub(*at_unix) {" \
+  "            (Self::Restored { .. }, None) => true,
+            (Self::Restored { at_unix }, Some(now)) => match now.checked_sub(*at_unix) {"
+
+mutate "$DU" a_drill_stamped_ahead_of_the_clock_is_not_evidence \
+  "a drill the clock cannot account for reads as a fresh one" \
+  "                Some(age) => age <= DRILL_STANDS_FOR.as_secs(),
+                None => false," \
+  "                Some(age) => age <= DRILL_STANDS_FOR.as_secs(),
+                None => true,"
+
+mutate "$DU" a_posture_on_a_dateless_device_reports_the_backup_as_unsettled \
+  "the panel asks whether a drill happened, not whether it is current" \
+  "        if !self.backup.is_proven(now.today) {" \
+  "        if matches!(self.backup, BackupState::NeverRestored | BackupState::NotConfigured) {"
 
 mutate "$DU" the_default_posture_toward_flash_is_untrusted \
   "the default posture toward consumer flash becomes trusting" \
@@ -788,11 +822,11 @@ mutate "$DU" the_default_posture_toward_flash_is_untrusted \
 
 mutate "$DU" an_unrestored_backup_is_a_standing_concern_that_no_amount_of_backing_up_clears \
   "an unrestored backup stops being a standing concern" \
-  "        if !self.backup.is_proven() {
-            out.push(self.backup.to_string());
+  "        if !self.backup.is_proven(now.today) {
+            out.push(self.backup.describe(now.today));
         }" \
   "        if false {
-            out.push(self.backup.to_string());
+            out.push(self.backup.describe(now.today));
         }"
 
 mutate "$DU" a_shed_ladder_nobody_has_watched_complete_is_not_credited \

@@ -194,6 +194,39 @@ Two additions specific to a phone:
 - **The backup target must not be the cell itself, nor another cell in the same
   building.** Same disk is not a backup; same room is not off-site.
 
+### 4.1 "On a schedule" needed a clock, and it took a third instance to notice
+
+`BackupState::Restored` carried `when: String` — a free-form date nothing in the
+crate ever compared to anything — and `is_proven()` returned `true` for it
+forever. So this section's central discipline was half-built: an *unrestored*
+backup read as unverified, correctly and permanently, while a backup restored
+once in March read as proven in December. The failure §4 exists to catch is a
+chain that breaks **silently**, where the upload keeps succeeding and the only
+thing that would notice is the restore nobody has run since — and a drill with no
+expiry is exactly the instrument that cannot notice it.
+
+This is the third instance of one defect: a fact whose honesty depends on time,
+stored without a time. The others are ADR-0003 §4.1 and §1.1 above. The repair is
+the same, with one difference that matters:
+
+- **`Restored { at_unix }`**, and `is_proven(today)` / `describe(today)` take the
+  current date. There is no `Display` impl; a `compile_fail` doctest proves it.
+- **`DRILL_STANDS_FOR` is a month.** Long enough that the drill is not a standing
+  thermal load — this section already makes it shed by the governor for that
+  reason — and short enough that a broken chain is found inside a month.
+- **The stamp is wall-clock, not monotonic**, and that is the difference. A
+  replication lag is a duration inside one process, where `Clock::elapsed` is the
+  only safe answer. A restore drill happened *before this process started*: a
+  monotonic clock that begins at zero on boot cannot date March. So `Clock` gains
+  `wall_clock_unix()`, and nothing in the governor, the sampler or the shed
+  ladder may call it — a wall clock that steps backwards would hand them an
+  outage that ran in reverse, which is the hazard `elapsed` was written to avoid.
+- **It returns `Option`, and `None` is not recent.** A phone with no network and
+  a dead RTC is an ordinary phone. A cell that cannot tell what day it is cannot
+  tell whether a drill is current, and Article IV.3 settles what that reports as.
+  Reading `None` as recent would make the least capable device the most confident
+  one.
+
 ## §5. Root, and what is actually readable
 
 The draft "silently presupposed root", and most of the storage introspection it

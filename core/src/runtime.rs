@@ -58,6 +58,30 @@ pub trait Clock {
     /// wall-clock step — an NTP correction, a resumed suspend — cannot make the
     /// supervisor believe an outage ran backwards.
     fn elapsed(&self) -> Duration;
+
+    /// What day it is, in seconds since the Unix epoch — if this host will say.
+    ///
+    /// A second method rather than a second meaning for [`Clock::elapsed`],
+    /// because they answer different questions and only one of them is safe for
+    /// the governor.
+    ///
+    /// [`Clock::elapsed`] measures durations **inside one process**, which is
+    /// what the governor needs and where monotonic is the only correct answer.
+    /// This measures the age of a fact that **outlived the process** — a restore
+    /// drill that ran last month, whose evidence is a record on disk. No
+    /// monotonic clock can date that: it started at zero when this process did,
+    /// so it would report a drill from March as having happened after boot.
+    ///
+    /// It returns an `Option` because a wall clock is a fallible instrument. It
+    /// can be unset on a device with no network, stepped by an NTP correction,
+    /// or refused outright. **`None` is never read as recent** — a cell that
+    /// cannot tell what day it is cannot tell whether a drill is current, and
+    /// Charter Article IV.3 says what that must be reported as.
+    ///
+    /// Nothing in the governor, the sampler or the shed ladder may call this.
+    /// They measure elapsed time, and a wall clock that steps backwards would
+    /// hand them an outage that ran in reverse.
+    fn wall_clock_unix(&self) -> Option<u64>;
 }
 
 /// A clock that really sleeps.
@@ -85,6 +109,18 @@ impl Clock for RealClock {
     fn elapsed(&self) -> Duration {
         self.elapsed
     }
+
+    fn wall_clock_unix(&self) -> Option<u64> {
+        // `duration_since` fails when the system clock is set before the epoch,
+        // which a phone with a dead RTC and no network can genuinely report. The
+        // failure is passed through rather than clamped to zero: a clamp would
+        // turn "this device does not know what day it is" into "it is 1970",
+        // which reads as a very old drill rather than as an unknown one.
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()
+            .map(|d| d.as_secs())
+    }
 }
 
 /// A clock that advances without waiting.
@@ -96,6 +132,7 @@ impl Clock for RealClock {
 pub struct FakeClock {
     elapsed: Duration,
     slept: Vec<Duration>,
+    wall_unix: Option<u64>,
 }
 
 impl FakeClock {
@@ -105,7 +142,19 @@ impl FakeClock {
         Self {
             elapsed: Duration::ZERO,
             slept: Vec::new(),
+            // A device that does not know what day it is. The default, because a
+            // fake that answered by default would let a test pass without ever
+            // saying which day it meant — and because it is the honest starting
+            // point for a phone with no network and a dead RTC.
+            wall_unix: None,
         }
+    }
+
+    /// The same clock, on a device that does know what day it is.
+    #[must_use]
+    pub fn knowing_the_date(mut self, unix_seconds: u64) -> Self {
+        self.wall_unix = Some(unix_seconds);
+        self
     }
 
     /// Every interval this clock was asked to wait, in order.
@@ -123,6 +172,10 @@ impl Clock for FakeClock {
 
     fn elapsed(&self) -> Duration {
         self.elapsed
+    }
+
+    fn wall_clock_unix(&self) -> Option<u64> {
+        self.wall_unix
     }
 }
 

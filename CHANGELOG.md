@@ -52,6 +52,44 @@ when the tag is cut.
   the ingress verification in 0.0.9, found by the same question, and repaired
   before the subsystem exists rather than after.
 
+- **A restore drill that ran once proved the backup forever.** ADR-0004 §4 is the
+  section that refuses to call an uploaded archive a backup — *"a hope with a
+  filename"* — and it says the system restores an archive **on a schedule** and
+  reports the time of the last verified restore. `BackupState::Restored` carried
+  `when: String`, a free-form date nothing in the crate ever compared to
+  anything, and `is_proven()` returned `true` for it permanently.
+
+  So the discipline was half-built: an unrestored backup read as unverified,
+  correctly and forever, while a backup restored once in March read as proven in
+  December. The failure §4 exists to catch is a chain that breaks **silently** —
+  the upload keeps succeeding and the only thing that would notice is the restore
+  nobody has run since — and a drill with no expiry is precisely the instrument
+  that cannot notice it.
+
+  `Restored { at_unix }` now carries a date, `is_proven(today)` and
+  `describe(today)` require the current one, the `Display` impl is gone with a
+  `compile_fail` doctest proving it, and a drill older than `DRILL_STANDS_FOR`
+  (a month) reports how old it is instead of reading as proof.
+
+  **The stamp is wall-clock, and that is the one difference from the other two
+  fixes.** A replication lag is a duration inside one process, where
+  `Clock::elapsed` is the only safe answer. A restore drill happened before this
+  process started, and a monotonic clock that begins at zero on boot cannot date
+  March. So `Clock` gains `wall_clock_unix()`, documented as unusable by the
+  governor, the sampler and the shed ladder — a wall clock that steps backwards
+  would hand them an outage that ran in reverse, which is the hazard `elapsed`
+  was written to avoid.
+
+  **It returns `Option`, and `None` is not recent.** A phone with no network and
+  a dead RTC is an ordinary phone; reading an unknown date as a current one would
+  make the least capable device the most confident. `Posture::concerns` now takes
+  both readings as a single `Now`, so a caller cannot supply one and forget the
+  other.
+
+  Third instance of one defect — a fact whose honesty depends on time, stored
+  without a time — after the ingress verification and the replication lag. All
+  three were found by the same question, and none by the test suite.
+
 ## [0.0.9] — 2026-08-09
 
 ### Fixed
