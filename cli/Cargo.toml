@@ -1,6 +1,6 @@
 [package]
 name = "vayucell"
-version = "0.0.4"
+version = "0.0.5"
 edition = "2021"
 rust-version = "1.80"
 license = "Apache-2.0"
@@ -15,7 +15,7 @@ path = "src/main.rs"
 # parsing is thirty lines of std; a parser crate would be the first dependency
 # in a project whose headline claim is that it has none.
 [dependencies]
-vayucell-core = { path = "../core", version = "0.0.4" }
+vayucell-core = { path = "../core", version = "0.0.5" }
 
 [lints.rust]
 unsafe_code = "deny"

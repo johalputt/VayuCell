@@ -13,6 +13,11 @@ traffic before it.
 
 ## [Unreleased]
 
+## [0.0.5] — unreleased
+
+The heading says *unreleased* rather than carrying a date. The date is written
+when the tag is cut.
+
 ### Fixed
 
 - **A clippy lint that this machine could not see failed CI.**
