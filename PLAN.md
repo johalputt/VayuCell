@@ -376,18 +376,37 @@ not create a new one.
 Each phase is independently useful and independently shippable. Nothing claims a
 capability before it can verify it.
 
-| Phase | Content | What it unlocks | Gate that proves it |
-| --- | --- | --- | --- |
-| **P0** | Charter, licences, capability registry, device profiler, hardware DB | Nothing yet — but nothing can land undeclared | An unregistered capability fails the build |
-| **P1** | **Battery Safety Governor** + posture report | Safe unattended operation | Ceiling is set, read back, and reverting is detected |
-| **P2** | T0/T1 runtime, service supervisor, one-click installer | A phone that serves something | Survives 30 days unattended with Doze active. *The supervisor loop is in `core/src/runtime.rs` and the `vayucell` binary runs it; thirty simulated days is a test. The gate itself needs a device and a service supervisor, and remains open* |
-| **P3** | **Sovereign Ingress** — onion, relay, local | A reachable server with no public IP | Reachable from outside with no port forward. *The modes, their declared properties and the governor's authority over them are in `core/src/ingress.rs`, and the local-only mode is served by `vayucell serve`. Onion and relay are not implemented, and the gate — reachable from outside with no port forward — needs both* |
-| **P4** | Catalogue: site + personal cloud | The two headline uses | A real site and real file sync, served from a phone. *The site half is written: `vayucell site` serves a directory under the governor's authority — see ADR-0008. File sync is not, and neither half has run on a handset, so the gate is unmet* |
-| **P5** | **T2 virtualised tier** (pKVM guest) | Server-grade on unrooted, updated phones | Guest survives host reboot; escapes Doze |
-| **P6** | Replication lag as the stated guarantee, verified-restore reporting, wear observation | Data you can trust | Graceful-shutdown ladder verified; an unrestored backup reads *unverified*. *The types are in `core/src/durability.rs` and an unrestored backup cannot read as proven; the ladder's on-device verification needs a device* |
-| **P7** | **Fleet** — roles, replication, rolling upgrade, shared verdicts | Redundancy and scale | One node killed mid-write loses nothing |
-| **P8** | **T3 mainline tier** (postmarketOS-class images) | A maintained kernel — the real fix for B4 | Verified images for the top device families |
-| **P9** | Local model inference, household services | Private AI on hardware you own | Runs within the declared thermal envelope |
+**Status is written per phase, and it is written honestly.** ✅ means the code
+exists *and* its gate is met. ◐ means code exists and the gate is not met — which
+is usually because the gate needs a handset, not because the code is unfinished.
+⬜ means not started. A phase does not get to be ✅ because the interesting part
+of it compiles.
+
+| Phase | Content | What it unlocks | Gate that proves it | Status |
+| --- | --- | --- | --- | --- |
+| **P0** | Charter, licences, capability registry, device profiler, hardware DB | Nothing yet — but nothing can land undeclared | An unregistered capability fails the build | ✅ **met.** The registry, the tier probes and the charter gate are written and enforced in CI. The hardware database has **no entries**: it is a schema and a gate, waiting for reports from real handsets |
+| **P1** | **Battery Safety Governor** + posture report | Safe unattended operation | Ceiling is set, read back, and reverting is detected | ◐ **written, unproven on hardware.** The state machine, the read-back, the reversion detection, the shed ladder, the halt record and the panel all exist and are mutation-tested. Every one of them has been exercised against a fake host and **has governed zero real cells** |
+| **P2** | T0/T1 runtime, service supervisor, one-click installer | A phone that serves something | Survives 30 days unattended with Doze active | ◐ **needs a device.** The supervisor loop is in `core/src/runtime.rs`, the binary runs it, and thirty *simulated* days is a test. A service supervisor and Doze survival cannot be simulated |
+| **P3** | **Sovereign Ingress** — onion, relay, local | A reachable server with no public IP | Reachable from outside with no port forward | ◐ **local-only.** The modes, their seven declared properties and the governor's authority over them are in `core/src/ingress.rs`, and local-only is served. **Onion and relay are not implemented**, so nothing here is reachable from outside your own network. This is the largest single gap between what this project is and what its headline says |
+| **P4** | Catalogue: site + personal cloud | The two headline uses | A real site and real file sync, served from a phone | ◐ **half.** `vayucell site` serves a directory under the governor's authority (ADR-0008) and `vayucell vault` accepts authenticated files (ADR-0009). **File sync is not written**, and neither half has run on a handset |
+| **P5** | **T2 virtualised tier** (pKVM guest) | Server-grade on unrooted, updated phones | Guest survives host reboot; escapes Doze | ⬜ not started |
+| **P6** | Replication lag as the stated guarantee, verified-restore reporting, wear observation | Data you can trust | Graceful-shutdown ladder verified; an unrestored backup reads *unverified* | ◐ **types only.** `core/src/durability.rs` holds the honesty machinery — a lag that goes stale, a restore drill that expires, no variant meaning *durable*. **There is no replicator and no backup system**, so the types describe a subsystem that does not exist yet. Written first on purpose |
+| **P7** | **Fleet** — roles, replication, rolling upgrade, shared verdicts | Redundancy and scale | One node killed mid-write loses nothing | ⬜ not started |
+| **P8** | **T3 mainline tier** (postmarketOS-class images) | A maintained kernel — the real fix for B4 | Verified images for the top device families | ⬜ not started |
+| **P9** | Local model inference, household services | Private AI on hardware you own | Runs within the declared thermal envelope | ⬜ not started |
+
+**Two phases have their code, three are part-built, five are untouched — and
+that undercounts what is left.** Everything written so far is the layer
+*underneath* the product: ten core modules and twenty gates, serving a directory
+and storing files on your own network. The three things that would make this the
+thing the README describes are all unbuilt — **an onion service** (P3),
+**file sync** (P4), and **a replicator with verified restore** (P6, where only
+the type layer exists).
+
+**Four gates cannot be closed by writing code.** P2, P3, P4 and P6 all end in a
+sentence about a device: thirty days unattended, reachable from outside, served
+from a phone, a ladder verified on hardware. No amount of work in this repository
+closes them. Somebody has to put a retired phone on a bench.
 
 **P1 precedes everything that serves traffic, deliberately.** Shipping a
 convenient server before the safety governor would put hardware in a risky state

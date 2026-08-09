@@ -213,6 +213,40 @@ sys.exit(bad)
 INNER
 [ $? -ne 0 ] && FAILED=1
 
+# ── Every source path a document names must exist ─────────────────────────────
+#
+# The roadmap and the ADRs point at files to say *where a decision is
+# implemented*: "the supervisor loop is in `core/src/runtime.rs`", "the types are
+# in `core/src/durability.rs`". That is the sentence a reader follows to check
+# whether a claim is real, and it is the sentence a rename quietly falsifies.
+#
+# A path that no longer exists does not make a document wrong in a visible way.
+# It makes it wrong in the way this project spends most of its effort on: a claim
+# that reads as verified and points at nothing. The roadmap in particular now
+# carries a status per phase, and every ◐ leans on a path.
+#
+# Only paths inside backticks that look like project source are checked, so
+# ordinary prose about a directory is not dragged in.
+missing=""
+while IFS= read -r path; do
+  [ -e "$path" ] || missing="$missing$path"$'\n'
+done < <(
+  grep -rhoE '`(core|cli|scripts|docs)/[a-zA-Z0-9_./-]+\.(rs|sh|md|toml|json)`' \
+    --include='*.md' . 2>/dev/null | tr -d '`' | sort -u
+)
+if [ -n "$missing" ]; then
+  fail "a document names a source path that does not exist:"
+  # Quoted, so a path prints as one line. Unquoted, the shell splits it into
+  # words and the operator is shown fragments of the thing they have to fix.
+  printf '        %s' "$missing"
+  # And which document named it, since the point is to go and correct the claim.
+  while IFS= read -r path; do
+    [ -n "$path" ] && grep -rln --include='*.md' -F "$path" . | sed 's/^/          named in /'
+  done <<< "$missing"
+else
+  pass "every source path named in a document exists"
+fi
+
 echo
 if [ "$FAILED" -ne 0 ]; then
   echo "DOCUMENTATION GATE FAILED."

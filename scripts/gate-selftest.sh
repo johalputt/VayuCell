@@ -245,6 +245,15 @@ violation "$DOCS" "a required document is emptied rather than deleted" \
   "required documents missing" \
   ": > GOVERNANCE.md"
 
+# The roadmap carries a status per phase and every partly-built one leans on a
+# path: "the types are in core/src/durability.rs". A rename falsifies that
+# sentence without making it look wrong — a claim that reads as verified and
+# points at nothing, which is the defect this project spends most of its effort
+# on. Planted as a rename rather than a deletion, because that is how it happens.
+violation "$DOCS" "the roadmap names a source file that no longer exists" \
+  "source path that does not exist" \
+  "sed -i 's|\`core/src/durability.rs\`|\`core/src/replicator.rs\`|' PLAN.md"
+
 violation "$DOCS" "a link into the founding documents goes dead" \
   "broken relative link" \
   "printf '\n[the charter](CHARTER-moved.md)\n' >> README.md"

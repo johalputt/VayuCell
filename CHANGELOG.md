@@ -59,6 +59,27 @@ when the tag is cut.
   assumed. Verified by planting a `connect` in production code (gate goes red)
   and the identical call inside `#[cfg(test)]` (gate stays green).
 
+- **A status per phase in the roadmap, written honestly.** `PLAN.md` §11 listed
+  ten phases with no status column, so "the supervisor loop is in
+  `core/src/runtime.rs`" and "P0 — nothing yet" sat in the same table and a
+  reader had to reconstruct what was actually built. Every phase now carries ✅
+  (code exists *and* its gate is met), ◐ (code exists, gate unmet) or ⬜ (not
+  started), with a sentence on what is missing.
+
+  The honest total: **two phases have their code, three are part-built, five are
+  untouched** — and four gates (P2, P3, P4, P6) end in a sentence about a device
+  and cannot be closed by writing anything in this repository.
+
+- **A documentation check that every source path a document names exists.** The
+  roadmap and the ADRs point at files to say where a decision is implemented, and
+  that is the sentence a reader follows to check whether a claim is real. A
+  rename falsifies it without making it look wrong — a claim that reads as
+  verified and points at nothing.
+
+  The failure names the path **and the document that claims it**, because the
+  point is to go and correct the claim. Planted in the gate self-test as a
+  rename rather than a deletion, since that is how it actually happens.
+
 ## [0.0.11] — 2026-08-09
 
 ### Fixed
