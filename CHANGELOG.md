@@ -106,6 +106,31 @@ when the tag is cut.
   added module rather than an edited sentence, since that is the direction it
   drifts.
 
+- **The four open Scorecard findings are recorded, with which of them we intend
+  to close.** `SECURITY.md` now names each one. None is closed by changing code,
+  and an alert nobody explains is the same defect this project refuses
+  everywhere else: a red row reading as *"checked and failing"* when it means
+  something narrower.
+
+  **Branch-Protection** is real and open — there is no ruleset on `main`.
+  `.github/rulesets/main.json` ships the one to apply, reviewable in a diff
+  rather than described in prose; it restricts deletions and blocks force pushes
+  and deliberately does **not** require a pull request. It needs a maintainer,
+  because the settings API is not writable from where this code is developed,
+  and it also needs a `SCORECARD_TOKEN` — without which the check scores zero
+  whatever the repository is set to.
+
+  **Code-Review** scores zero because every commit is pushed straight to `main`,
+  which is the stated model rather than an oversight. The trade is written down
+  instead of hidden: one maintainer means a self-approved pull request is review
+  theatre, so what replaces it is mechanical — twenty gates, the mutation gate,
+  the gate self-test. **A second reviewer would be better than all of it**, and
+  until there is one the honest statement is that this code is not peer-reviewed.
+
+  **Maintained** grades ninety days of activity against a three-day-old
+  repository and resolves itself. **CII-Best-Practices** needs a registration
+  nobody has submitted.
+
 ### Fixed
 
 - **The device report claimed something about this binary that is not true.** It

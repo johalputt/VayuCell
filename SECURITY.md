@@ -58,3 +58,58 @@ front is easier to work with than one that arrives later.
 - Silently correct a safety-affecting claim. If published wording overstated a
   guarantee, **the correction is published too**, naming what was wrong — the
   practice ADR-0150 in the sibling project established.
+
+## Open Scorecard findings, and which of them we intend to close
+
+OpenSSF Scorecard runs on every push to `main` (`.github/workflows/supply-chain.yml`)
+and its results appear under **Security → Code scanning**. Four checks are open,
+and none of them is closed by changing code. They are recorded here because an
+alert nobody explains is the same defect this project refuses everywhere else: a
+red row that reads as "checked and failing" when it means something narrower.
+
+### Branch-Protection — real, and open
+
+There is no ruleset on `main`. That is a genuine gap and it needs a maintainer,
+because the repository settings API is not writable from the environment this
+code is developed in.
+
+`.github/rulesets/main.json` is the ruleset to apply — reviewable in the diff
+rather than described in prose. It restricts deletions and blocks force pushes,
+and it deliberately does **not** require a pull request, because that would
+contradict the next section. Apply it under *Settings → Rules → Rulesets →
+New ruleset → Import*, or:
+
+```sh
+gh api -X POST repos/johalputt/VayuCell/rulesets --input .github/rulesets/main.json
+```
+
+Scorecard also needs a fine-grained token with `Administration: read`, stored as
+the repository secret `SCORECARD_TOKEN`. **Without it the check scores zero
+whatever the repository is configured to do** — so a maintainer who applies the
+ruleset and watches the alert stay open has been told nothing. The workflow says
+so on every run rather than leaving it to be discovered.
+
+### Code-Review — a deliberate deviation
+
+Scorecard measures whether commits arrived through an approved pull request.
+Every commit here is pushed directly to `main`, so this check scores zero and
+will keep scoring zero.
+
+That is the stated development model, not an oversight, and the trade is written
+down rather than hidden: this project has a single maintainer, so a self-approved
+pull request would be review theatre — the metric satisfied and nobody's eyes on
+the diff. What replaces it is mechanical and runs before every push: twenty
+gates, a mutation gate that re-breaks each safety and honesty guard and requires
+its named test to go red, and a gate self-test that plants violations to prove
+each gate fires. **A second reviewer would be better than all of it.** Until
+there is one, the honest statement is that this code is not peer-reviewed.
+
+### Maintained — an artefact of a new repository
+
+This check grades activity over ninety days against a repository three days old.
+It resolves itself with time and there is nothing to do about it.
+
+### CII-Best-Practices — not registered
+
+The badge requires registering the project at <https://www.bestpractices.dev/>.
+Nothing here is missing for it; it has not been submitted.
