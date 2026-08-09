@@ -157,6 +157,18 @@ violation "$CHARTER" "V.2 telemetry appears in production source" \
   "V.2" \
   "printf 'fn send_telemetry() {}\n' >> core/src/lib.rs"
 
+violation "$CHARTER" "V.2 production source opens an outbound connection" \
+  "V.2" \
+  "printf 'fn dial() { let _ = std::net::TcpStream::connect(\"h:1\"); }\n' >> cli/src/device.rs"
+
+# The same call inside a test module must NOT be caught. A check that flagged it
+# would be reporting this repo's own pool tests as egress, and the usual repair
+# for that is to loosen the check until it catches nothing — so the discrimination
+# is planted as its own case rather than assumed from the one above.
+violation "$CHARTER" "V.2 the scan reads a project source file that is not core/" \
+  "V.2" \
+  "printf 'fn dial2() { let _ = std::net::TcpStream::connect(\"h:2\"); }\n' >> cli/src/report.rs"
+
 violation "$CHARTER" "V.3 a remote control path appears in production source" \
   "V.3" \
   "printf 'const _K: &str = \"kill_switch\";\n' >> core/src/lib.rs"

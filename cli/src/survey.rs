@@ -23,6 +23,21 @@
 //! would check. So the report goes to standard output and a person decides what
 //! to do with it.
 //!
+//! ## What the report is allowed to say about that
+//!
+//! It used to print *"this program has no network code"*, which is not true of
+//! the program. The same binary runs three HTTP listeners — that is most of what
+//! it is for — so an operator who has ever run `vayucell site` reads that
+//! sentence, knows it is wrong, and has been given a reason to discount every
+//! other assurance in the block. **An overstated reassurance is worse than a
+//! narrow one, because the reader can check it.**
+//!
+//! What is true, and is the property that actually matters, is stronger and
+//! narrower: **nothing in this binary dials out.** There is no `connect` outside
+//! the test module — only `bind`, and only when somebody asks for a surface. A
+//! report cannot phone home because nothing here can, and a test pins that the
+//! sentence claims listening-not-connecting rather than an absence of sockets.
+//!
 //! # What it contains is listed in what it prints
 //!
 //! A phone is a personal device and this report is going into a public issue.
@@ -55,8 +70,9 @@ pub fn report(host: &dyn Host, supply_dir: &str, version: &str, standing: &Stand
     let _ = writeln!(out);
     let _ = writeln!(
         out,
-        "Nothing is sent anywhere: this program has no network code and this report\n\
-         is printed for you to paste. Read it before you do."
+        "Nothing is sent anywhere: nothing in this binary dials out. It listens when\n\
+         you ask it to serve and never connects to anything, and this report is\n\
+         printed for you to paste. Read it before you do."
     );
     let _ = writeln!(out);
     let _ = writeln!(
@@ -257,7 +273,20 @@ mod tests {
                 "{absent} is not named as omitted:\n{out}"
             );
         }
-        assert!(out.contains("no network code"), "{out}");
+        // The claim about the network is stated narrowly on purpose. It used to
+        // say "this program has no network code", which is false — the same
+        // binary runs three HTTP listeners. An operator who has run
+        // `vayucell site` can check that sentence, find it wrong, and discount
+        // the rest of the block with it.
+        assert!(
+            !out.contains("no network code"),
+            "the report claims something about this binary that is not true:\n{out}"
+        );
+        assert!(out.contains("dials out"), "{out}");
+        assert!(
+            out.contains("listens when") || out.contains("listens"),
+            "the true property is listening rather than connecting:\n{out}"
+        );
     }
 
     #[test]

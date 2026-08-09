@@ -18,6 +18,47 @@ traffic before it.
 The heading says *unreleased* rather than carrying a date. The date is written
 when the tag is cut.
 
+### Fixed
+
+- **The device report claimed something about this binary that is not true.** It
+  printed *"this program has no network code"*. The same binary runs three HTTP
+  listeners — that is most of what it is for — so an operator who has ever run
+  `vayucell site` reads that sentence, knows it is wrong, and has been handed a
+  reason to discount every other assurance in the block it heads.
+
+  **An overstated reassurance is worse than a narrow one, because the reader can
+  check it.** What is true is stronger and narrower: *nothing in this binary
+  dials out.* It binds when you ask it to serve, and it never connects. There is
+  no `connect` anywhere outside the test module, and a test now pins that the
+  report claims listening-not-connecting rather than an absence of sockets.
+
+- **The charter gate scanned `core/src` only, so Article V was enforced on the
+  one crate that cannot reach anything.** The forbidden-concept scan (telemetry,
+  call-home, kill switch) and the V.5 project-operated-host check both ran over
+  `core/src` and never looked at `cli/src` — the only crate that opens a socket.
+
+  The V.5 *dependency* check in that same file already carries the note that a
+  gate naming one manifest by hand "goes on passing while a dependency lands in
+  the crate beside it". That half had learned the lesson; the source-scanning
+  half had not. Crates are now found rather than listed.
+
+### Added
+
+- **A charter check that nothing in production source opens an outbound
+  connection**, which is the mechanism behind the sentence the report prints. The
+  existing V.5 check looks for a project-operated hostname, which only catches a
+  call-home somebody wrote a URL for; this is the general form. `bind` is
+  deliberately still allowed — listening is what the surfaces do.
+
+  It strips `#[cfg(test)]` items by **matching braces** rather than cutting at
+  the first marker, because cutting there would silently skip production code
+  that followed one. Two plants were added to the gate self-test: an outbound
+  connection in the binary crate, and a second in a different non-`core` file —
+  the second because a check that flagged this repo's own pool tests would get
+  loosened until it caught nothing, so the discrimination is proven rather than
+  assumed. Verified by planting a `connect` in production code (gate goes red)
+  and the identical call inside `#[cfg(test)]` (gate stays green).
+
 ## [0.0.11] — 2026-08-09
 
 ### Fixed

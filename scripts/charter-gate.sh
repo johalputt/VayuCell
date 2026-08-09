@@ -23,8 +23,61 @@ fail() { printf '  FAIL  %s\n' "$1"; FAILED=1; }
 note() { printf '  --    %s\n' "$1"; }
 
 # Source files, excluding tests, where the production rules must hold.
-prod_sources() { find core/src -name '*.rs' ! -name '*_test.rs' -print; }
-all_sources() { find core/src -name '*.rs' -print; }
+#
+# EVERY crate, not just core/. This scanned core/src alone, so Article V's
+# forbidden concepts and the V.5 home-call check never looked at cli/src — the
+# only crate that opens a socket. The rule "nothing may reach a host this
+# project operates" was being enforced exclusively on the crate that cannot
+# reach anything.
+#
+# The V.5 *dependency* check in this same file already carries the note that a
+# gate naming one manifest by hand "goes on passing while a dependency lands in
+# the crate beside it". That half learned the lesson; this half had not.
+#
+# Crates are found rather than listed, for the same reason.
+prod_sources() {
+  find . -path ./target -prune -o -path ./fuzz -prune -o \
+    -name '*.rs' ! -name '*_test.rs' -print
+}
+all_sources() {
+  find . -path ./target -prune -o -path ./fuzz -prune -o -name '*.rs' -print
+}
+
+# Production code is everything outside a `#[cfg(test)]` item.
+#
+# `*_test.rs` is this repo's convention and it is not the only one: cli/src has
+# inline `#[cfg(test)] mod` blocks, and a scan that missed them would report the
+# test module's own TcpStream::connect as production egress. Braces are matched
+# rather than cutting at the first marker, because cutting there would silently
+# skip any production code that followed one — a false pass, which is what every
+# gate here exists to prevent.
+strip_test_items() {
+  python3 - "$1" <<'PYEOF'
+import sys
+src = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+out, i = [], 0
+while True:
+    at = src.find("#[cfg(test)]", i)
+    if at == -1:
+        out.append(src[i:])
+        break
+    out.append(src[i:at])
+    brace = src.find("{", at)
+    if brace == -1:
+        break
+    depth, j = 0, brace
+    while j < len(src):
+        if src[j] == "{":
+            depth += 1
+        elif src[j] == "}":
+            depth -= 1
+            if depth == 0:
+                break
+        j += 1
+    i = j + 1
+sys.stdout.write("".join(out))
+PYEOF
+}
 
 echo "Charter gate — CHARTER.md enforced mechanically"
 echo
@@ -140,6 +193,7 @@ declare -a FORBIDDEN=(
 # A trailing comment on a line of code is therefore still scanned. That is the
 # right side to err on: a line with code on it is where a real identifier hides.
 strip_comments() { sed -E 's:^[[:space:]]*//.*$::' "$1"; }
+strip_comments_stdin() { sed -E 's:^[[:space:]]*//.*$::'; }
 
 v_clean=1
 for entry in "${FORBIDDEN[@]}"; do
@@ -211,6 +265,36 @@ if [ -n "$homecall" ]; then
   printf '        %s\n' $homecall
 else
   pass "V.5 no production source reaches a project-operated host"
+fi
+
+# V.2, mechanically: nothing in production source may open an OUTBOUND
+# connection at all.
+#
+# The check above looks for a project-operated hostname, which only catches a
+# call-home somebody was honest enough to write a URL for. This is the general
+# form, and it is the mechanism behind a sentence `vayucell report` prints to
+# every operator: *nothing in this binary dials out.*
+#
+# That sentence used to read "this program has no network code", which is false
+# — the binary runs three HTTP listeners, and an operator who has run
+# `vayucell site` can check it and find it wrong. The true claim is narrower and
+# stronger: it binds, and it never connects. A claim that reassuring needs
+# something enforcing it, or the next person to add an update check makes it
+# false without noticing.
+#
+# `bind` is deliberately not forbidden. Listening is what the surfaces do.
+egress=""
+while IFS= read -r f; do
+  if strip_test_items "$f" | strip_comments_stdin \
+      | grep -qE '(TcpStream|UdpSocket)::(connect|bind|connect_timeout)|reqwest|ureq|\bcurl\b'; then
+    egress="$egress $f"
+  fi
+done < <(prod_sources)
+if [ -n "$egress" ]; then
+  fail "V.2 production source opens an outbound connection; a cell must not dial out:"
+  printf '        %s\n' $egress
+else
+  pass "V.2 no production source opens an outbound connection — it listens, never dials"
 fi
 
 # ── Article VI — Licensing ────────────────────────────────────────────────────
