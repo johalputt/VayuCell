@@ -29,7 +29,7 @@ mod report;
 use std::process::ExitCode;
 
 use args::{Args, Command};
-use cell::Cell;
+use cell::{Cell, Governed};
 use report::EXIT_USAGE;
 
 use vayucell_core::battery::Percent;
@@ -147,6 +147,8 @@ fn site(a: &Args) -> i32 {
     // written separately.
     let cell = Cell::new(a.supply_dir.clone(), a.assume_outage);
     let availability = || cell.availability(&RealHost);
+
+    announce_ungoverned();
 
     match listen::serve_site(&a.bind, &root, &availability) {
         Ok(()) => 0,
@@ -276,6 +278,8 @@ fn vault(a: &Args) -> i32 {
     let cell = Cell::new(a.supply_dir.clone(), a.assume_outage);
     let context = || cell.context(&RealHost);
 
+    announce_ungoverned();
+
     match listen::serve_vault(&a.bind, &root, &credentials, &context, a.quota) {
         Ok(()) => 0,
         Err(e) => {
@@ -359,7 +363,26 @@ fn all(a: &Args) -> i32 {
 
     let ceiling = Percent::clamped(i64::from(a.ceiling));
     let supply = a.supply_dir.clone();
-    let cell = Cell::new(supply.clone(), a.assume_outage);
+
+    // A real supervisor, not a reading taken per request. `all` is the command
+    // the install guide tells somebody to leave running for months, and until
+    // this existed it was the one command that never wrote a charge ceiling —
+    // while the panel it served told the operator to run `vayucell run` to hold
+    // one, which the guide never asked them to do.
+    let thresholds = Thresholds::recommended();
+    let governed = Governed::new(
+        Supervisor::new(
+            Governor::new(thresholds),
+            Sampler::new(thresholds),
+            Shed::new(ShedPlan::recommended()),
+            &supply,
+            ceiling,
+        ),
+        supply.clone(),
+    );
+
+    let kind = detect_mechanism(&host, &supply);
+    announce_mechanism(kind);
 
     println!(
         "vayucell: one governor, {} surface(s):",
@@ -380,14 +403,25 @@ fn all(a: &Args) -> i32 {
     // makes "a listener stopped" observable rather than a process that quietly
     // serves less than it announced.
     let outcome = std::thread::scope(|scope| {
+        // The supervisor, in its own thread, holding the ceiling and owning the
+        // governor the other three read. Spawned first, so a device already in
+        // trouble is known to be in trouble before anything binds a socket.
+        scope.spawn(|| supervise(&governed, &supply, kind, a.assume_outage));
+
         let panel = scope.spawn(|| {
-            let render = || report::observed(&RealHost, &supply, ceiling).render();
+            // The governed level rather than a fresh one, so the panel agrees
+            // with what the other surfaces are enforcing. A panel reporting
+            // NORMAL beside a site answering 503 is two answers about one cell.
+            let render = || {
+                let (level, _) = governed.context(&RealHost);
+                report::assemble(&RealHost, &supply, ceiling, level).render()
+            };
             listen::serve(&panel_addr, &render)
         });
 
         let site_thread = site.as_ref().map(|root| {
             scope.spawn(|| {
-                let availability = || cell.availability(&RealHost);
+                let availability = || governed.availability(&RealHost);
                 listen::serve_site(&site_addr, root, &availability)
             })
         });
@@ -397,7 +431,7 @@ fn all(a: &Args) -> i32 {
             .zip(credentials.as_ref())
             .map(|(root, creds)| {
                 scope.spawn(|| {
-                    let context = || cell.context(&RealHost);
+                    let context = || governed.context(&RealHost);
                     listen::serve_vault(&vault_addr, root, creds, &context, a.quota)
                 })
             });
@@ -426,6 +460,74 @@ fn all(a: &Args) -> i32 {
         eprintln!("vayucell: {why}");
     }
     report::EXIT_UNSAFE
+}
+
+/// The supervisor loop that runs beside the surfaces in `all`.
+///
+/// The same passes `run` makes, in a thread, against the same [`Governed`] the
+/// surfaces are reading. It never returns while the device is well.
+///
+/// # Halting stops the process, exactly as it does in `run`
+///
+/// The governor escalates monotonically, so a latched `HALT` would already
+/// refuse every request for the life of the process. Exiting anyway is the
+/// difference between a hard stop and a state the operator can leave running
+/// and forget. `run` says it plainly — *"no restart clears it"* — and a second
+/// command that treats the same level as something to keep serving through
+/// would make that sentence untrue of the product rather than of one command.
+fn supervise(
+    governed: &Governed,
+    supply_dir: &str,
+    kind: Option<Kind>,
+    assume_outage: Option<core::time::Duration>,
+) {
+    let mut host = RealHost;
+    let mut clock = RealClock::new();
+
+    loop {
+        let power = match assume_outage {
+            Some(since) => Power::Battery(since.saturating_add(clock.elapsed())),
+            None => Power::Mains,
+        };
+
+        // Rebound every pass, for the reason `run` records: the mechanism
+        // borrows the host mutably, and the read-back this project turns on
+        // needs the same node available to both the read and the write.
+        let outcome = {
+            let mut mech = kind
+                .filter(|k| k.is_ceiling())
+                .and_then(|k| SysfsCeiling::new(&mut host, supply_dir, k));
+            let m = mech
+                .as_mut()
+                .map(|c| c as &mut dyn vayucell_core::governor::ChargeMechanism);
+            governed.tick(&RealHost, m, power)
+        };
+
+        if let Some(e) = &outcome.read_error {
+            eprintln!("vayucell: {e}");
+        }
+        if let Some(t) = &outcome.transition {
+            println!("vayucell: {t}");
+        }
+        for rung in &outcome.shed {
+            println!("vayucell: {rung}");
+        }
+
+        if outcome.level == Level::Halt {
+            eprintln!(
+                "vayucell: the governor has halted. This requires a person who \
+                 has looked at the phone; no restart clears it."
+            );
+            // Flushed before exiting: stdout is block-buffered when it is not a
+            // terminal, and the transition that explains the halt is the one
+            // line the operator most needs to still be there afterwards.
+            let _ = std::io::Write::flush(&mut std::io::stdout());
+            let _ = std::io::Write::flush(&mut std::io::stderr());
+            std::process::exit(report::EXIT_UNSAFE);
+        }
+
+        clock.sleep(outcome.next_in);
+    }
 }
 
 /// The supervisor loop, against the real machine and a clock that really sleeps.
@@ -503,6 +605,26 @@ fn run(a: &Args, ticks: Option<u32>) -> i32 {
 
         clock.sleep(outcome.next_in);
     }
+}
+
+/// Says, out loud, that this command governs nothing.
+///
+/// `site` and `vault` consult the governor before every request, which is what
+/// stops them serving a phone in trouble. Neither *runs* one: no charge ceiling
+/// is written, nothing samples on a cadence, and a `HALT` reached while they are
+/// running is forgotten as soon as the cell cools, because the per-request
+/// governor carries no history.
+///
+/// That is the correct behaviour for a command somebody is trying out, and the
+/// wrong thing to leave running for a year. The difference is invisible from
+/// the outside — both commands look like they are serving happily — so it is
+/// said rather than left to be discovered.
+fn announce_ungoverned() {
+    println!(
+        "vayucell: this command consults the governor but does not run one, so no \n\
+         \x20         charge ceiling is being held. To leave something running, use\n\
+         \x20         `vayucell all`, which supervises the cell as well as serving it."
+    );
 }
 
 fn announce_mechanism(kind: Option<Kind>) {

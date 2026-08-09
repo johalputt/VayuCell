@@ -1261,6 +1261,21 @@ mutate "$RP" a_cool_cell_still_reports_the_governor_as_verified \
   "    let _ = crate::device::observe(host, supply_dir);
     assemble(host, supply_dir, ceiling, Level::Halt)"
 
+mutate "$CL" a_halted_supervisor_keeps_refusing_after_the_cell_cools \
+  "the surfaces read only the fresh cell, so a cooled phone clears a hard stop" \
+  "        (fresh.max(governed), stage)" \
+  "        (fresh, stage)"
+
+mutate "$CL" a_cell_that_spikes_between_ticks_is_refused_on_the_fresh_reading \
+  "the surfaces read only the supervisor, so a spike since its last tick is served" \
+  "        (fresh.max(governed), stage)" \
+  "        (governed, stage)"
+
+mutate "$CL" the_supervisors_ladder_is_the_one_the_surfaces_read \
+  "the surfaces stop seeing the supervisor's ladder and never shed during an outage" \
+  "        let stage = supervisor.shed().stage();" \
+  "        let stage = Stage::Serving;"
+
 mutate "$CL" a_rung_entered_by_one_surface_is_seen_by_the_next \
   "each surface gets its own ladder, so a shed node still serves on the other port" \
   "                let mut ladder = self.ladder.lock().unwrap_or_else(PoisonError::into_inner);" \

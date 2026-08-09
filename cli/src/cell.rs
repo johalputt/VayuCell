@@ -33,8 +33,9 @@ use core::time::Duration;
 use std::sync::{Mutex, PoisonError};
 use std::time::Instant;
 
-use vayucell_core::governor::Level;
+use vayucell_core::governor::{ChargeMechanism, Level};
 use vayucell_core::host::Host;
+use vayucell_core::runtime::{Outcome, Power, Supervisor};
 use vayucell_core::shed::{Shed, ShedPlan, Stage};
 use vayucell_core::site::Availability;
 
@@ -102,6 +103,94 @@ impl Cell {
     }
 }
 
+/// The device, with a supervisor actually governing it.
+///
+/// # The difference from [`Cell`], which is the whole point
+///
+/// [`Cell`] answers "what is this cell doing right now" and nothing else. It
+/// holds no charge ceiling, and its governor is rebuilt per request so that it
+/// **cannot latch** — right for a single question, and wrong for a phone left
+/// running for months, because `HALT` is supposed to require a person who has
+/// looked at the device. A per-request governor forgets it the moment the cell
+/// cools.
+///
+/// A [`Supervisor`] holds the ceiling, samples on its own cadence and escalates
+/// monotonically — `Governor::escalate` refuses to move down. So where one is
+/// running, the surfaces must ask it rather than taking their own reading.
+///
+/// # Both answers, and the worse one wins
+///
+/// [`Governed::context`] takes a fresh reading *and* the supervisor's latched
+/// level, and serves the more severe of the two. Neither alone is sufficient:
+///
+/// - The supervisor's level alone is up to one sampling interval old, so a cell
+///   that spiked since the last tick would be served as though it had not.
+/// - A fresh reading alone cannot latch, so a device that halted and then cooled
+///   would quietly start serving again — turning a hard stop into a log line.
+///
+/// Taking the maximum cannot be wrong in the reassuring direction, which is the
+/// only direction that matters here. `Level` is `Ord` precisely so this is
+/// expressible; the ordering is load-bearing and documented as such.
+pub struct Governed {
+    supervisor: Mutex<Supervisor>,
+    supply_dir: String,
+}
+
+impl Governed {
+    /// A supervisor, ready to be ticked by one thread and read by the rest.
+    #[must_use]
+    pub fn new(supervisor: Supervisor, supply_dir: String) -> Self {
+        Self {
+            supervisor: Mutex::new(supervisor),
+            supply_dir,
+        }
+    }
+
+    /// One supervisor pass: read, govern, enforce the ceiling, walk the ladder.
+    ///
+    /// The caller logs the outcome and waits for `next_in`, exactly as the
+    /// standalone supervisor loop does. It is not done here because a lock held
+    /// across a sleep is a lock no request can take.
+    pub fn tick(
+        &self,
+        host: &dyn Host,
+        mechanism: Option<&mut dyn ChargeMechanism>,
+        power: Power,
+    ) -> Outcome {
+        let mut supervisor = self
+            .supervisor
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        supervisor.tick(host, mechanism, power)
+    }
+
+    /// What every serving surface in this process sees.
+    #[must_use]
+    pub fn context(&self, host: &dyn Host) -> (Level, Stage) {
+        // Read the cell *before* taking the lock. The reading is I/O and the
+        // lock is contended by every request; doing them the other way round
+        // would hold it across a sysfs read for no benefit.
+        let (fresh, _) = crate::device::observe(host, &self.supply_dir);
+
+        let supervisor = self
+            .supervisor
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let governed = supervisor.governor().level();
+        let stage = supervisor.shed().stage();
+        drop(supervisor);
+
+        (fresh.max(governed), stage)
+    }
+
+    /// What a reader of this cell is permitted to be served.
+    #[must_use]
+    pub fn availability(&self, host: &dyn Host) -> Availability {
+        let (level, stage) = self.context(host);
+        Availability::of(level, stage)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::Cell;
@@ -124,6 +213,99 @@ mod tests {
 
     fn outage() -> Cell {
         Cell::new(SUPPLY.to_owned(), Some(Duration::ZERO))
+    }
+
+    use super::Governed;
+    use vayucell_core::battery::Percent;
+    use vayucell_core::governor::{Governor, Thresholds};
+    use vayucell_core::runtime::{Power, Supervisor};
+    use vayucell_core::sampler::Sampler;
+    use vayucell_core::shed::{Shed, ShedPlan};
+
+    fn governed() -> Governed {
+        let thresholds = Thresholds::recommended();
+        Governed::new(
+            Supervisor::new(
+                Governor::new(thresholds),
+                Sampler::new(thresholds),
+                Shed::new(ShedPlan::recommended()),
+                SUPPLY,
+                Percent::clamped(60),
+            ),
+            SUPPLY.to_owned(),
+        )
+    }
+
+    #[test]
+    fn a_halted_supervisor_keeps_refusing_after_the_cell_cools() {
+        // The reason `all` runs a supervisor at all. HALT is meant to require a
+        // person who has looked at the phone; a per-request governor forgets it
+        // the moment the temperature drops, turning a hard stop into a log line.
+        let g = governed();
+        g.tick(&device(600, 58), None, Power::Mains);
+
+        let (level, _) = g.context(&device(290, 58));
+        assert_eq!(
+            level,
+            Level::Halt,
+            "a cooled cell cleared a hard stop nobody had looked at"
+        );
+        assert!(!g.availability(&device(290, 58)).is_serving());
+    }
+
+    #[test]
+    fn a_cell_that_spikes_between_ticks_is_refused_on_the_fresh_reading() {
+        // The other half of taking the worse of two answers. The supervisor's
+        // level is up to one sampling interval old, and a cell that went hot
+        // since the last tick must not be served on the strength of it.
+        let g = governed();
+        g.tick(&device(290, 58), None, Power::Mains);
+
+        let (level, _) = g.context(&device(600, 58));
+        assert_eq!(
+            level,
+            Level::Halt,
+            "a spike since the last tick was served as though it had not happened"
+        );
+    }
+
+    #[test]
+    fn a_well_cell_under_a_well_supervisor_still_serves() {
+        // So that "take the worse of two" cannot be satisfied by a function
+        // that refuses everything.
+        let g = governed();
+        g.tick(&device(290, 58), None, Power::Mains);
+        let (level, stage) = g.context(&device(290, 58));
+        assert_eq!(level, Level::Normal);
+        assert_eq!(stage, Stage::Serving);
+        assert!(g.availability(&device(290, 58)).is_serving());
+    }
+
+    #[test]
+    fn an_unreadable_cell_is_refused_whichever_half_notices_first() {
+        // Absence is never protection, on either input.
+        let g = governed();
+        let (level, _) = g.context(&FakeHost::new());
+        assert_eq!(level, Level::Protect);
+    }
+
+    #[test]
+    fn the_supervisors_ladder_is_the_one_the_surfaces_read() {
+        // Not a second copy alongside it. The supervisor owns a Shed; a
+        // Governed that built its own would be the two-ladder defect again,
+        // wearing different clothes.
+        let g = governed();
+        g.tick(
+            &device(290, 58),
+            None,
+            Power::Battery(Duration::from_secs(3600)),
+        );
+        let (_, stage) = g.context(&device(290, 58));
+        assert_ne!(
+            stage,
+            Stage::Serving,
+            "an hour of outage on the supervisor was invisible to the surfaces"
+        );
     }
 
     #[test]

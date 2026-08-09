@@ -15,10 +15,48 @@ traffic before it.
 
 ## [0.0.4] — unreleased
 
-Nothing has landed here yet. The heading exists because the release gate
-requires the version in `.release-version` to be documented, and it says
-*unreleased* rather than carrying a date, so that nobody reads it as a version
-they could have installed. The date is written at the moment the tag is cut.
+The heading says *unreleased* rather than carrying a date, so that nobody reads
+it as a version they could have installed. The date is written when the tag is
+cut.
+
+### Fixed
+
+- **`vayucell all` consulted the governor and never ran one.** The command the
+  install guide tells somebody to leave running for months was the one command
+  that never wrote a charge ceiling — while the panel it served told the
+  operator to *"run `vayucell run` to write 60% and read it back"*, which the
+  guide never asked them to do. A phone following the guide exactly charged to
+  100% and sat there, which Step 3 of that same guide names as the condition
+  that ages a cell fastest.
+
+  `all` now runs a real `Supervisor` in its own thread: it holds the ceiling,
+  samples on the cadence, walks the outage ladder, and owns the governor the
+  other three surfaces read.
+
+- **A hard stop was not hard in the command people are told to run.** The
+  supervisor's governor escalates monotonically — `escalate` refuses to move
+  down — which is what makes `run` able to say *"no restart clears it"*. The
+  serving surfaces built a fresh governor per request, so a phone that reached
+  `HALT` and then cooled resumed serving on its own. `all` now stops the
+  process on `HALT` exactly as `run` does.
+
+### Changed
+
+- **The surfaces take the worse of two answers about the cell.** `Governed`
+  serves `max(fresh reading, supervisor's latched level)`, because neither is
+  sufficient alone: the supervisor's level is up to one sampling interval old,
+  so a cell that spiked since the last tick would be served as though it had
+  not; and a fresh reading cannot latch, so a halted device that cooled would
+  quietly resume. The maximum cannot be wrong in the reassuring direction,
+  which is the only direction that matters. Verified both ways against a
+  running binary — a spike is refused before the supervisor has ticked, and a
+  halt survives the cell cooling.
+- **`site` and `vault` say that they govern nothing.** Both still consult the
+  governor before every request, and neither runs one — no ceiling is held and
+  a `HALT` is forgotten when the cell cools. That is right for a command
+  somebody is trying out and wrong for one left running, and the difference is
+  invisible from outside, so it is printed at startup rather than left to be
+  discovered.
 
 ## [0.0.3] — 2026-08-09
 

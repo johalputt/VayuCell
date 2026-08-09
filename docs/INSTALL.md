@@ -377,6 +377,22 @@ vayucell: one governor, 3 surface(s):
 off `--site-dir` and no website is served; leave off `--vault-dir` and no storage
 is. It says which, rather than letting you find out.
 
+### It is also the only command that protects the battery
+
+Steps 5, 7 and 8 all **ask** the governor before answering a request — that is
+what makes them stop when the cell is in trouble. None of them **runs** one.
+Nothing samples the cell on a schedule, nothing writes a charge ceiling, and a
+`HALT` reached while they are running is forgotten as soon as the phone cools.
+
+`vayucell all` runs the supervisor as well: it holds the charge ceiling on a
+phone that can hold one, re-reads the cell on its own cadence, and treats a
+`HALT` as final — it stops, and says so, rather than carrying on serving.
+
+> **If your phone cannot hold a ceiling** — which Step 3 says is almost certainly
+> the case — this changes nothing about the charging, because nothing can. It
+> still samples, still escalates, and still stops. The ceiling is held on the
+> devices that can, and the panel tells you which yours is.
+
 ### Why this is not just a convenience
 
 If you run the site and the vault as two separate commands, **you get two
@@ -391,6 +407,12 @@ one battery, so it should have one ladder.
 
 `vayucell all` is one process with one governor and one ladder, and every
 surface asks the same one.
+
+It asks in the strictest way available, too: each request is answered on the
+**worse** of two readings — what the cell is doing right now, and the worst the
+supervisor has seen and latched. A phone that just got hot is refused before the
+supervisor's next sample, and a phone that halted and then cooled stays refused
+until a person has looked at it.
 
 ### They are still separate ports, on purpose
 
@@ -425,6 +447,8 @@ same port is the same site. So they get ports, not paths.
 | `all counts three ports from --bind` | The address has no number to count from | Use a numeric address and port, like `--bind 0.0.0.0:8080`, not a name |
 | `all needs --site-dir, --vault-dir, or both` | Neither was given | With neither, `all` would just be the panel. Say which one you want served |
 | `Address already in use` on one of the three | Something is already on that port | Another copy is probably still running. Close it, or pick a different `--bind` |
+| `the governor has halted` and everything stops | The cell crossed the hard-stop threshold | This is the software working, and it is meant to be final. **Unplug the phone and look at it** — Step 4. Restarting does not clear the reason it halted |
+| `this command consults the governor but does not run one` | You started `site` or `vault` on its own | Fine for trying things out. For anything you leave running, use `vayucell all` |
 
 Running the installer again is always safe. It will not duplicate anything.
 
