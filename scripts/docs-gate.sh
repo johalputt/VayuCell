@@ -247,6 +247,28 @@ else
   pass "every source path named in a document exists"
 fi
 
+# ── The README's module count is the number of modules ────────────────────────
+#
+# "Sixteen modules in core/src" sat in the README while the crate had twenty. It
+# is a small number in a sentence nobody re-reads, and that is exactly why it
+# drifts: adding a module is the moment nobody thinks about prose.
+#
+# This project already pins its other counts mechanically — the constitution's
+# rules against Appendix A, the doctests exactly in both directions — and this
+# one had no check at all. Found while adding the twentieth module and writing
+# the wrong number in its place.
+declared="$(grep -oE '^(One|Two|Three|Four|Five|Six|Seven|Eight|Nine|Ten|Eleven|Twelve|Thirteen|Fourteen|Fifteen|Sixteen|Seventeen|Eighteen|Nineteen|Twenty|Twenty-one|Twenty-two|Twenty-three|Twenty-four|Twenty-five)( modules in)' README.md | head -1 | sed 's/ modules in//')"
+actual="$(grep -c '^pub mod ' core/src/lib.rs)"
+words="One Two Three Four Five Six Seven Eight Nine Ten Eleven Twelve Thirteen Fourteen Fifteen Sixteen Seventeen Eighteen Nineteen Twenty Twenty-one Twenty-two Twenty-three Twenty-four Twenty-five"
+expected="$(echo "$words" | cut -d' ' -f"$actual")"
+if [ -z "$declared" ]; then
+  fail "the README no longer states how many modules core/src has"
+elif [ "$declared" != "$expected" ]; then
+  fail "README says '$declared modules in core/src'; lib.rs declares $actual ($expected)"
+else
+  pass "the README's module count matches lib.rs ($actual)"
+fi
+
 echo
 if [ "$FAILED" -ne 0 ]; then
   echo "DOCUMENTATION GATE FAILED."

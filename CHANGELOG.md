@@ -94,6 +94,18 @@ when the tag is cut.
   point is to go and correct the claim. Planted in the gate self-test as a
   rename rather than a deletion, since that is how it actually happens.
 
+- **A check that the README's module count is the number of modules.** *"Sixteen
+  modules in `core/src`"* sat in the README while the crate had twenty. It is a
+  small number in a sentence nobody re-reads, which is exactly why it drifts:
+  adding a module is the moment nobody thinks about prose.
+
+  Found by getting it wrong in the same way — writing *eighteen* while adding the
+  twentieth. This project already pins its other counts mechanically (the
+  constitution's rules against Appendix A, the doctests exactly in both
+  directions) and this one had no check at all. Planted in the self-test as an
+  added module rather than an edited sentence, since that is the direction it
+  drifts.
+
 ### Fixed
 
 - **The device report claimed something about this binary that is not true.** It

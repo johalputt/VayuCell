@@ -250,6 +250,13 @@ violation "$DOCS" "a required document is emptied rather than deleted" \
 # sentence without making it look wrong — a claim that reads as verified and
 # points at nothing, which is the defect this project spends most of its effort
 # on. Planted as a rename rather than a deletion, because that is how it happens.
+# "Sixteen modules in core/src" sat in the README while the crate had twenty.
+# Planted as an added module rather than an edited sentence, because that is the
+# direction it drifts: nobody rewrites the prose when they add a file.
+violation "$DOCS" "a module is added and the README's count is not" \
+  "lib.rs declares" \
+  "printf 'pub mod planted;\n' >> core/src/lib.rs"
+
 violation "$DOCS" "the roadmap names a source file that no longer exists" \
   "source path that does not exist" \
   "sed -i 's|\`core/src/durability.rs\`|\`core/src/replicator.rs\`|' PLAN.md"
