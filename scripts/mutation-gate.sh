@@ -934,8 +934,29 @@ mutate "$ST" a_directory_is_not_resolved_as_though_it_were_a_page \
 
 mutate "$SV" a_withheld_site_refuses_before_it_resolves_anything \
   "a withheld site resolves paths anyway, mapping the directory by status code" \
-  "    if !availability.is_serving() {" \
-  "    if false {"
+  "    if !availability.is_serving() {
+        return Response::refused(503, \"Service Unavailable\", &availability.describe());" \
+  "    if false {
+        return Response::refused(503, \"Service Unavailable\", &availability.describe());"
+
+mutate "$SV" a_read_is_withheld_at_protect_and_below_exactly_as_the_site_is \
+  "the vault hands stored files out while the same cell refuses to serve a page" \
+  "            if !availability.is_serving() {
+                return Response::refused(" \
+  "            if false {
+                return Response::refused("
+
+mutate "$SV" a_read_still_answers_where_a_write_would_not \
+  "a read is refused wherever a write is, collapsing the two columns into one" \
+  "            if !availability.is_serving() {
+                return Response::refused(" \
+  "            if true {
+                return Response::refused("
+
+mutate "$SV" a_read_is_withheld_at_protect_and_below_exactly_as_the_site_is \
+  "somebody asking for their own file is told a website is unavailable" \
+  "                    &availability.describe_stored_file()," \
+  "                    &availability.describe(),"
 
 mutate "$SV" a_file_that_resolved_but_cannot_be_read_answers_exactly_like_a_typo \
   "an unreadable file answers differently from a missing one" \
@@ -982,12 +1003,12 @@ mutate "$SV" a_body_larger_than_the_limit_is_refused_before_a_byte_of_it_is_read
 
 mutate "$SV" a_file_that_does_not_fit_is_told_apart_from_a_device_that_will_not_take_it \
   "a full disk is reported as the device refusing, so nobody knows to free space" \
-  "    let status = if matches!(admission, Admission::Refusing(Refused::Full(_))) {
-        507
+  "    let (status, reason) = if matches!(admission, Admission::Refusing(Refused::Full(_))) {
+        (507, \"Insufficient Storage\")
     } else {
-        503
+        (503, \"Service Unavailable\")
     };" \
-  "    let status = 503;"
+  "    let (status, reason) = (503, \"Service Unavailable\");"
 
 mutate "$SV" an_unauthenticated_put_is_refused_before_anything_else_is_looked_at \
   "the credential stops being checked first, so a stranger learns the device state" \
@@ -1001,21 +1022,54 @@ mutate "$SV" exactly_the_two_changing_verbs_write \
 
 mutate "$SV" a_delete_obeys_the_governor_exactly_as_a_write_does \
   "a delete stops obeying the governor, so a halted phone still loses files" \
-  "            let admission = Admission::of(ctx.level, ctx.stage, ctx.quota, 0);
+  "            let admission = Admission::for_removal(ctx.level, ctx.stage);
             if !admission.is_accepting() {
                 return refused_admission(&admission);
             }" \
-  "            let admission = Admission::of(ctx.level, ctx.stage, ctx.quota, 0);
+  "            let admission = Admission::for_removal(ctx.level, ctx.stage);
             if false {
                 return refused_admission(&admission);
             }"
 
 mutate "$SV" a_full_disk_never_refuses_the_request_that_would_free_some \
   "a delete is charged against the quota, so a full disk refuses the fix" \
-  "            let admission = Admission::of(ctx.level, ctx.stage, ctx.quota, 0);
+  "            let admission = Admission::for_removal(ctx.level, ctx.stage);
             if !admission.is_accepting() {" \
   "            let admission = Admission::of(ctx.level, ctx.stage, ctx.quota, 1);
             if !admission.is_accepting() {"
+
+mutate "$SV" a_vault_that_could_not_be_measured_still_allows_a_delete \
+  "a delete waits on a usage figure, so an unreadable directory cannot be emptied" \
+  "            let admission = Admission::for_removal(ctx.level, ctx.stage);
+            if !admission.is_accepting() {" \
+  "            let admission = Admission::of(ctx.level, ctx.stage, ctx.quota, 0);
+            if !admission.is_accepting() {"
+
+mutate "$LI" a_directory_that_does_not_exist_is_unknown_rather_than_empty \
+  "a vault directory that will not open reads as an empty one, so every upload fits" \
+  "    let entries = std::fs::read_dir(dir).ok()?;" \
+  "    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Some(0);
+    };"
+
+mutate "$LI" what_is_stored_is_added_up_including_debris_from_an_interrupted_write \
+  "stored bytes stop being added up, so the quota is never reached" \
+  "            total = total.saturating_add(metadata.len());" \
+  "            total = total.saturating_add(0);"
+
+mutate "$LI" a_subdirectory_somebody_created_is_skipped_rather_than_walked \
+  "anything in the folder is charged to the vault, including directories" \
+  "        if metadata.is_file() {
+            total = total.saturating_add(metadata.len());
+        }" \
+  "        if true {
+            total = total.saturating_add(metadata.len());
+        }"
+
+mutate "$LI" a_symbolic_link_counts_as_the_link_and_not_as_what_it_points_at \
+  "usage follows symbolic links, so a link to a large file elsewhere locks the vault" \
+  "        let metadata = entry.ok()?.path().symlink_metadata().ok()?;" \
+  "        let metadata = entry.ok()?.path().metadata().ok()?;"
 
 mutate "$LI" a_delete_cannot_reach_through_a_symlink_out_of_the_vault \
   "a delete follows a symbolic link out of the vault" \
@@ -1142,6 +1196,20 @@ mutate "$VA" the_announced_rung_refuses_because_an_upload_is_new_work \
   "the rung that stopped accepting new work starts accepting uploads" \
   "            Stage::Announced | Stage::Shed | Stage::Quiesced | Stage::ShuttingDown => {" \
   "            Stage::Shed | Stage::Quiesced | Stage::ShuttingDown => {"
+
+mutate "$VA" a_vault_whose_usage_could_not_be_read_refuses_the_write \
+  "a vault nobody could measure is treated as one with room" \
+  "        let Some(quota) = quota else {
+            return Self::Refusing(Refused::Unmeasured);
+        };" \
+  "        let Some(quota) = quota else {
+            return Self::Accepting;
+        };"
+
+mutate "$VA" a_removal_still_obeys_the_governor_and_the_ladder \
+  "a delete stops asking the device, so a halted phone still loses files" \
+  "        Self::of(level, stage, Some(Quota::new(0, 0)), 0)" \
+  "        Self::Accepting"
 
 mutate "$VA" the_steps_are_the_only_order_that_survives_a_power_cut \
   "the file is renamed before its bytes are flushed" \

@@ -40,7 +40,7 @@ use vayucell_core::sampler::Sampler;
 use vayucell_core::shed::{Shed, ShedPlan, Stage};
 use vayucell_core::site::{Availability, SiteRoot};
 use vayucell_core::sysfs::{detect_mechanism, Kind, SysfsCeiling};
-use vayucell_core::vault::{Quota, VaultRoot};
+use vayucell_core::vault::VaultRoot;
 
 fn main() -> ExitCode {
     let argv: Vec<String> = std::env::args().skip(1).collect();
@@ -204,7 +204,7 @@ fn enrol_device(a: &Args) -> i32 {
             println!(
                 "    curl -T ./report.pdf http://<phone>:8080/report.pdf \\\n         -H 'Authorization: Bearer {text}'\n"
             );
-            println!("Revoke it by deleting its line from {}.", a.store);
+            println!("Revoke it with: vayucell revoke --device {device}");
             0
         }
         Err(e) => {
@@ -312,13 +312,7 @@ fn vault(a: &Args) -> i32 {
         (level, stage)
     };
 
-    match listen::serve_vault(
-        &a.bind,
-        &root,
-        &credentials,
-        &context,
-        Quota::new(0, a.quota),
-    ) {
+    match listen::serve_vault(&a.bind, &root, &credentials, &context, a.quota) {
         Ok(()) => 0,
         Err(e) => {
             eprintln!("vayucell: {e}");

@@ -485,7 +485,7 @@ fn context(c: &Ctx, level: Level, stage: Stage) -> crate::serve::VaultContext<'_
     crate::serve::VaultContext {
         credentials: &c.creds,
         root: &c.root,
-        quota: crate::vault::Quota::new(0, 1_000_000),
+        quota: Some(crate::vault::Quota::new(0, 1_000_000)),
         level,
         stage,
     }
@@ -566,7 +566,7 @@ fn an_unauthenticated_put_is_refused_before_anything_else_is_looked_at() {
     let hostile = crate::serve::VaultContext {
         credentials: &c.creds,
         root: &c.root,
-        quota: crate::vault::Quota::new(1000, 1000),
+        quota: Some(crate::vault::Quota::new(1000, 1000)),
         level: Level::Halt,
         stage: Stage::ShuttingDown,
     };
@@ -677,7 +677,7 @@ fn a_file_that_does_not_fit_is_told_apart_from_a_device_that_will_not_take_it() 
     let full = crate::serve::VaultContext {
         credentials: &c.creds,
         root: &c.root,
-        quota: crate::vault::Quota::new(1000, 1000),
+        quota: Some(crate::vault::Quota::new(1000, 1000)),
         level: Level::Normal,
         stage: Stage::Serving,
     };
@@ -761,7 +761,7 @@ fn an_empty_store_refuses_every_device_including_a_well_formed_one() {
     let c = crate::serve::VaultContext {
         credentials: &empty,
         root: &root,
-        quota: crate::vault::Quota::new(0, 1_000_000),
+        quota: Some(crate::vault::Quota::new(0, 1_000_000)),
         level: Level::Normal,
         stage: Stage::Serving,
     };
@@ -966,7 +966,7 @@ fn a_full_disk_never_refuses_the_request_that_would_free_some() {
     let full = crate::serve::VaultContext {
         credentials: &c.creds,
         root: &c.root,
-        quota: crate::vault::Quota::new(1000, 1000),
+        quota: Some(crate::vault::Quota::new(1000, 1000)),
         level: Level::Normal,
         stage: Stage::Serving,
     };
@@ -977,6 +977,171 @@ fn a_full_disk_never_refuses_the_request_that_would_free_some() {
         "a full disk refused the delete that would free it"
     );
     assert!(io.read("/data/vault/big.bin").is_none());
+}
+
+#[test]
+fn a_read_is_withheld_at_protect_and_below_exactly_as_the_site_is() {
+    // ADR-0009 §2's table gives the vault the site's read column, and for a
+    // while the code gave it no column at all: a PROTECT device handed files
+    // out while refusing to serve a web page from the same cell.
+    let host = vault_host();
+    let c = ctx(&host);
+    let io = FakeIo::new().with("/data/vault/a.txt", b"stored");
+
+    for (level, stage) in [
+        (Level::Protect, Stage::Serving),
+        (Level::Halt, Stage::Serving),
+        (Level::Normal, Stage::Shed),
+        (Level::Normal, Stage::ShuttingDown),
+    ] {
+        let r = crate::serve::route_vault(
+            &get("/a.txt"),
+            &bearer(&a_secret()),
+            &context(&c, level, stage),
+            b"",
+            &io,
+        );
+        assert_eq!(r.status, 503, "{level} {stage:?} handed the file out");
+        assert!(
+            !text(&r).contains("this site"),
+            "somebody asking for their file was told about a website: {}",
+            text(&r)
+        );
+    }
+}
+
+#[test]
+fn a_read_still_answers_where_a_write_would_not() {
+    // The asymmetry is the point, and a read that was refused everywhere a write
+    // is would make the two columns one. DERATED is heat, and handing back a
+    // file somebody already stored is not what is producing it.
+    let host = vault_host();
+    let c = ctx(&host);
+    let io = FakeIo::new().with("/data/vault/a.txt", b"stored");
+
+    for (level, stage) in [
+        (Level::Derated, Stage::Serving),
+        (Level::Normal, Stage::Announced),
+    ] {
+        let read = crate::serve::route_vault(
+            &get("/a.txt"),
+            &bearer(&a_secret()),
+            &context(&c, level, stage),
+            b"",
+            &io,
+        );
+        assert_eq!(read.status, 200, "{level} {stage:?} withheld a read");
+
+        let write = crate::serve::route_vault(
+            &put("/b.txt"),
+            &bearer(&a_secret()),
+            &context(&c, level, stage),
+            b"x",
+            &io,
+        );
+        assert_eq!(write.status, 503, "{level} {stage:?} took a write");
+    }
+}
+
+#[test]
+fn a_withheld_read_never_reaches_the_disk() {
+    // Not a filter over an answer that was already fetched. On a device in
+    // trouble the point is that the storage is not spun up at all.
+    let host = vault_host();
+    let c = ctx(&host);
+    let io = FakeIo::new().with("/data/vault/a.txt", b"stored");
+    let r = crate::serve::route_vault(
+        &get("/a.txt"),
+        &bearer(&a_secret()),
+        &context(&c, Level::Halt, Stage::Serving),
+        b"",
+        &io,
+    );
+    assert_eq!(r.status, 503);
+    assert!(
+        !r.body.windows(6).any(|w| w == b"stored"),
+        "the file was read and then withheld"
+    );
+}
+
+#[test]
+fn a_vault_that_could_not_be_measured_refuses_the_upload_with_503_not_507() {
+    // 507 asserts that the storage is insufficient, which is a measurement. The
+    // whole content of this refusal is that no measurement exists, so it must
+    // not borrow the status that claims one.
+    let host = vault_host();
+    let c = ctx(&host);
+    let unmeasured = crate::serve::VaultContext {
+        credentials: &c.creds,
+        root: &c.root,
+        quota: None,
+        level: Level::Normal,
+        stage: Stage::Serving,
+    };
+    let io = FakeIo::new();
+    let r = crate::serve::route_vault(&put("/a.txt"), &bearer(&a_secret()), &unmeasured, b"x", &io);
+    assert_eq!(r.status, 503, "an unreadable vault admitted a write");
+    assert!(
+        io.read("/data/vault/a.txt").is_none(),
+        "the refusal did not stop the write"
+    );
+    let said = text(&r);
+    assert!(said.contains("could not be read"), "{said}");
+}
+
+#[test]
+fn a_vault_that_could_not_be_measured_still_allows_a_delete() {
+    // The same reasoning as the full one, and worse: a directory whose usage
+    // cannot be read is a directory somebody needs to be able to empty.
+    let host = vault_host();
+    let c = ctx(&host);
+    let unmeasured = crate::serve::VaultContext {
+        credentials: &c.creds,
+        root: &c.root,
+        quota: None,
+        level: Level::Normal,
+        stage: Stage::Serving,
+    };
+    let io = FakeIo::new().with("/data/vault/big.bin", b"takes up room");
+    let r = crate::serve::route_vault(
+        &delete("/big.bin"),
+        &bearer(&a_secret()),
+        &unmeasured,
+        b"",
+        &io,
+    );
+    assert_eq!(r.status, 200, "an unreadable vault refused a delete");
+    assert!(io.read("/data/vault/big.bin").is_none());
+}
+
+#[test]
+fn a_full_vault_says_insufficient_storage_rather_than_service_unavailable() {
+    // The status line is read by machines that never see the prose. 507 with a
+    // reason phrase of "Service Unavailable" is two different answers in one
+    // line, and the wrong one is the one most clients parse.
+    let host = vault_host();
+    let c = ctx(&host);
+    let full = crate::serve::VaultContext {
+        credentials: &c.creds,
+        root: &c.root,
+        quota: Some(crate::vault::Quota::new(1000, 1000)),
+        level: Level::Normal,
+        stage: Stage::Serving,
+    };
+    let r = crate::serve::route_vault(
+        &put("/a.txt"),
+        &bearer(&a_secret()),
+        &full,
+        b"x",
+        &FakeIo::new(),
+    );
+    assert_eq!(r.status, 507);
+    let line = String::from_utf8(r.render(Surface::Site, nonce(), Method::Put)).unwrap();
+    assert!(
+        line.starts_with("HTTP/1.1 507 Insufficient Storage\r\n"),
+        "{}",
+        line.lines().next().unwrap_or_default()
+    );
 }
 
 #[test]

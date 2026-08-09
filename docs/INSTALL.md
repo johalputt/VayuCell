@@ -15,12 +15,17 @@ It can also **host a website** — a folder of files, served to your own network
 which stops being served the moment the phone says its battery is in trouble.
 See [Step 7](#step-7--host-a-website-optional).
 
-**What it does not do yet, stated plainly:** it does not store your files, and
-nothing it serves is reachable from outside your own network. There is no
-sync, no upload, no sharing a link with somebody in another building. Those are
-the point of the project and they are not written.
+And it can **store files** — upload, download and delete, with every device that
+may do so holding its own credential you can revoke on its own. See
+[Step 8](#step-8--store-files-optional).
 
-If you want a file store **today**, this is not that yet.
+**What it does not do yet, stated plainly:** nothing it serves is reachable from
+outside your own network. There is no sync, no folder that mirrors itself onto
+your laptop, no phone app, and no link you can send to somebody in another
+building. Putting a file on it means typing a command, or pointing something you
+already have at the address yourself.
+
+If you want a file store that **syncs on its own**, this is not that yet.
 
 ---
 
@@ -253,6 +258,95 @@ your site can never read the screen that reports whether your battery is safe.
 
 ---
 
+## Step 8 — Store files (optional)
+
+A folder on the phone that your laptop can put files into and take them back
+out of. Three commands, and the first one is the one that matters.
+
+### 8a — Enrol the device that will be allowed in
+
+```bash
+vayucell enrol --device laptop
+```
+
+It prints a long random secret. **Copy it now.** There is no command that shows
+it again — a credential a program will re-display is one that leaks through a
+scrollback or a screen share. If you lose it, run `enrol` again with a different
+name; that takes five seconds.
+
+> **Why can I not choose a password?** Because this project has no
+> dependencies, it has no password-hashing library, and writing one by hand
+> would be the worst possible use of that rule. So the secret is not chosen at
+> all — it is 256 bits from the kernel's random source, which is far past
+> guessing. See [ADR-0010](adr/ADR-0010-per-device-credentials.md).
+
+Enrol one per device — laptop, phone, whatever else. That is the point: you can
+revoke one without disturbing the others.
+
+### 8b — Start the vault
+
+```bash
+mkdir -p ~/files
+vayucell vault --dir ~/files --bind 0.0.0.0:8080
+```
+
+It prints how many devices are enrolled. **If that number is zero, every request
+is refused** — "nobody enrolled" never quietly means "authentication off".
+
+### 8c — Put a file on it, and take it back
+
+On your laptop, on the same Wi-Fi. Put the secret from step 8a where the
+`Bearer` goes:
+
+```bash
+# upload
+curl -T ./report.pdf http://<phone-ip>:8080/report.pdf \
+     -H 'Authorization: Bearer PASTE-THE-SECRET-HERE'
+
+# download
+curl -O http://<phone-ip>:8080/report.pdf \
+     -H 'Authorization: Bearer PASTE-THE-SECRET-HERE'
+
+# delete
+curl -X DELETE http://<phone-ip>:8080/report.pdf \
+     -H 'Authorization: Bearer PASTE-THE-SECRET-HERE'
+```
+
+### Managing the devices
+
+```bash
+vayucell devices                      # what is enrolled — never a secret
+vayucell revoke --device laptop       # that one credential stops working
+```
+
+Revoking rewrites the list. **A vault that is already running still holds the
+old one, so stop it (`Ctrl+C`) and start it again** — the command says so too.
+
+### What it will not do, on purpose
+
+| It refuses | Why |
+| --- | --- |
+| A request with no credential, or a wrong one | Checked **first**, before the name, before the battery, before the disk. Somebody who is not enrolled learns exactly one thing: that they are not enrolled |
+| A name containing `/` or `\`, or `..` | This stores files, not folders. A name that is really a path is the oldest way out of a directory there is |
+| A name starting with a dot | The same rule the website uses. `.env` and `.ssh` do not become storable by being uploaded instead of served |
+| An upload while the battery is in trouble | Stricter than the website: a page keeps being served at `DERATED`, an upload does not. A refused upload costs one retry; a half-written file outlives the event that interrupted it |
+| An upload past the quota | 1 GB by default, `--quota <BYTES>` to change it. What the folder already holds is **measured before every upload**, and if the folder cannot be read at all the upload is refused rather than waved through |
+
+### The receipt never says "saved"
+
+A successful upload answers with what actually happened — the bytes were
+written, flushed, and renamed into place — and stops there. It does not tell you
+your file is safe. Nothing was copied anywhere else, this is one phone, and a
+phone can be dropped. **Keep your only copy somewhere else.**
+
+### Keep it on its own port
+
+Run the vault and the website in separate Termux sessions on **different ports**
+(`--bind 0.0.0.0:8080` for one, `:8081` for the other). Pointing both at the same
+folder would publish everything anybody uploads.
+
+---
+
 ## When something goes wrong
 
 | What you see | What it means | What to do |
@@ -267,6 +361,13 @@ your site can never read the screen that reports whether your battery is safe.
 | My site says `Service Unavailable` | The governor withheld it | Read the message — it says whether the cell is hot or the phone is on battery. This is the software working |
 | `site needs --dir` | No folder given | There is no default on purpose, so it cannot publish whatever folder you were in. Pass `--dir ~/mysite` |
 | My site shows `404` for a page that exists | A dot-name, a folder with no `index.html`, or a shortcut leading outside | Termux prints the real reason under the command |
+| Uploading says `401` | The credential is missing, wrong, or nobody is enrolled | Check the `Authorization: Bearer …` header, and run `vayucell devices`. An empty list refuses everything |
+| Uploading says `401` right after revoking somebody else | The vault is still running with the old list | Stop it with `Ctrl+C` and start it again |
+| Uploading says `503` | The battery governor or the outage ladder withheld it | Read the message — it names which. Downloads still work at `DERATED`; uploads do not. Wait, or plug the phone in |
+| Uploading says `503` and mentions the folder "could not be read" | The vault folder was moved, deleted, or its permissions changed | Check `ls -ld ~/files`. Usage that cannot be measured refuses the upload rather than assuming there is room |
+| Uploading says `507` | The quota is used up | Delete something, or restart with a larger `--quota`. Replacing a file needs room for both copies until the new one lands |
+| Uploading says `400` | The filename is really a path, hidden, or ends in a space or a dot | The message names which rule and what to change |
+| `vault needs --dir` | No folder given | There is no default on purpose. Pass `--dir ~/files` |
 
 Running the installer again is always safe. It will not duplicate anything.
 
@@ -278,10 +379,14 @@ Running the installer again is always safe. It will not duplicate anything.
 rm -rf ~/.vayucell
 ```
 
-That is everything. Your site folder is yours and is not touched by this —
-VayuCell only ever reads it. VayuCell writes nothing outside that folder, installs no
-system service, and leaves no account anywhere. If you also want Termux gone,
-uninstall it like any app.
+That is everything — the program, and the list of enrolled devices with it, so
+every credential you handed out stops working.
+
+**Your folders are not touched.** The site folder VayuCell only ever reads; the
+vault folder and everything uploaded into it stays exactly where it is, and
+removing VayuCell does not delete a single stored file. VayuCell writes nothing
+outside those two folders, installs no system service, and leaves no account
+anywhere. If you also want Termux gone, uninstall it like any app.
 
 ---
 
@@ -290,7 +395,7 @@ uninstall it like any app.
 **No VayuCell release has been installed on a physical phone by its author.**
 
 Every device-facing behaviour is exercised against a simulated device in the
-test suite — 234 tests, and every safety check is deliberately re-broken in CI
+test suite — 328 tests, and every safety check is deliberately re-broken in CI
 to prove the tests would notice. That is a real standard and it is not the same
 as a phone on a bench.
 

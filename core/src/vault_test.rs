@@ -12,7 +12,8 @@ use crate::governor::Level;
 use crate::host::FakeHost;
 use crate::shed::Stage;
 use crate::vault::{
-    Admission, Name, NameError, Quota, Receipt, Refused, RootError, Step, VaultRoot, WritePlan,
+    Admission, Name, NameError, Quota, Receipt, Refused, RootError, Step, TooLarge, VaultRoot,
+    WritePlan,
 };
 
 const ROOT: &str = "/data/vault";
@@ -201,7 +202,7 @@ fn a_quota_already_over_its_limit_reports_no_free_space_rather_than_wrapping() {
 #[test]
 fn a_healthy_device_on_mains_accepts_a_file() {
     assert_eq!(
-        Admission::of(Level::Normal, Stage::Serving, room(), 10),
+        Admission::of(Level::Normal, Stage::Serving, Some(room()), 10),
         Admission::Accepting
     );
 }
@@ -214,7 +215,7 @@ fn a_derated_device_refuses_a_write_even_though_it_would_still_serve_a_site() {
     // file outlives the event.
     assert!(crate::site::Availability::of(Level::Derated, Stage::Serving).is_serving());
     assert_eq!(
-        Admission::of(Level::Derated, Stage::Serving, room(), 10),
+        Admission::of(Level::Derated, Stage::Serving, Some(room()), 10),
         Admission::Refusing(Refused::Governor(Level::Derated))
     );
 }
@@ -223,7 +224,7 @@ fn a_derated_device_refuses_a_write_even_though_it_would_still_serve_a_site() {
 fn protect_and_halt_refuse_writes() {
     for level in [Level::Protect, Level::Halt] {
         assert_eq!(
-            Admission::of(level, Stage::Serving, room(), 10),
+            Admission::of(level, Stage::Serving, Some(room()), 10),
             Admission::Refusing(Refused::Governor(level)),
             "{level}"
         );
@@ -240,7 +241,7 @@ fn the_announced_rung_refuses_because_an_upload_is_new_work() {
         .contains("stopped accepting new work"));
     assert!(crate::site::Availability::of(Level::Normal, Stage::Announced).is_serving());
     assert_eq!(
-        Admission::of(Level::Normal, Stage::Announced, room(), 10),
+        Admission::of(Level::Normal, Stage::Announced, Some(room()), 10),
         Admission::Refusing(Refused::Outage(Stage::Announced))
     );
 }
@@ -254,7 +255,7 @@ fn every_rung_below_serving_refuses() {
         Stage::ShuttingDown,
     ] {
         assert_eq!(
-            Admission::of(Level::Normal, stage, room(), 10),
+            Admission::of(Level::Normal, stage, Some(room()), 10),
             Admission::Refusing(Refused::Outage(stage)),
             "{stage:?}"
         );
@@ -267,7 +268,7 @@ fn the_device_is_named_before_the_disk_when_both_would_refuse() {
     // free up space would send them to fix the wrong thing.
     let full = Quota::new(1000, 1000);
     assert_eq!(
-        Admission::of(Level::Halt, Stage::Serving, full, 10),
+        Admission::of(Level::Halt, Stage::Serving, Some(full), 10),
         Admission::Refusing(Refused::Governor(Level::Halt))
     );
 }
@@ -285,7 +286,7 @@ fn only_one_combination_of_level_and_stage_accepts_anything() {
             Stage::Quiesced,
             Stage::ShuttingDown,
         ] {
-            if Admission::of(level, stage, room(), 1).is_accepting() {
+            if Admission::of(level, stage, Some(room()), 1).is_accepting() {
                 accepting += 1;
             }
         }
@@ -295,15 +296,107 @@ fn only_one_combination_of_level_and_stage_accepts_anything() {
 
 #[test]
 fn a_refusal_explains_itself_to_whoever_offered_the_file() {
-    let g = Admission::of(Level::Halt, Stage::Serving, room(), 1).describe();
+    let g = Admission::of(Level::Halt, Stage::Serving, Some(room()), 1).describe();
     assert!(g.contains("HALT"), "{g}");
     assert!(g.contains("not taken"), "{g}");
 
-    let o = Admission::of(Level::Normal, Stage::Shed, room(), 1).describe();
+    let o = Admission::of(Level::Normal, Stage::Shed, Some(room()), 1).describe();
     assert!(o.contains("stopped non-essential services"), "{o}");
 
-    let f = Admission::of(Level::Normal, Stage::Serving, Quota::new(0, 5), 10).describe();
+    let f = Admission::of(Level::Normal, Stage::Serving, Some(Quota::new(0, 5)), 10).describe();
     assert!(f.contains('5'), "{f}");
+}
+
+// ── A quota nobody could read ─────────────────────────────────────────────────
+
+#[test]
+fn a_vault_whose_usage_could_not_be_read_refuses_the_write() {
+    // The whole point of the Option. Measuring what a directory holds is I/O and
+    // I/O fails; falling back to "nothing is used" would admit every write on
+    // the first unreadable directory, and admit it silently.
+    assert_eq!(
+        Admission::of(Level::Normal, Stage::Serving, None, 1),
+        Admission::Refusing(Refused::Unmeasured)
+    );
+}
+
+#[test]
+fn an_unmeasured_vault_refuses_even_a_zero_byte_file() {
+    // Not "it fits because it is empty". Nothing is known about the room, and a
+    // zero-byte file still creates a directory entry.
+    assert_eq!(
+        Admission::of(Level::Normal, Stage::Serving, None, 0),
+        Admission::Refusing(Refused::Unmeasured)
+    );
+}
+
+#[test]
+fn an_unmeasured_vault_is_never_reported_as_a_full_one() {
+    // Full names a shortfall, which is a measurement. This refusal is the
+    // absence of one, and dressing it as a shortfall invents a number.
+    let a = Admission::of(Level::Normal, Stage::Serving, None, 10);
+    assert_ne!(
+        a,
+        Admission::Refusing(Refused::Full(TooLarge {
+            offered: 10,
+            free: 0,
+            shortfall: 10
+        }))
+    );
+    let said = a.describe();
+    assert!(said.contains("could not be read"), "{said}");
+    assert!(!said.contains("would have to be freed"), "{said}");
+}
+
+#[test]
+fn the_device_is_still_named_before_an_unmeasured_disk() {
+    // Same ordering as a full one: a halted phone is a halted phone, and sending
+    // its owner to look at a directory would send them to fix the wrong thing.
+    assert_eq!(
+        Admission::of(Level::Halt, Stage::Serving, None, 10),
+        Admission::Refusing(Refused::Governor(Level::Halt))
+    );
+    assert_eq!(
+        Admission::of(Level::Normal, Stage::Shed, None, 10),
+        Admission::Refusing(Refused::Outage(Stage::Shed))
+    );
+}
+
+// ── Removal, which asks the device but not the disk ───────────────────────────
+
+#[test]
+fn a_removal_is_admitted_when_a_write_of_the_same_moment_would_not_be() {
+    // Either refusal would be a state with no way out of itself: the only
+    // request that frees room, refused for want of room.
+    let full = Some(Quota::new(1000, 1000));
+    assert!(!Admission::of(Level::Normal, Stage::Serving, full, 1).is_accepting());
+    assert!(!Admission::of(Level::Normal, Stage::Serving, None, 1).is_accepting());
+    assert!(Admission::for_removal(Level::Normal, Stage::Serving).is_accepting());
+}
+
+#[test]
+fn a_removal_still_obeys_the_governor_and_the_ladder() {
+    // The disk is skipped; the device is not. Deleting a file is still work, and
+    // a phone protecting its cell is not doing work.
+    for level in [Level::Derated, Level::Protect, Level::Halt] {
+        assert_eq!(
+            Admission::for_removal(level, Stage::Serving),
+            Admission::Refusing(Refused::Governor(level)),
+            "{level}"
+        );
+    }
+    for stage in [
+        Stage::Announced,
+        Stage::Shed,
+        Stage::Quiesced,
+        Stage::ShuttingDown,
+    ] {
+        assert_eq!(
+            Admission::for_removal(Level::Normal, stage),
+            Admission::Refusing(Refused::Outage(stage)),
+            "{stage:?}"
+        );
+    }
 }
 
 // ── The plan, which is the ordering ───────────────────────────────────────────
@@ -312,7 +405,7 @@ fn a_refusal_explains_itself_to_whoever_offered_the_file() {
 fn a_refused_write_yields_no_plan() {
     // The refusal and the plan are the same decision. Handing back a plan the
     // device refused is how a check gets skipped by a caller in a hurry.
-    let refused = Admission::of(Level::Halt, Stage::Serving, room(), 1);
+    let refused = Admission::of(Level::Halt, Stage::Serving, Some(room()), 1);
     assert!(refused
         .plan(&root(), &Name::new("a.txt").expect("ordinary"))
         .is_none());
@@ -323,7 +416,7 @@ fn an_accepted_write_names_a_temporary_beside_the_destination() {
     // Beside it, not in /tmp: a rename across filesystems is a copy, and a copy
     // is not atomic.
     let name = Name::new("report.pdf").expect("ordinary");
-    let plan = Admission::of(Level::Normal, Stage::Serving, room(), 10)
+    let plan = Admission::of(Level::Normal, Stage::Serving, Some(room()), 10)
         .plan(&root(), &name)
         .expect("an accepted write has a plan");
 
@@ -342,7 +435,7 @@ fn the_temporary_is_hidden_so_debris_is_recognisable_as_debris() {
     // And so the site, which refuses hidden names as a class, can never serve a
     // partially written file.
     let name = Name::new("photo.jpg").expect("ordinary");
-    let plan = Admission::of(Level::Normal, Stage::Serving, room(), 10)
+    let plan = Admission::of(Level::Normal, Stage::Serving, Some(room()), 10)
         .plan(&root(), &name)
         .expect("accepted");
     let leaf = plan.temporary().rsplit_once('/').expect("has a parent").1;

@@ -142,7 +142,7 @@ OPTIONS:
     --ticks <N>         Stop `run` after N passes instead of running on
     --assume-outage <S> Treat mains as lost this many seconds ago, so the shed
                         ladder can be exercised without unplugging anything
-    --bind <ADDR>       Address for `serve` and `site` [default:
+    --bind <ADDR>       Address for `serve`, `site` and `vault` [default:
                         127.0.0.1:8080]. The default is loopback: reaching the
                         rest of your network is something you type, not
                         something you get
@@ -154,8 +154,11 @@ OPTIONS:
                         [default: ~/.vayucell/devices]. It holds secrets in the
                         clear, so it must not be readable by anyone else and
                         both commands refuse it if it is
-    --device <NAME>     The device `enrol` adds. No spaces
-    --quota <BYTES>     How much the vault may hold [default: 1073741824]
+    --device <NAME>     The device `enrol` or `revoke` names. No spaces
+    --quota <BYTES>     How much the vault may hold [default: 1073741824].
+                        What it already holds is measured before every upload,
+                        and an upload is refused if the directory cannot be
+                        measured at all
 
 EXIT CODES:
     0   the panel reads PROTECTED — every row was checked and held

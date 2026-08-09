@@ -153,3 +153,36 @@ receipt and every error message a `PUT` produced arrived empty: an upload that
 confirmed nothing, a refusal that explained nothing. The condition now asks which
 verb *omits* a body, which is the form that stays correct when a verb is added.
 It was found by running an upload, not by reading the diff.
+
+## §8. Two things §2 claimed that the code was not doing
+
+Recorded rather than quietly corrected, because both are the same failure: a
+table in a document that no test held the code to.
+
+**The read column existed only on paper.** §2's table says the vault refuses a
+read at `PROTECT`, at `HALT` and at `Stage::Shed` and below, exactly as the site
+does. `route_vault` consulted the device on the write path and nowhere else, so a
+cell in enough trouble to stop serving a web page was still spinning storage up
+for anybody enrolled. Reads now go through `site::Availability` — the same type
+the site uses, so the two columns cannot drift apart again — and the refusal is
+decided before the disk is touched, not filtered afterwards.
+
+**The quota was a number rather than a limit.** `Quota` measured correctly and
+`Admission` used it correctly; the caller built it once at startup with usage
+fixed at zero and never asked again. The only upload it could refuse was one
+file larger than the whole quota. Usage is now read from the directory before
+every upload.
+
+That measurement is I/O and I/O fails, which is the interesting half. A
+directory that cannot be read refuses the write rather than counting as empty:
+an unreadable usage figure is indistinguishable from free space, so treating it
+as zero is a limit that silently stops being one. `Admission::of` takes an
+`Option<Quota>` so no caller can skip the case, and `Refused::Unmeasured` is
+kept apart from `Refused::Full` — "full" names a shortfall, which is a
+measurement, and this refusal is precisely the absence of one.
+
+A removal asks neither. `Admission::for_removal` consults the governor and the
+ladder and does not look at the disk, because a vault that is full — or one
+nobody can measure — is a vault somebody needs to be able to empty.
+
+It has still not run on a phone.

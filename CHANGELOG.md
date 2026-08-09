@@ -24,10 +24,10 @@ traffic before it.
   undo. It obeys the governor exactly as a write does — a device in trouble is
   not the place to be changing somebody's data — and deleting something already
   gone is a `404` rather than an error, so a retry after a dropped connection
-  lands where the caller wanted. A **full disk never refuses a delete**: nothing
-  is offered, so the quota admits it, and refusing the one request that would
-  free space would have been perverse. That falls out of the design rather than
-  being special-cased, and a test says so.
+  lands where the caller wanted. A **full disk never refuses a delete** —
+  `Admission::for_removal` asks the governor and the outage ladder and does not
+  look at the disk at all, because refusing the one request that would free
+  space would have been perverse.
 
   `devices` lists what is enrolled and **never prints a secret**; `revoke`
   removes one. Revocation rewrites the store through the same
@@ -176,6 +176,44 @@ traffic before it.
 - `Host::is_file`, and `FakeHost::with_dir` beside it — see below for why.
 
 ### Fixed
+
+- **The vault quota was a number, not a limit.** It was built once at startup as
+  `Quota::new(0, limit)` — usage fixed at zero, for the life of the process — so
+  the only upload it could ever refuse was a single file larger than the whole
+  quota. Two hundred uploads of half a gigabyte each fitted inside a one-gigabyte
+  vault without a word.
+
+  What the directory already holds is now read **before every upload**, the same
+  way the governor is asked before every request and for the same reason: a
+  figure taken once is a figure that is wrong from the second request onward, and
+  wrong in the admitting direction.
+
+  Measuring is I/O, and I/O fails. A directory that cannot be read now **refuses
+  the write** rather than counting as empty: an unreadable usage figure is
+  indistinguishable from free space, and a limit that quietly stops being one on
+  the first permission change is worse than no limit at all.
+  `Admission::of` takes an `Option<Quota>` so that case cannot be forgotten, and
+  `Refused::Unmeasured` keeps it distinct from `Refused::Full` — "full" names a
+  shortfall, which is a measurement, and this refusal is the absence of one. It
+  answers `503`, never `507`.
+
+  A **delete is unaffected either way**, through `Admission::for_removal`. A
+  vault that cannot be measured is a vault somebody needs to be able to empty.
+- **The vault handed stored files out at `PROTECT` and `HALT`.**
+  [ADR-0009](docs/adr/ADR-0009-accepting-a-file.md) §2's table has always said
+  the vault refuses reads wherever the website does, but only the write path ever
+  consulted the device — a cell in enough trouble to stop serving a web page was
+  still spinning storage up for anybody enrolled. Reads now sit on
+  `site::Availability`, the same thresholds as the site: `DERATED` and
+  `Stage::Announced` still answer, `PROTECT`, `HALT` and `Stage::Shed` and below
+  do not. The refusal is decided **before** the disk is touched, not filtered
+  afterwards.
+- **A `507` said `Insufficient Storage` in its status code and
+  `Service Unavailable` in its reason phrase.** Two different answers in one
+  line, and the wrong one is the one most clients parse.
+- Two messages that outlived the commands they described: `enrol` told the
+  operator to revoke a device by editing the store by hand, and the usage text
+  listed `--bind` as belonging to `serve` and `site` only.
 
 - **Every `PUT` response had an empty body.** `Response::render` suppressed the
   body for any method that was not `GET`, which was correct when `Get` and

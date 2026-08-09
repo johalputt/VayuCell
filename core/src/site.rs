@@ -393,4 +393,28 @@ impl Availability {
             ),
         }
     }
+
+    /// The same decision, told to somebody who asked for a stored file.
+    ///
+    /// The vault's reads sit on this type rather than on one of their own,
+    /// because reading a file out of the vault and reading a page out of a site
+    /// are the same act against the same cell — ADR-0009 §2 gives the vault the
+    /// site's read column exactly. Only the wording differs, because "this site
+    /// is not being served" is not an answer to somebody who asked for their
+    /// own file.
+    #[must_use]
+    pub fn describe_stored_file(&self) -> String {
+        match self {
+            Self::Serving => "this device is answering for stored files".to_owned(),
+            Self::Withheld(Withheld::Governor(level)) => format!(
+                "this file was not read out: the device holding it is at {level}, \
+                 and protecting its battery outranks answering this request"
+            ),
+            Self::Withheld(Withheld::Outage(stage)) => format!(
+                "this file was not read out: the device holding it is on battery \
+                 and has {}",
+                stage.obligation()
+            ),
+        }
+    }
 }

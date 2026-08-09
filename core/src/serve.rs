@@ -527,8 +527,12 @@ pub struct VaultContext<'a> {
     pub credentials: &'a Credentials,
     /// The directory files are kept in.
     pub root: &'a VaultRoot,
-    /// How much room there is.
-    pub quota: Quota,
+    /// How much room there is, or `None` when that could not be read.
+    ///
+    /// Measured per request rather than captured at startup, for the same reason
+    /// the governor is consulted per request: a usage figure read once is wrong
+    /// for every request after the first, and wrong in the admitting direction.
+    pub quota: Option<Quota>,
     /// The governor's level.
     pub level: Level,
     /// The outage ladder's rung.
@@ -576,10 +580,24 @@ pub fn route_vault(
     let stored = format!("{}/{}", ctx.root.dir(), name);
 
     match request.method {
-        Method::Get | Method::Head => match io.read(&stored) {
-            Some(bytes) => Response::bytes(bytes, "application/octet-stream"),
-            None => Response::refused(404, "Not Found", "nothing is stored under that name"),
-        },
+        Method::Get | Method::Head => {
+            // The device is asked before the disk is touched, on the site's
+            // thresholds rather than the vault's stricter ones: reading a stored
+            // file out is a read, and ADR-0009 §2 gives the vault the site's
+            // read column exactly. `DERATED` still answers; `PROTECT` does not.
+            let availability = Availability::of(ctx.level, ctx.stage);
+            if !availability.is_serving() {
+                return Response::refused(
+                    503,
+                    "Service Unavailable",
+                    &availability.describe_stored_file(),
+                );
+            }
+            match io.read(&stored) {
+                Some(bytes) => Response::bytes(bytes, "application/octet-stream"),
+                None => Response::refused(404, "Not Found", "nothing is stored under that name"),
+            }
+        }
         Method::Put => {
             let offered = body.len() as u64;
             let admission = Admission::of(ctx.level, ctx.stage, ctx.quota, offered);
@@ -597,11 +615,11 @@ pub fn route_vault(
             }
         }
         Method::Delete => {
-            // Nothing is offered, so the quota always admits it. That falls out
-            // rather than being special-cased, and it is the right answer: a
-            // full disk must never be a reason to refuse the one request that
-            // would free some.
-            let admission = Admission::of(ctx.level, ctx.stage, ctx.quota, 0);
+            // The disk is not consulted at all. A full vault must never refuse
+            // the one request that would free some, and neither must one whose
+            // usage could not be read — a delete needs no room and does not
+            // need to know how much there is.
+            let admission = Admission::for_removal(ctx.level, ctx.stage);
             if !admission.is_accepting() {
                 return refused_admission(&admission);
             }
@@ -624,13 +642,17 @@ pub fn route_vault(
 /// 503 for the device's condition, 507 for the disk. Both are the operator's
 /// problem rather than the caller's mistake, and the caller can tell which from
 /// the status without reading prose.
+///
+/// A vault whose usage could not be measured answers 503, not 507. 507 asserts
+/// that the storage is insufficient, which is a measurement; the whole content
+/// of that refusal is that no measurement exists.
 fn refused_admission(admission: &Admission) -> Response {
-    let status = if matches!(admission, Admission::Refusing(Refused::Full(_))) {
-        507
+    let (status, reason) = if matches!(admission, Admission::Refusing(Refused::Full(_))) {
+        (507, "Insufficient Storage")
     } else {
-        503
+        (503, "Service Unavailable")
     };
-    Response::refused(status, "Service Unavailable", &admission.describe())
+    Response::refused(status, reason, &admission.describe())
 }
 
 /// The response for a request that could not be parsed.

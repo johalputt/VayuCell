@@ -25,6 +25,7 @@ use vayucell_core::serve::{
     Method, Request, Response, Surface, VaultContext, MAX_HEADERS, MAX_REQUEST_LINE,
 };
 use vayucell_core::site::{Availability, SiteRoot};
+use vayucell_core::vault::Quota;
 
 /// How long a client may take to send its request line.
 ///
@@ -91,6 +92,10 @@ pub fn serve_site(
 /// is — the governor's answer goes stale, and stale always fails in the
 /// reassuring direction.
 ///
+/// `limit` is the ceiling; how much is already used is measured per request by
+/// [`used_bytes`]. Taking a usage figure once at startup would make the limit
+/// hold for exactly one upload and then stop meaning anything.
+///
 /// # Errors
 ///
 /// Returns the reason the listener could not be established.
@@ -99,7 +104,7 @@ pub fn serve_vault(
     root: &vayucell_core::vault::VaultRoot,
     credentials: &vayucell_core::auth::Credentials,
     context: &dyn Fn() -> (vayucell_core::governor::Level, vayucell_core::shed::Stage),
-    quota: vayucell_core::vault::Quota,
+    limit: u64,
 ) -> Result<(), String> {
     let listener = TcpListener::bind(addr).map_err(|e| format!("{addr}: {e}"))?;
     let bound = listener
@@ -122,6 +127,15 @@ pub fn serve_vault(
 
     accept_loop(&listener, Surface::Site, &|request, headers, body| {
         let (level, stage) = context();
+        let quota = used_bytes(root.dir()).map(|used| Quota::new(used, limit));
+        if quota.is_none() {
+            // The caller is told the vault will not take a write; only the
+            // operator is told which directory would not answer.
+            eprintln!(
+                "vayucell: {} could not be measured, so no file can be admitted",
+                root.dir()
+            );
+        }
         let ctx = VaultContext {
             credentials,
             root,
@@ -182,6 +196,32 @@ impl vayucell_core::serve::VaultIo for RealVaultIo<'_> {
             Err(e) => Err(format!("{path}: {e}")),
         }
     }
+}
+
+/// How many bytes the vault directory is holding, or `None` if that is not
+/// knowable right now.
+///
+/// `None` rather than a partial sum, and never `0` as a fallback. An
+/// under-count is the one error that matters here: it is indistinguishable from
+/// free space, so it admits writes a full vault should refuse, and it does so
+/// silently.
+///
+/// The vault is flat, so this is one directory read rather than a walk. A
+/// subdirectory somebody created by hand is skipped and its contents are not
+/// counted — the quota governs what the vault stores, not what else was put in
+/// the folder. `symlink_metadata` is used deliberately: a link counts as the
+/// link, so a link to a huge file elsewhere cannot inflate the usage figure and
+/// lock the vault, and cannot deflate it either.
+fn used_bytes(dir: &str) -> Option<u64> {
+    let entries = std::fs::read_dir(dir).ok()?;
+    let mut total: u64 = 0;
+    for entry in entries {
+        let metadata = entry.ok()?.path().symlink_metadata().ok()?;
+        if metadata.is_file() {
+            total = total.saturating_add(metadata.len());
+        }
+    }
+    Some(total)
 }
 
 /// Performs the ordering in a [`vayucell_core::vault::WritePlan`], in that order.
@@ -738,7 +778,7 @@ mod durable_write_tests {
         Admission::of(
             vayucell_core::governor::Level::Normal,
             vayucell_core::shed::Stage::Serving,
-            Quota::new(0, 1_000_000),
+            Some(Quota::new(0, 1_000_000)),
             10,
         )
         .plan(&root, &Name::new(name).expect("plain"))
@@ -808,5 +848,91 @@ mod durable_write_tests {
         std::fs::remove_dir_all(&s.0).expect("removes the directory");
         let e = write_durably(&plan, b"x").expect_err("nowhere to write");
         assert!(!e.is_empty(), "the failure explained nothing");
+    }
+}
+
+#[cfg(test)]
+mod usage_tests {
+    use super::used_bytes;
+
+    struct Scratch(std::path::PathBuf);
+    impl Scratch {
+        fn new(name: &str) -> Self {
+            let d = std::env::temp_dir().join(format!("vayucell-usage-{name}"));
+            let _ = std::fs::remove_dir_all(&d);
+            std::fs::create_dir_all(&d).expect("scratch");
+            Self(d)
+        }
+        fn dir(&self) -> String {
+            self.0.to_string_lossy().into_owned()
+        }
+        fn write(&self, rel: &str, bytes: &[u8]) {
+            std::fs::write(self.0.join(rel), bytes).expect("written");
+        }
+    }
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn an_empty_vault_holds_nothing_which_is_not_the_same_as_unknown() {
+        let s = Scratch::new("empty");
+        assert_eq!(used_bytes(&s.dir()), Some(0));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symbolic_link_counts_as_the_link_and_not_as_what_it_points_at() {
+        // Following it would let anything that can create a link decide the
+        // usage figure: a link to a large file elsewhere locks the vault against
+        // its owner, and the target is not on this disk in the first place.
+        let s = Scratch::new("link");
+        s.write("a.txt", b"1234");
+        std::fs::create_dir(s.0.join("elsewhere")).expect("a directory");
+        std::fs::write(s.0.join("elsewhere/big.bin"), vec![0u8; 5000]).expect("written");
+        std::os::unix::fs::symlink(s.0.join("elsewhere/big.bin"), s.0.join("link.bin"))
+            .expect("a link");
+
+        let used = used_bytes(&s.dir()).expect("readable");
+        assert!(
+            used < 5000,
+            "the link was followed and counted its target: {used}"
+        );
+        assert!(used >= 4, "the ordinary file stopped being counted: {used}");
+    }
+
+    #[test]
+    fn what_is_stored_is_added_up_including_debris_from_an_interrupted_write() {
+        // The `.partial` temporary occupies the disk whether or not it is
+        // anybody's file, so a quota that ignored it would be a quota that can
+        // be exceeded by crashing.
+        let s = Scratch::new("sum");
+        s.write("a.txt", b"12345");
+        s.write("b.txt", b"1234567890");
+        s.write(".c.txt.partial", b"123");
+        assert_eq!(used_bytes(&s.dir()), Some(18));
+    }
+
+    #[test]
+    fn a_directory_that_does_not_exist_is_unknown_rather_than_empty() {
+        // The distinction the whole Option exists for. Zero here would read as
+        // "all the room is free" and admit every upload.
+        let s = Scratch::new("gone");
+        let dir = s.dir();
+        std::fs::remove_dir_all(&s.0).expect("removes it");
+        assert_eq!(used_bytes(&dir), None);
+    }
+
+    #[test]
+    fn a_subdirectory_somebody_created_is_skipped_rather_than_walked() {
+        // The vault is flat. What else is in the folder is not the vault's, and
+        // a walk is a symlink loop waiting to happen.
+        let s = Scratch::new("nested");
+        s.write("a.txt", b"1234");
+        std::fs::create_dir(s.0.join("sub")).expect("a subdirectory");
+        std::fs::write(s.0.join("sub/big.bin"), vec![0u8; 5000]).expect("written");
+        assert_eq!(used_bytes(&s.dir()), Some(4));
     }
 }

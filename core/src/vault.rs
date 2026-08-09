@@ -389,6 +389,14 @@ pub enum Refused {
     Outage(Stage),
     /// There is not enough room.
     Full(TooLarge),
+    /// How much the vault already holds could not be established.
+    ///
+    /// Distinct from [`Refused::Full`] on purpose. "Full" is a measurement and
+    /// names a shortfall; this is the absence of one, and reporting it as a
+    /// shortfall would invent a number nobody read. A limit that cannot be
+    /// measured is not a limit, so the write is refused rather than admitted
+    /// against an assumed usage of zero.
+    Unmeasured,
 }
 
 /// Whether the vault is accepting files.
@@ -426,8 +434,13 @@ impl Admission {
     ///
     /// Room is checked last, so an operator whose device is halted is told
     /// about the halt rather than about their disk.
+    ///
+    /// `quota` is an [`Option`] because measuring what a vault already holds is
+    /// I/O, and I/O fails. `None` is the caller saying it could not find out,
+    /// and it refuses: admitting a write against an unknown usage is a limit
+    /// that silently stops being one the first time a directory cannot be read.
     #[must_use]
-    pub const fn of(level: Level, stage: Stage, quota: Quota, offered: u64) -> Self {
+    pub const fn of(level: Level, stage: Stage, quota: Option<Quota>, offered: u64) -> Self {
         match level {
             Level::Derated | Level::Protect | Level::Halt => {
                 return Self::Refusing(Refused::Governor(level))
@@ -440,10 +453,28 @@ impl Admission {
             }
             Stage::Serving => {}
         }
+        let Some(quota) = quota else {
+            return Self::Refusing(Refused::Unmeasured);
+        };
         match quota.admits(offered) {
             Ok(()) => Self::Accepting,
             Err(too_large) => Self::Refusing(Refused::Full(too_large)),
         }
+    }
+
+    /// Whether the device is in a condition to *remove* a file.
+    ///
+    /// The same governor and outage checks, and deliberately no disk check. A
+    /// removal offers nothing and frees something, so neither a full vault nor
+    /// one whose usage could not be read may refuse it — either would be a
+    /// state with no way out of itself.
+    #[must_use]
+    pub const fn for_removal(level: Level, stage: Stage) -> Self {
+        // A zero limit that is asked to admit zero bytes. Written this way
+        // rather than as a second copy of the level-and-stage ladder, so a rung
+        // added later cannot be handled in one of them and forgotten in the
+        // other.
+        Self::of(level, stage, Some(Quota::new(0, 0)), 0)
     }
 
     /// Whether a file may be written.
@@ -486,6 +517,10 @@ impl Admission {
             Self::Refusing(Refused::Full(too_large)) => {
                 format!("this file was not taken: {too_large}")
             }
+            Self::Refusing(Refused::Unmeasured) => "this file was not taken: how much this \
+                 vault already holds could not be read, and a limit nobody can measure is \
+                 not a limit"
+                .to_owned(),
         }
     }
 }
