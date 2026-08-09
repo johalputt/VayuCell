@@ -518,6 +518,16 @@ fn handle(stream: TcpStream, surface: Surface, respond: &Responder<'_>) -> Resul
     };
 
     let (body, method) = response;
+
+    // The other half of ADR-0008 §3. Every site refusal now says the same
+    // sentence on the wire, which is only honest if the operator can still find
+    // out which of six reasons it was — and that promise was made in the ADR and
+    // never implemented. This is where it is kept: on the device the operator
+    // owns, where a visitor cannot read it.
+    if let Some(line) = body.log() {
+        eprintln!("vayucell: {line}");
+    }
+
     let mut out = stream;
     out.write_all(&body.render(surface, nonce()?, method))
         .map_err(|e| format!("could not write the response: {e}"))?;

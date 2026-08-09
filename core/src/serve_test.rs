@@ -286,6 +286,142 @@ fn reader(host: &FakeHost) -> impl Fn(&str) -> Option<Vec<u8>> + '_ {
     move |p: &str| crate::host::Host::read(host, p).map(String::into_bytes)
 }
 
+/// A site with a real directory that has no index in it, and a dotted name.
+fn probeable_host() -> FakeHost {
+    site_host().with_dir(&format!("{SITE}/folder"))
+}
+
+#[test]
+fn every_site_refusal_says_the_same_thing_on_the_wire() {
+    // ADR-0008 §3 unified the *status* because the differences between refusals
+    // are "a directory listing delivered one status code at a time". The bodies
+    // were left discriminating, so the same listing was delivered one body at a
+    // time: "/folder is a directory with no index.html in it" against "nothing
+    // is published at /nodir" tells a stranger which of the two exists, which is
+    // exactly what the shared status was hiding.
+    //
+    // Found by probing the running binary, not by reading this file — the tests
+    // here asserted `resolve` and `status_for`, so they covered the half of §3
+    // that had been implemented.
+    let host = probeable_host();
+    let root = site_root(&host);
+
+    let answers: Vec<(u16, String)> = ["/nodir", "/folder", "/.env", "/.absent"]
+        .iter()
+        .map(|p| {
+            let r = route_site(&get(p), &root, &host, Availability::Serving, &reader(&host));
+            (r.status, text(&r))
+        })
+        .collect();
+
+    for (path, (status, body)) in ["/nodir", "/folder", "/.env", "/.absent"]
+        .iter()
+        .zip(&answers)
+    {
+        assert_eq!(*status, 404, "{path}");
+        assert!(
+            !body.contains("directory") && !body.contains("hidden"),
+            "{path} told the visitor why: {body}"
+        );
+    }
+
+    // The one that matters: a real directory and an absent name are word for
+    // word the same answer, and so are a dotted name that exists and one that
+    // does not.
+    assert_eq!(
+        answers[0].1.replace("/nodir", "P"),
+        answers[1].1.replace("/folder", "P")
+    );
+    assert_eq!(
+        answers[2].1.replace("/.env", "P"),
+        answers[3].1.replace("/.absent", "P")
+    );
+}
+
+#[test]
+fn the_operator_still_learns_which_refusal_it_was() {
+    // Taking the reason off the wire is only honest if it reaches somebody. §3
+    // promised it "goes to the log on the device they own" and nothing wrote
+    // one, so the diagnosis existed solely in the body — the place §3 says it
+    // must not be.
+    let host = probeable_host();
+    let root = site_root(&host);
+
+    let missing = route_site(
+        &get("/nodir"),
+        &root,
+        &host,
+        Availability::Serving,
+        &reader(&host),
+    );
+    let directory = route_site(
+        &get("/folder"),
+        &root,
+        &host,
+        Availability::Serving,
+        &reader(&host),
+    );
+    let hidden = route_site(
+        &get("/.env"),
+        &root,
+        &host,
+        Availability::Serving,
+        &reader(&host),
+    );
+
+    assert!(
+        directory.log().is_some_and(|l| l.contains("index")),
+        "{:?}",
+        directory.log()
+    );
+    assert!(
+        hidden.log().is_some_and(|l| l.contains("dot")),
+        "{:?}",
+        hidden.log()
+    );
+    assert_ne!(missing.log(), directory.log());
+    assert_ne!(directory.log(), hidden.log());
+}
+
+#[test]
+fn the_operators_line_never_reaches_the_wire() {
+    // The field is private and `render` does not read it. This is the proof that
+    // it stays that way: whatever the log says must not appear in the bytes.
+    let host = probeable_host();
+    let r = route_site(
+        &get("/folder"),
+        &site_root(&host),
+        &host,
+        Availability::Serving,
+        &reader(&host),
+    );
+    let line = r
+        .log()
+        .expect("a refusal explains itself to the operator")
+        .to_owned();
+    let wire = String::from_utf8_lossy(&r.render(Surface::Site, nonce(), Method::Get)).into_owned();
+    assert!(
+        !wire.contains(&line),
+        "the operator's line went to the visitor: {wire}"
+    );
+}
+
+#[test]
+fn a_traversal_attempt_is_not_told_apart_from_an_ordinary_miss() {
+    // §3 names a 403 for a forbidden path as the tempting design it rejected —
+    // and this answered 403 anyway, so a prober could tell a traversal-shaped
+    // request from a miss without reading a body at all.
+    let r = crate::serve::refuse(&crate::serve::BadRequest::Traversal);
+    assert_eq!(r.status, 404);
+    assert_eq!(r.reason, "Not Found");
+    assert!(!text(&r).contains("root"), "{}", text(&r));
+    assert!(
+        r.log().is_some_and(|l| l.contains("document root")),
+        "the operator still has to be able to see it: {:?}",
+        r.log()
+    );
+}
+
 #[test]
 fn a_published_file_is_served_with_its_declared_type() {
     let host = site_host();

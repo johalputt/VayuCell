@@ -1053,12 +1053,38 @@ mutate "$SV" a_read_is_withheld_at_protect_and_below_exactly_as_the_site_is \
 
 mutate "$SV" a_file_that_resolved_but_cannot_be_read_answers_exactly_like_a_typo \
   "an unreadable file answers differently from a missing one" \
-  "            None => Response::refused(
-                404,
-                \"Not Found\"," \
-  "            None => Response::refused(
-                500,
-                \"Not Found\","
+  "            None => not_published(&request.path, &Refusal::NotFound(request.path.clone()))
+                .explaining(format!(\"{} resolved and could not be read\", request.path))," \
+  "            None => Response::refused(500, \"Internal Server Error\", \"it is there and I cannot read it\"),"
+
+mutate "$SV" every_site_refusal_says_the_same_thing_on_the_wire \
+  "each refusal explains itself, so the bodies map the directory the status hides" \
+  "        &Refusal::NotFound(path.to_owned()).to_string()," \
+  "        &why.to_string()," \
+
+mutate "$SV" a_traversal_attempt_is_not_told_apart_from_an_ordinary_miss \
+  "a traversal attempt answers 403, the status the ADR named as the temptation" \
+  "        BadRequest::Traversal => {
+            not_published(\"that path\", &Refusal::Escape(String::new())).explaining(bad.to_string())
+        }" \
+  "        BadRequest::Traversal => Response::refused(403, \"Forbidden\", &bad.to_string()),"
+
+mutate "$SV" the_operator_still_learns_which_refusal_it_was \
+  "the reason is taken off the wire and put nowhere, so nobody can see it" \
+  "        Resolved::Refused(why) => not_published(&request.path, &why).explaining(why.to_string())," \
+  "        Resolved::Refused(why) => not_published(&request.path, &why),"
+
+mutate "$SV" the_operators_line_never_reaches_the_wire \
+  "the operator's line is rendered to the visitor after all" \
+  "        if method != Method::Head {
+            out.extend_from_slice(&self.body);
+        }" \
+  "        if method != Method::Head {
+            out.extend_from_slice(&self.body);
+            if let Some(line) = &self.log {
+                out.extend_from_slice(line.as_bytes());
+            }
+        }"
 
 mutate "$SV" something_stored_in_the_way_answers_conflict_rather_than_server_error \
   "a conflict with something already stored is reported as the server breaking" \

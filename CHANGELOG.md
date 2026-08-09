@@ -48,6 +48,41 @@ when the tag is cut.
   thing that will ever clear a link sitting in the vault. A delete that genuinely
   fails, and a write whose filesystem step genuinely fails, still answer 500.
 
+- **The site's 404 bodies mapped the directory its statuses were unified to
+  hide.** ADR-0008 §3 makes every site refusal a 404 because the differences
+  between them are *"a directory listing delivered one status code at a time"*.
+  The bodies were left discriminating: `/folder` answered *"is a directory with
+  no index.html in it"* and `/nodir` answered *"nothing is published"*, so the
+  same listing was delivered one **body** at a time. A stranger enumerates the
+  document root by reading instead of by counting.
+
+  Every refusal now says `nothing is published at <path>` — a real directory, an
+  absent name, a hidden name that exists and one that does not are word for word
+  the same answer.
+
+- **A traversal attempt answered 403** — the exact status §3 names as the
+  tempting design it rejects. The status was decided in two places: `status_for`
+  for a resolved refusal, and `refuse` for a request that never got that far.
+  Two authorities on one question is how they came to disagree, so `refuse` goes
+  through `status_for` like everything else.
+
+- **The operator's log that §3 depends on did not exist.** *"The operator's
+  diagnosis is not lost — it goes to the log on the device they own"* was true
+  only for an unreadable file. Nothing was written for a hidden name, a directory
+  with no index, a traversal attempt or a plain miss, so the diagnosis survived
+  **only** in the response body — the one place §3 says it must not be. That is
+  why the bodies stayed informative: taking them away without a log first would
+  have left the operator with nothing.
+
+  `Response` now carries a **private** `log` field that `render` never reads and
+  a caller cannot reach; the binary prints it to its own stderr. A test asserts
+  the line never appears in the rendered bytes.
+
+  All three were found by probing the running binary. The tests here had covered
+  the half of §3 that was implemented — they asserted `resolve` and `status_for`,
+  and never what a visitor is handed. **A property about the wire needs a test
+  that reads the wire.**
+
 ## [0.0.10] — 2026-08-09
 
 ### Fixed

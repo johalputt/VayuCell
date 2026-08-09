@@ -97,6 +97,39 @@ This was got wrong first: an unreadable file answered 500 while a missing one
 answered 404, and the difference was found by running the thing rather than by
 reading it.
 
+### 3.1 It was got wrong a second time, and found the same way
+
+Unifying the status left the **bodies** discriminating, and this section's own
+argument applies to them word for word. `/folder` answered *"is a directory with
+no index.html in it"* while `/nodir` answered *"nothing is published"* — the same
+404, and a directory listing delivered one body at a time instead of one status
+at a time. A stranger enumerates the document root exactly as before, by reading
+rather than by counting.
+
+Two more things were wrong with it, both visible only from the wire:
+
+- **A traversal attempt answered 403.** This section names a 403 for a forbidden
+  path as the tempting design it rejects, and then `refuse` did it anyway,
+  because the status was decided in two places: `status_for` for a resolved
+  refusal and `refuse` for a request that never got that far. Two authorities on
+  one question is how they came to disagree. `refuse` now goes through
+  `status_for` like everything else.
+- **The log this section relies on did not exist.** "The operator's diagnosis is
+  not lost — it goes to the log on the device they own" was true only for an
+  unreadable file. Nothing was written for a hidden name, a directory with no
+  index, a traversal attempt or a plain miss, so the diagnosis survived *only* in
+  the response body. That is why the bodies stayed informative: taking them away
+  first would have left the operator with nothing, so nobody took them away.
+
+`Response` therefore carries a **private** `log` field that `render` never reads,
+the binary prints it to its own stderr, and a test asserts the line never appears
+in the rendered bytes. Every visitor gets `nothing is published at <path>`; the
+operator gets which of six reasons it was.
+
+The tests here had covered the half of §3 that was implemented: they asserted
+`resolve` and `status_for`, and never what a visitor is handed. **A property
+about the wire needs a test that reads the wire.**
+
 ## §4. The governor outranks the site, per request
 
 `site::Availability::of` takes a `governor::Level` and a `shed::Stage` and

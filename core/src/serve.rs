@@ -338,6 +338,22 @@ pub struct Response {
     pub content_type: &'static str,
     /// The body.
     pub body: Vec<u8>,
+    /// What the operator is told, on the device they own. **Never rendered.**
+    ///
+    /// ADR-0008 §3 unified every site refusal to one status because the
+    /// differences between them are "a directory listing delivered one status
+    /// code at a time", and promised the operator's diagnosis was "not lost — it
+    /// goes to the log on the device they own".
+    ///
+    /// There was no such log. Nothing was written for a hidden name, a directory
+    /// with no index, a traversal attempt or a plain miss, so the diagnosis
+    /// survived only in the response body — the one place §3 says it must not
+    /// be. That is why the bodies still discriminated: taking them away without
+    /// this field would have left the operator with nothing.
+    ///
+    /// Private, and [`Response::render`] never reads it. A caller cannot put it
+    /// on the wire by accident because a caller cannot reach it.
+    log: Option<String>,
 }
 
 impl Response {
@@ -349,6 +365,7 @@ impl Response {
             reason: "OK",
             content_type: "text/plain; charset=utf-8",
             body: body.into_bytes(),
+            log: None,
         }
     }
 
@@ -365,6 +382,7 @@ impl Response {
             reason: "OK",
             content_type,
             body,
+            log: None,
         }
     }
 
@@ -376,7 +394,27 @@ impl Response {
             reason,
             content_type: "text/plain; charset=utf-8",
             body: format!("{reason}: {why}\n").into_bytes(),
+            log: None,
         }
+    }
+
+    /// The same response, carrying a line for the operator's log.
+    ///
+    /// The two audiences want different things and only one of them is a
+    /// stranger. This is what lets a refusal say the same sentence to every
+    /// visitor while the operator still learns which of six reasons it was.
+    #[must_use]
+    pub fn explaining(mut self, log: impl Into<String>) -> Self {
+        self.log = Some(log.into());
+        self
+    }
+
+    /// The line for the operator's log, if this response has one.
+    ///
+    /// Read by the binary, which prints it to its own stderr. Never rendered.
+    #[must_use]
+    pub fn log(&self) -> Option<&str> {
+        self.log.as_deref()
     }
 
     /// The complete response, headers and all.
@@ -472,16 +510,43 @@ pub fn route_site(
             // varied between those and a typo would tell a stranger which paths
             // exist. The operator gets the real reason where it belongs, in the
             // log on the device they own.
-            None => Response::refused(
-                404,
-                "Not Found",
-                &Refusal::NotFound(request.path.clone()).to_string(),
-            ),
+            None => not_published(&request.path, &Refusal::NotFound(request.path.clone()))
+                .explaining(format!("{} resolved and could not be read", request.path)),
         },
-        Resolved::Refused(why) => {
-            Response::refused(status_for(&why), "Not Found", &why.to_string())
-        }
+        // Every refusal, one sentence. ADR-0008 §3 unified the *status* for this
+        // reason and left the bodies discriminating, so "/folder is a directory
+        // with no index.html in it" and "nothing is published at /nodir" told a
+        // stranger apart exactly what the shared status was hiding — a directory
+        // listing delivered one body at a time instead of one status at a time.
+        //
+        // The real reason is not lost; it is in the response's log, which is
+        // printed on the device the operator owns and never rendered.
+        Resolved::Refused(why) => not_published(&request.path, &why).explaining(why.to_string()),
     }
+}
+
+/// The one answer every site refusal gives.
+///
+/// The path is echoed because the visitor sent it and learns nothing from
+/// reading it back. Nothing else is: not whether it exists, not whether it is a
+/// directory, not whether it was refused on its shape rather than looked for.
+///
+/// [`status_for`] is the authority on the status and every caller goes through
+/// it — including the traversal refusal in [`refuse`], which used to decide for
+/// itself and decided differently. Two places answering one question is how they
+/// came to disagree; this keeps the body uniform, which is the half that was
+/// missing, and leaves the status where it was already documented to live.
+///
+/// The reason phrase is `Not Found` because every arm of [`status_for`] is 404,
+/// and a test pins that. A variant added later that is not would fail there
+/// before it could arrive here with the wrong phrase.
+#[must_use]
+fn not_published(path: &str, why: &Refusal) -> Response {
+    Response::refused(
+        status_for(why),
+        "Not Found",
+        &Refusal::NotFound(path.to_owned()).to_string(),
+    )
 }
 
 /// Why a stored file could not be written or removed.
@@ -726,7 +791,23 @@ pub fn refuse(bad: &BadRequest) -> Response {
         BadRequest::UnsupportedMethod(_) => {
             Response::refused(405, "Method Not Allowed", &bad.to_string())
         }
-        BadRequest::Traversal => Response::refused(403, "Forbidden", &bad.to_string()),
+        // 404, not 403. ADR-0008 §3 names a 403 for a forbidden path as the
+        // tempting design it rejected — "each is individually defensible;
+        // together they are a directory listing delivered one status code at a
+        // time" — and then this answered 403 anyway, so a prober could tell a
+        // traversal-shaped request apart from an ordinary miss. The operator
+        // still learns which it was, from the log.
+        // Through `not_published` like every other refusal, and through
+        // `status_for` with it. This decided its own status and decided 403 —
+        // the one ADR-0008 §3 names as the tempting design it rejects — because
+        // there were two authorities on one question. There is now one.
+        //
+        // "that path" rather than the requested one: the request line was
+        // refused before a path existed, and echoing the raw bytes of a
+        // traversal attempt back is its own small mistake.
+        BadRequest::Traversal => {
+            not_published("that path", &Refusal::Escape(String::new())).explaining(bad.to_string())
+        }
         BadRequest::BodyTooLarge(_) => {
             Response::refused(413, "Content Too Large", &bad.to_string())
         }
