@@ -18,6 +18,59 @@ traffic before it.
 The heading says *unreleased* rather than carrying a date. The date is written
 when the tag is cut.
 
+### Added
+
+- **Onion ingress: the site and the vault are now published through your
+  system's tor daemon**, which closes the largest single gap between what this
+  project is and what its headline says — as far as a binary that never dials
+  out can close it. `vayucell all --onion-dir <DIR>` writes the daemon's
+  configuration into that directory, starts `tor` from `PATH` as a child,
+  reads the `.onion` address it publishes, and keeps it up: restarted on a
+  crash with a doubling delay capped at sixteen seconds, shed **first** when
+  the governor derates the cell (ADR-0003 §5 — it is the load making the
+  device hot), stopped outright at PROTECT, and stopped again by hand before
+  every halt or outage exit, because an orphaned publisher answering after the
+  governor has died is precisely what this mode must never produce. The panel
+  is never published: it reports whether the battery in somebody's home is
+  safe, and handing that to the world is not this mode's purpose. The identity
+  key is generated and held by the daemon inside the hidden-service directory;
+  nothing here reads, copies or prints it, and the custody story — rotation
+  breaks every link, backups belong in encrypted storage, a stolen key has no
+  revocation — is printed once, before anything publishes. Decision recorded
+  in [`docs/vcip/VCIP-0001-onion-ingress-via-system-tor.md`](docs/vcip/VCIP-0001-onion-ingress-via-system-tor.md).
+
+  What this deliberately does **not** claim: reachability. ADR-0003 §4 defines
+  verified as a request from outside traversing the path and being served, and
+  no such request has ever been observed — no handset has run this binary.
+  The address line prints **unverified** beside itself, and will until the
+  observation exists.
+
+  The contract half lives in `core/src/onion.rs` — the plan, the generated
+  configuration pinned byte for byte by tests, hostname validation that names
+  which rule failed (length, base32 alphabet, the v3 version character), and
+  `should_run`, which delegates to `shed_for` rather than keeping a second
+  opinion about when high-thermal ingress stops. The checksum inside an onion
+  address is honestly *not* verified: doing so needs crypto code ADR-0005 §5.1
+  forbids, so validation claims shape and nothing more. Eight new mutations pin
+  the guards, each re-broken against its named test.
+
+### Fixed
+
+- **The charter gate now refuses to pass when it read nothing.** Its
+  outbound-connection scan strips test items with python3 first, and on a
+  machine where that interpreter is missing or broken every file stripped to
+  empty, the pattern matched nothing, and Article V.2 passed while reading no
+  source at all — which is exactly how this release's own gate sat red in CI
+  while passing on the machine that wrote it. The interpreter is now proven
+  usable before any verdict downstream of it means anything. *(Maintainer-facing.)*
+- **`vayucell enrol` no longer prints an example naming a client the charter's
+  own gate refuses.** The upload example described the request in one HTTP
+  client's syntax, which tripped the outbound-connection scan on production
+  source — the gate was right about the sentence and wrong about nothing else:
+  this program listens and never dials, so the example now names the method,
+  the URL and the header in the protocol's own words and leaves the choice of
+  client where it belongs, on the machine holding the file.
+
 ## [0.0.12] — 2026-08-09
 
 ### Added

@@ -283,18 +283,31 @@ fi
 # false without noticing.
 #
 # `bind` is deliberately not forbidden. Listening is what the surfaces do.
-egress=""
-while IFS= read -r f; do
-  if strip_test_items "$f" | strip_comments_stdin \
-      | grep -qE '(TcpStream|UdpSocket)::(connect|bind|connect_timeout)|reqwest|ureq|\bcurl\b'; then
-    egress="$egress $f"
-  fi
-done < <(prod_sources)
-if [ -n "$egress" ]; then
-  fail "V.2 production source opens an outbound connection; a cell must not dial out:"
-  printf '        %s\n' $egress
+#
+# The scan itself runs through python3, which strips the test items first. A
+# machine where that interpreter is missing or broken — a Store stub on PATH,
+# a stripped container — made every file strip to NOTHING, the grep match
+# nothing, and this check pass while reading no source at all. It passed here
+# for exactly that reason while failing in CI, which is the quietest way a
+# gate can rot: green everywhere it runs, true nowhere. So the interpreter is
+# proven usable before any verdict downstream of it is allowed to mean
+# anything.
+if ! python3 -c 'pass' >/dev/null 2>&1; then
+  fail "V.2 python3 is unusable on PATH, so the outbound-connection scan would read nothing and pass"
 else
-  pass "V.2 no production source opens an outbound connection — it listens, never dials"
+  egress=""
+  while IFS= read -r f; do
+    if strip_test_items "$f" | strip_comments_stdin \
+        | grep -qE '(TcpStream|UdpSocket)::(connect|bind|connect_timeout)|reqwest|ureq|\bcurl\b'; then
+      egress="$egress $f"
+    fi
+  done < <(prod_sources)
+  if [ -n "$egress" ]; then
+    fail "V.2 production source opens an outbound connection; a cell must not dial out:"
+    printf '        %s\n' $egress
+  else
+    pass "V.2 no production source opens an outbound connection — it listens, never dials"
+  fi
 fi
 
 # ── Article VI — Licensing ────────────────────────────────────────────────────

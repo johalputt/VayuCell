@@ -109,6 +109,9 @@ pub struct Args {
     pub site_dir: Option<String>,
     /// The directory `vault` keeps files in. `None` means none was given.
     pub vault_dir: Option<String>,
+    /// The hidden-service directory `all` publishes through the system's
+    /// tor daemon. `None` means the cell publishes nothing.
+    pub onion_dir: Option<String>,
     /// Where the credential store lives.
     pub store: String,
     /// The device name `enrol` adds. `None` means none was given.
@@ -238,7 +241,9 @@ COMMANDS:
                         enrolled devices and against the governor
     all                 Serve the panel, the site and the vault together, on
                         three consecutive ports, under one governor and one
-                        outage ladder. This is the one to run on a phone
+                        outage ladder. This is the one to run on a phone.
+                        With --onion-dir it also publishes through your
+                        system's tor daemon
     report              Print a device report to paste into an issue. Nothing
                         is sent anywhere; it says what it contains and what it
                         leaves out, so you can check before pasting
@@ -270,6 +275,13 @@ OPTIONS:
                         no site is served, which `all` says out loud
     --vault-dir <DIR>   The directory `all` keeps files in. Omit it and no
                         vault is served, which `all` says out loud
+    --onion-dir <DIR>   The hidden-service directory `all` publishes through
+                        your system's tor daemon: the site appears on port 80
+                        of an .onion address and the vault on 8080, reachable
+                        from anywhere Tor works. tor must be installed — it
+                        is a dependency of this mode, not a part of this
+                        program, and the panel is never published. `all`
+                        only: publishing needs the governor running beside it
     --store <FILE>      Credential store for `vault` and `enrol`
                         [default: ~/.vayucell/devices]. It holds secrets in the
                         clear, so it must not be readable by anyone else and
@@ -308,6 +320,7 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
     let mut dir: Option<String> = None;
     let mut site_only: Option<String> = None;
     let mut vault_only: Option<String> = None;
+    let mut onion_dir: Option<String> = None;
     let mut store = default_store();
     let mut device: Option<String> = None;
     let mut quota: u64 = DEFAULT_QUOTA;
@@ -345,6 +358,9 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
             }
             "--vault-dir" => {
                 vault_only = Some(value_after(argv, &mut i, "--vault-dir")?);
+            }
+            "--onion-dir" => {
+                onion_dir = Some(value_after(argv, &mut i, "--onion-dir")?);
             }
             "--store" => {
                 store = value_after(argv, &mut i, "--store")?;
@@ -462,6 +478,20 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
         ));
     }
 
+    // Publishing through Tor is high-thermal load the governor sheds first
+    // (ADR-0003 §5), and only `all` runs a governor that can do that. `site`
+    // and `vault` consult one per request but none *runs* one — so accepting
+    // the flag there would publish heat the operator was told is governed,
+    // under a command where nothing enforces it.
+    if onion_dir.is_some() && command != Command::All {
+        return Err(ArgError(
+            "only `all` accepts --onion-dir: publishing needs the supervisor \
+             running beside it, because onion ingress is sustained load the \
+             governor sheds first and `site` or `vault` run no governor at all"
+                .to_owned(),
+        ));
+    }
+
     if command == Command::Inspect && inspection.is_none() {
         return Err(ArgError(
             "inspect needs --lies-flat or --deformed. Put the phone face-down on \
@@ -480,6 +510,7 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
         bind,
         vault_dir,
         site_dir,
+        onion_dir,
         store,
         device,
         quota,
@@ -553,6 +584,7 @@ mod tests {
                 bind: super::DEFAULT_BIND.to_owned(),
                 site_dir: None,
                 vault_dir: None,
+                onion_dir: None,
                 store: super::default_store(),
                 device: None,
                 quota: super::DEFAULT_QUOTA,
@@ -983,5 +1015,51 @@ mod tests {
         // 0.0.0.0 belongs.
         let a = parse(&argv(&["vault", "--dir", "/d"])).expect("parses");
         assert_eq!(a.bind, super::DEFAULT_BIND);
+    }
+
+    #[test]
+    fn all_takes_an_onion_directory_to_publish_through_the_system_daemon() {
+        let a = parse(&argv(&[
+            "all",
+            "--site-dir",
+            "/srv/site",
+            "--onion-dir",
+            "/var/lib/vayucell/onion",
+        ]))
+        .expect("parses");
+        assert_eq!(
+            a.onion_dir.as_deref(),
+            Some("/var/lib/vayucell/onion"),
+            "{a:?}"
+        );
+    }
+
+    #[test]
+    fn a_cell_without_onion_dir_publishes_nothing_by_default() {
+        // ADR-0003 §3: the default is local-only, because publishing is an
+        // irreversible disclosure and a default that publishes makes it on
+        // the operator's behalf.
+        for cmd in [vec!["status"], vec!["run"], vec!["all", "--site-dir", "/s"]] {
+            let a = parse(&argv(&cmd)).expect("parses");
+            assert_eq!(a.onion_dir, None, "{cmd:?}");
+        }
+    }
+
+    #[test]
+    fn onion_dir_is_refused_wherever_no_governor_runs() {
+        // The flag promises governed publishing — shed first under thermal
+        // load, stopped outright at PROTECT. `site` and `vault` consult a
+        // governor but never run one, so the promise would be unenforced the
+        // moment somebody restarted the cell into them; the refusal names
+        // that instead of accepting and hoping.
+        for cmd in [
+            vec!["site", "--dir", "/srv", "--onion-dir", "/x"],
+            vec!["vault", "--dir", "/srv", "--onion-dir", "/x"],
+            vec!["serve", "--onion-dir", "/x"],
+            vec!["run", "--onion-dir", "/x"],
+        ] {
+            let e = parse(&argv(&cmd)).expect_err(&format!("{cmd:?} must be refused"));
+            assert!(e.0.contains("only `all`"), "{cmd:?}: {e}");
+        }
     }
 }

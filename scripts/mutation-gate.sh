@@ -141,6 +141,8 @@ HR=cli/src/halted.rs
 SY=cli/src/survey.rs
 WR=core/src/wear.rs
 SG=cli/src/storage.rs
+ON=core/src/onion.rs
+AO=cli/src/onion.rs
 
 mutate "$T" a_guest_that_cannot_see_the_phone_reports_unverified_rather_than_guessing \
   "a bare VM is promoted to T2 without the shell's assertion" \
@@ -1672,6 +1674,49 @@ mutate "$AR" port_zero_is_refused_because_there_is_no_next_one_along \
   "port 0 is counted from, so two surfaces bind ports nobody chose" \
   "    if base == 0 {" \
   "    if false {"
+
+# ── The onion contract (VCIP-0001) ───────────────────────────────────────────
+
+mutate "$ON" the_published_daemon_proxies_nothing_else_on_the_device \
+  "the generated configuration drops SocksPort 0 and leaves the daemon's proxy open to every local program" \
+  "             SocksPort 0\n" \
+  "             \n"
+
+mutate "$ON" introduction_dos_defence_is_asked_for_by_default \
+  "the introduction-point rate limit is silently left off, the defence ADR-0003 §10.2 made the default" \
+  "        out.push_str(\"HiddenServiceEnableIntroDoSDefense 1\\n\");" \
+  "        ();"
+
+mutate "$ON" an_address_of_the_wrong_length_is_refused_with_the_count \
+  "an onion address of any length is accepted as one" \
+  "        if candidate.len() != HOST_LEN {" \
+  "        if false {"
+
+mutate "$ON" a_character_outside_base32_is_refused_and_named_by_position \
+  "characters outside the base32 alphabet are accepted into a published address" \
+  "            if !matches!(ch, 'a'..='z' | '2'..='7') {" \
+  "            if !matches!(ch, 'a'..='z' | '2'..='7' | '0' | '1' | '8' | '9') {"
+
+mutate "$ON" an_address_that_does_not_end_in_v3s_version_char_is_refused \
+  "an address ending in any character is served as v3, so a v2 name could be published as this cell's" \
+  "        if !candidate.ends_with('d') {" \
+  "        if false {"
+
+mutate "$ON" a_hostname_nobody_has_written_yet_is_not_yet_not_broken \
+  "a missing hostname file is reported unreadable, sending the operator hunting for permissions during ordinary bootstrap" \
+  "        return Err(Unpublished::NotYet(format!(" \
+  "        return Err(Unpublished::Unreadable(format!("
+
+mutate "$ON" a_derated_governor_sheds_the_onion_before_it_sheds_serving \
+  "the onion keeps its own opinion about shedding and runs on through DERATED" \
+  "    !ingress::shed_for(level, &[Mode::Onion]).is_empty()" \
+  "    level != Level::Halt"
+
+mutate "$AO" restart_delays_double_and_stop_at_sixteen_seconds \
+  "the restart delay grows without its cap, or never grows at all" \
+  "    let shift = attempt.saturating_sub(1).min(3);
+    Duration::from_secs(2_u64.saturating_mul(1 << shift))" \
+  "    Duration::from_secs(2)"
 
 
 echo

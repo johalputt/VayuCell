@@ -29,9 +29,9 @@
   <a href="LICENSE-CHARTER"><img alt="Charter: CC0-1.0" src="https://img.shields.io/badge/charter-CC0--1.0-lightgrey.svg"></a>
   <a href="core/src/lib.rs"><img alt="unsafe: forbidden" src="https://img.shields.io/badge/unsafe-forbidden-success.svg"></a>
   <a href="deny.toml"><img alt="runtime deps: zero" src="https://img.shields.io/badge/runtime%20deps-zero-success.svg"></a>
-  <a href="docs/CI.md"><img alt="coverage: 83.42%" src="https://img.shields.io/badge/coverage-83.42%25-success"></a>
+  <a href="docs/CI.md"><img alt="coverage: floor 80" src="https://img.shields.io/badge/coverage-gated_%E2%89%A580%25-success"></a>
   <a href="GOVERNANCE-CONSTITUTION.md"><img alt="constitution: 110 rules" src="https://img.shields.io/badge/constitution-110%20rules-blueviolet"></a>
-  <a href="scripts/mutation-gate.sh"><img alt="mutations killed: 228/228" src="https://img.shields.io/badge/mutations%20killed-228%2F228-success"></a>
+  <a href="scripts/mutation-gate.sh"><img alt="mutations killed: 236/236" src="https://img.shields.io/badge/mutations%20killed-236%2F236-success"></a>
   <a href="scripts/gate-selftest.sh"><img alt="gates self-tested: 61 plants caught" src="https://img.shields.io/badge/gates%20self--tested-61%20plants%20caught-success"></a>
   <a href="CHARTER.md"><img alt="hardware tested: none yet" src="https://img.shields.io/badge/hardware%20tested-none%20yet-inactive"></a>
 </p>
@@ -91,9 +91,9 @@ and no amount of green rows replaces it.
 
 | | |
 | --- | --- |
-| Written | The capability registry, tier detection, the CSP and response security headers, **the battery safety governor** — state machine, verification loop, thresholds, recovery — the sysfs layer it drives, the sampling cadence, the mains-loss shed ladder, **the safety panel**, where a row that could not be checked is not allowed to read as one that was, **a published website**: a directory served to your own network, refused the moment the governor says the cell is in trouble, and **file storage**: authenticated upload, download and delete, each device holding a credential that can be revoked on its own |
-| Not written | The fleet view, the hardware database itself, the Android shell, **anything that syncs on its own — storage is a request somebody makes, never a folder that mirrors itself** — and **every ingress mode except local-only: an onion and a relay are described and governed in code, but neither is implemented, so nothing here is reachable from outside your own network** |
-| Checked | 382 unit tests and 32 doctests, 83.42% line coverage against an 80% floor, **228 mutations each re-broken and each required to turn its named test red**, and **61 violations planted in a scratch repository that the gates must catch citing the right rule**. None of that is evidence about hardware; all of it is evidence about the code |
+| Written | The capability registry, tier detection, the CSP and response security headers, **the battery safety governor** — state machine, verification loop, thresholds, recovery — the sysfs layer it drives, the sampling cadence, the mains-loss shed ladder, **the safety panel**, where a row that could not be checked is not allowed to read as one that was, **a published website**: a directory served to your own network, refused the moment the governor says the cell is in trouble, **file storage**: authenticated upload, download and delete, each device holding a credential that can be revoked on its own — and **onion ingress**: `all --onion-dir` publishes the site and the vault through your system's tor daemon, shed first by the governor, never claimed verified until a request arrives from outside |
+| Not written | The fleet view, the hardware database itself, the Android shell, **anything that syncs on its own — storage is a request somebody makes, never a folder that mirrors itself** — and **relay ingress: described and governed in code, but not implemented**. The onion has never served an outside visitor either, because no handset has run this binary; what is written is the supervision, the contract and the honest wording, not a proof of reachability |
+| Checked | 556 unit tests and 32 doctests, line coverage held above its 80% floor in CI, **236 mutations each re-broken and each required to turn its named test red**, and **61 violations planted in a scratch repository that the gates must catch citing the right rule**. None of that is evidence about hardware; all of it is evidence about the code |
 | Unblocked | [Charter III.1](CHARTER.md) forbids anything serving traffic before the governor. The governor is now **written** — the ordering constraint is met in code, and the gate fails the build if it is ever removed. It is not met on hardware, and nothing serves traffic yet regardless |
 | Never tested on hardware | Everything. Every device-facing behaviour is exercised through a fake host describing handsets nobody here is holding |
 
@@ -104,7 +104,7 @@ phone on a bench, and not before.
 
 ## What is built
 
-Twenty modules in [`core/src`](core/src), `#![forbid(unsafe_code)]`,
+Twenty-one modules in [`core/src`](core/src), `#![forbid(unsafe_code)]`,
 `clippy::pedantic` at `-D warnings`, and a `[dependencies]` section that is
 empty — not small, empty — with a charter gate that fails the build if anything
 is ever added to it. Everything below describes code in this repository and
@@ -348,6 +348,31 @@ comment named as unable to notice the failure that matters. A standing now lasts
 `FRESH_FOR`, and you cannot ask `is_verified` without saying **when**. **Nothing
 here opens a socket.** *([decision →](docs/adr/ADR-0003-sovereign-ingress.md))*
 
+**The onion half of that table is now built**, as far as a process that never
+dials can build it. `vayucell all --onion-dir <DIR>` supervises **your system's
+tor daemon** as one more surface ([VCIP-0001](docs/vcip/VCIP-0001-onion-ingress-via-system-tor.md)):
+it writes a configuration you can read back byte for byte, starts the daemon as
+a child, and reads the `.onion` address from the file the daemon publishes —
+shape-checked before it is shown (length, base32 alphabet, the version
+character), with the checksum honestly *not* verified, because checking it
+needs crypto code ADR-0005 §5.1 forbids. The identity key is generated and
+held by the daemon inside that directory; nothing here reads it, copies it, or
+prints it, and the custody story — rotation breaks every link, backup is
+encrypted or nothing, theft has no revocation — is printed the first time,
+before the mode starts. `SocksPort 0` refuses the proxy role: this daemon
+publishes one cell and nothing else rides it. The introduction-point rate
+limit is requested by default per ADR-0003 §10.2, and the proof-of-work
+defence is deliberately never claimed — whether a given daemon compiled it in
+cannot be read back from here. The governor's authority is structural:
+`should_run` delegates to `shed_for`, so DERATED sheds the onion first,
+PROTECT stops it outright — and the exit paths stop the daemon *before*
+`process::exit`, because a publisher outliving its governor is the one orphan
+this mode must never leave behind. What none of it does is claim reachability:
+until a request has arrived from outside through the path, the word used out
+loud stays **unverified**, which is also why the panel is never published —
+the battery report of somebody's home is not the thing this mode exists to
+hand the world.
+
 ### 🌐 The local-only listener
 
 The first thing in this project that a browser has ever spoken to. `vayucell
@@ -565,9 +590,9 @@ scripts/release-gate.sh        # the version says the same thing everywhere
 cargo test --workspace
 ```
 
-A full run exercises **382 unit tests and 32 doctests** (2 ignored — the two
-snapshot regenerators), kills **228 mutations**, catches **61 planted violations**,
-and measures **83.42% line coverage** against a floor of 80. That is a suite that
+A full run exercises **556 unit tests and 32 doctests** (2 ignored — the two
+snapshot regenerators), kills **236 mutations**, catches **61 planted violations**,
+and holds line coverage above a floor of 80. That is a suite that
 has been shown to fail when the code is wrong — the mutation gate is the proof,
 and it asserts its own match count so a mutation that failed to apply cannot be
 scored as one the code survived. **What none of it establishes, and none of it
@@ -625,6 +650,9 @@ Sixteen modules, one crate, one direction of dependency — fifteen above the se
                     │                                              │
                     │  ingress.rs    four modes, seven declared     │
                     │                properties; the governor wins  │
+                     │  onion.rs     the contract with the system    │
+                     │                tor daemon; the key is the     │
+                     │                daemon's, never this crate's   │
                     │                                              │
                     │  ── identity ─────────────────────────────   │
                     │  tier.rs       T0/T1/T2/T3 from evidence     │
@@ -647,9 +675,11 @@ Sixteen modules, one crate, one direction of dependency — fifteen above the se
                     │  ON THE OTHER SIDE OF THIS LINE.             │
                     └──────────────────────────────────────────────┘
 
-    NOT BUILT: onion and relay ingress ·
-    the Android shell · the fleet view · the hardware database · sovereign
-    ingress · any code path that has ever touched a handset.
+    NOT BUILT: relay ingress ·
+    the Android shell · the fleet view · the hardware database ·
+    any code path that has ever touched a handset. The onion is built as far
+    as this machine can build it — supervised, governed, honestly worded — and
+    no further: nothing outside has ever fetched a byte through it.
 ```
 
 `RealHost` exists and implements both traits over `std::fs`; nothing in this
@@ -784,10 +814,10 @@ and has no other symptom.
 | --- | --- |
 | **Charter** | A serving capability registered while the governor is gone. `Capability::verify` demoted to an `Option`, so a control with no read-back would compile. A generic success variant that would absorb "not checked". `Absent` and `Unverified` collapsing into one answer. A tier detector that defaults to T0. Telemetry, a treasury, a kill switch, a remote wipe, a dependency on a host this project runs. A `[dependencies]` section with anything in it. An edit to Article III or V whose SHA-256 no longer matches `.charter-digests` |
 | **Gate self-test** | A gate that has only ever been observed passing. **Sixty-one violations** planted in a scratch copy — the governor deleted, `verify` made optional, telemetry added, an outbound connection opened in the binary crate, a third-party dependency added to the CLI crate, a bot-authored commit, a workflow tag that resolves to nothing — each of which the matching gate must catch **citing the right rule**. A plant that changed nothing is scored `STALE`, not `caught`: the sandbox is fingerprinted before and after |
-| **Mutation** | **Two hundred and twenty-eight** safety and honesty guards, each re-broken in turn, each required to turn its named test red. A green suite proves the code passes its tests; this proves the tests would notice if the code were wrong. Every mutation asserts its own match count, because one that failed to apply would otherwise be reported as one the code survived |
+| **Mutation** | **Two hundred and thirty-six** safety and honesty guards, each re-broken in turn, each required to turn its named test red. A green suite proves the code passes its tests; this proves the tests would notice if the code were wrong. Every mutation asserts its own match count, because one that failed to apply would otherwise be reported as one the code survived |
 | **Doctests** | A `compile_fail` proof that stopped being collected. The count is asserted **exactly, in both directions** — too few means a proof moved onto a private item, where rustdoc runs zero tests and still prints `ok`; too many means somebody added a proof without raising the number |
 | **Rust** | Unformatted code, a `clippy::pedantic` warning at `-D warnings` over all targets, a failed build or test, a broken intra-doc link, and the removal of *either* `#![forbid(unsafe_code)]` or `unsafe_code = "deny"` — either alone can be dropped in a diff that looks unrelated |
-| **Coverage** | Production line coverage below **80%** (measured: 83.42%), with test files excluded so the figure is not inflated by the coverage of the tests themselves. A missing coverage tool is a failure, never a pass |
+| **Coverage** | Production line coverage below **80%**, with test files excluded so the figure is not inflated by the coverage of the tests themselves. A missing coverage tool is a failure, never a pass |
 | **Constitution** | A `[CI]` rule claiming enforcement while naming no enforcer, or naming a file that has been deleted. It explicitly does *not* claim the cited file enforces the sentence attached to it, and prints that limitation on every run |
 | **Docs** | A required document missing **or emptied**, an ADR whose title names a different number than its filename, a gap in the decision log, an ADR nothing links to, a dead relative link anywhere in the repository, **or a constitution whose own totals disagree with the rules in it** |
 | **Hardware** | A device profile that fails [`hardware/schema.json`](hardware/schema.json), a verified charge ceiling with no sysfs node named, `available: false` beside a named mechanism, or a storage block with the durability class omitted rather than chosen |

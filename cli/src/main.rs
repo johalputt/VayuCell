@@ -25,6 +25,7 @@ mod device;
 mod enrol;
 mod halted;
 mod listen;
+mod onion;
 mod report;
 mod storage;
 mod survey;
@@ -534,9 +535,65 @@ fn all(a: &Args) -> i32 {
     let kind = detect_mechanism(&host, &supply);
     announce_mechanism(kind);
 
+    // Everything about publishing is decided, written and said BEFORE a
+    // single thread starts: the operator reads the disclosures of ADR-0003
+    // §5 while nothing has been disclosed to the world yet, and an unusable
+    // onion directory refuses this invocation instead of quietly degrading
+    // into local-only after three lines claimed otherwise.
+    let onion_plan = a.onion_dir.as_ref().map(|dir| {
+        crate::onion::build_plan(
+            dir,
+            site.as_ref()
+                .and_then(|_| crate::onion::port_of(&site_addr)),
+            vault
+                .as_ref()
+                .and_then(|_| crate::onion::port_of(&vault_addr)),
+        )
+    });
+    if let Some(plan) = &onion_plan {
+        if let Err(e) = crate::onion::prepare(plan) {
+            eprintln!("vayucell: {e}");
+            return report::EXIT_USAGE;
+        }
+    }
+    let daemon = crate::onion::find_daemon(std::env::var("PATH").ok().as_deref());
+    match (&onion_plan, &daemon) {
+        (Some(_), Some(found)) => {
+            // Said before anything publishes. The choice was made on the
+            // command line; these are the consequences of it, in full, per
+            // ADR-0003 §5.4 and §6.
+            for d in vayucell_core::ingress::disclosures(
+                vayucell_core::ingress::Mode::Onion,
+                kind.is_some_and(|k| k.is_ceiling()),
+            ) {
+                println!("vayucell: {d}");
+            }
+            println!(
+                "vayucell: publishing through {found}; it is a dependency of \
+                 this mode ({}), not a part of this program",
+                vayucell_core::onion::DAEMON_DEPENDENCY
+            );
+        }
+        (Some(_), None) => {
+            // Degrade, loudly: the cell stays reachable on its own network
+            // only, which is exactly what the default posture promises —
+            // but not what was asked for here, so that difference is said
+            // rather than left to be discovered.
+            println!(
+                "vayucell: no tor daemon was found on PATH, so nothing will \
+                 be published to the Tor network; the cell stays local-only. \
+                 Install tor to publish — it is an external dependency of \
+                 this mode, and this program never dials out on its own."
+            );
+        }
+        _ => {}
+    }
+
+    let onion_live = onion_plan.is_some() && daemon.is_some();
+
     println!(
         "vayucell: one governor, {} surface(s):",
-        1 + usize::from(site.is_some()) + usize::from(vault.is_some())
+        1 + usize::from(site.is_some()) + usize::from(vault.is_some()) + usize::from(onion_live)
     );
     println!("  panel  http://{panel_addr}/   is the battery safe");
     match site.as_ref() {
@@ -546,6 +603,11 @@ fn all(a: &Args) -> i32 {
     match vault.as_ref() {
         Some(root) => println!("  vault  http://{vault_addr}/   {}", root.dir()),
         None => println!("  vault  not served — pass --vault-dir <DIR> to store files"),
+    }
+    if onion_live {
+        // The address is printed by the supervision thread the moment the
+        // daemon publishes one — which can be minutes into a cold start.
+        println!("  onion  through your system's tor daemon; UNVERIFIED until a request arrives from outside");
     }
 
     // Scoped threads, so every surface borrows the one cell rather than each
@@ -586,6 +648,23 @@ fn all(a: &Args) -> i32 {
                 })
             });
 
+        // The onion supervisor, when publishing was asked for and the daemon
+        // to do it with exists. It owns no listener; it owns a child process,
+        // and it is the one thread here that must not outlive the governor —
+        // which is why the exit paths below stop the daemon first. Its handle
+        // is dropped unjoined, exactly like the governor's own thread: the
+        // loop runs until the cell stops, and the scope waits for it here as
+        // for any other.
+        if let (Some(plan), Some(found)) = (onion_plan.as_ref(), daemon.as_ref()) {
+            scope.spawn(|| {
+                crate::onion::supervise(
+                    plan.clone(),
+                    || governed.context(&RealHost).0,
+                    found.clone(),
+                )
+            });
+        }
+
         // A panicking listener is reported as one. Joining a panicked thread
         // yields Err, and treating that as "finished" would let a surface
         // disappear while the summary above still claims it is being served.
@@ -605,6 +684,12 @@ fn all(a: &Args) -> i32 {
         }
         failed
     });
+
+    // Normal way out — a surface stopped. The daemon is stopped explicitly
+    // because statics are not guaranteed to drop on return any more than on
+    // exit, and an orphaned publisher is the one thing this mode must never
+    // leave behind.
+    crate::onion::begin_shutdown();
 
     for why in &outcome {
         eprintln!("vayucell: {why}");
@@ -680,7 +765,11 @@ fn supervise(
             // The same shape HALT uses here: this runs in a thread, so returning
             // would leave the surfaces serving on a node that just said it was
             // shutting down. Flushed first, because the last line is the one the
-            // operator needs to still be there.
+            // operator needs to still be there. The daemon is stopped before
+            // exiting: `process::exit` runs no destructors, and a publisher
+            // outliving its governor is the one orphan this mode must never
+            // leave behind.
+            crate::onion::begin_shutdown();
             let _ = std::io::Write::flush(&mut std::io::stdout());
             let _ = std::io::Write::flush(&mut std::io::stderr());
             std::process::exit(report::EXIT_PROTECTED);
@@ -697,6 +786,9 @@ fn supervise(
             eprintln!(
                 "vayucell: clear it with `vayucell inspect --lies-flat` once you have looked."
             );
+            // Same reason as the outage path above: no destructors run here,
+            // so the daemon is stopped by hand before the process ends.
+            crate::onion::begin_shutdown();
             // Flushed before exiting: stdout is block-buffered when it is not a
             // terminal, and the transition that explains the halt is the one
             // line the operator most needs to still be there afterwards.

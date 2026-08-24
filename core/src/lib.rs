@@ -25,6 +25,7 @@ pub mod halt;
 pub mod headers;
 pub mod host;
 pub mod ingress;
+pub mod onion;
 pub mod panel;
 pub mod runtime;
 pub mod sampler;
@@ -52,6 +53,8 @@ mod halt_test;
 mod headers_test;
 #[cfg(test)]
 mod ingress_test;
+#[cfg(test)]
+mod onion_test;
 #[cfg(test)]
 mod panel_test;
 #[cfg(test)]
