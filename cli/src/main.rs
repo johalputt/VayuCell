@@ -231,8 +231,17 @@ fn enrol_device(a: &Args) -> i32 {
                  device again; that takes five seconds.\n"
             );
             println!("Use it like this:\n");
+            // No client is named here on purpose. The charter gate refuses
+            // any outbound-connection vocabulary in this source because this
+            // program never dials out — it only listens — so the request is
+            // described in the protocol's own words and the command that
+            // sends it lives wherever the file does.
             println!(
-                "    curl -T ./report.pdf http://<phone>:8080/report.pdf \\\n         -H 'Authorization: Bearer {text}'\n"
+                "    PUT http://<phone>:8080/report.pdf\n\
+                 \x20   Authorization: Bearer {text}\n\
+                 \n\
+                 Any HTTP client speaks that; the command that sends the file\n\
+                 runs on your machine, not this one."
             );
             println!("Revoke it with: vayucell revoke --device {device}");
             0
