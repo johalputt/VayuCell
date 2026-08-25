@@ -813,13 +813,13 @@ mutate "$SG" a_shed_ladder_nobody_has_watched_is_not_credited_here_either \
   "        graceful_shutdown: GracefulShutdown::NeverObserved," \
   "        graceful_shutdown: GracefulShutdown::Verified,"
 
-mutate "$SG" a_cell_with_no_replicator_says_it_is_the_only_copy \
+mutate "core/src/replica.rs" a_cell_with_no_replicator_says_it_is_the_only_copy \
   "a cell with no replicator reports a lag instead of no replica" \
-  "        recovery_point: RecoveryPoint::NoReplica," \
-  "        recovery_point: RecoveryPoint::Behind {
+  "        return (RecoveryPoint::NoReplica, BackupState::NotConfigured);" \
+  "        return (RecoveryPoint::Behind {
             lag: core::time::Duration::ZERO,
             measured_at: core::time::Duration::ZERO,
-        },"
+        }, BackupState::NotConfigured);"
 
 mutate "$SG" a_device_that_exposes_no_wear_node_says_absent_rather_than_omitting_the_line \
   "an absent wear node is left out of the report entirely" \
