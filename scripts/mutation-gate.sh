@@ -1789,8 +1789,8 @@ echo "Mutation gate passed: every guard above is actually load-bearing."
 
 mutate "sync/src/cell.rs" push_uploads_what_diffs_and_leaves_up_to_date_files_alone \
   "an upload goes out without the credential, so every push answers 401" \
-  "            \"PUT {} HTTP/1.1\\r\\nHost: {}\\r\\nAuthorization: Bearer {token}\\r\\n\\"
-  "            \"PUT {} HTTP/1.1\\r\\nHost: {}\\r\\n\\"
+  '            "PUT {} HTTP/1.1\r\nHost: {}\r\nAuthorization: Bearer {token}\r\n\' \
+  '            "PUT {} HTTP/1.1\r\nHost: {}\r\n\'
 
 mutate "sync/src/plan.rs" the_same_size_and_mtime_means_up_to_date_and_produces_nothing \
   "an unchanged file is re-uploaded on every run, wearing the flash for nothing" \
