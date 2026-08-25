@@ -136,8 +136,16 @@ fi
 # somebody reviews and merges it, and that human act is the accountability. The
 # exemption covers authorship only — a Dependabot commit is still scanned for
 # assistant attribution like any other.
+#
+# GitHub's privacy relay (<id>+<login>@users.noreply.github.com) gets the same
+# treatment, and for the same reason: it is the address the web interface puts
+# on merges made by a logged-in human, it resolves to that person's account,
+# and there is somebody to ask. First exposed when two pull-request merges
+# landed through that relay and this gate refused a clean tree. Addresses
+# without the id+login shape stay caught, and so does anything carrying [bot].
 bot_authors="$(git log ${RANGE:+"$RANGE"} --format='%H %an <%ae>' 2>/dev/null \
   | grep -iE '<[^>]*(noreply|no-reply|bot@|\[bot\])' \
+  | grep -ivE '<[0-9]+\+[-a-z0-9_]+@users\.noreply\.github\.com>' \
   | grep -v 'dependabot\[bot\]' || true)"
 if [ -n "$bot_authors" ]; then
   fail "commits authored by a bot or noreply address:"

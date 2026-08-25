@@ -1360,6 +1360,10 @@ mod listing_tests {
         let s = Scratch::new("files");
         s.write("b.txt", b"1234567890");
         s.write("a.txt", b"1234");
+        // A subdirectory shares the walk's name filter, so only the
+        // is-file check stands between it and being listed as a stored
+        // file this API could never have written.
+        std::fs::create_dir(s.0.join("subdir")).expect("a subdirectory");
         let mut found = io_for(&s.dir()).list().expect("readable");
         // The route sorts; the walk reports what the directory yielded. Compare
         // as a set so this test pins the contents and not an accident of order.
@@ -1432,8 +1436,16 @@ mod listing_tests {
         // client a name and a size belonging to something outside the vault.
         let s = Scratch::new("link");
         s.write("real.txt", b"1234");
-        std::fs::write(s.0.join("elsewhere.bin"), vec![0u8; 500]).expect("written");
-        std::os::unix::fs::symlink(s.0.join("elsewhere.bin"), s.0.join("link.bin"))
+        // The link points OUTSIDE the vault directory, which is the whole
+        // point: what the link describes belongs to somebody else's tree.
+        // (An earlier draft parked the target beside the link inside the
+        // vault, where it was honestly listed as the ordinary file it was,
+        // and the assertion failed on exactly that honesty.)
+        let outside = std::env::temp_dir().join("vayucell-listing-link-outside");
+        let _ = std::fs::remove_dir_all(&outside);
+        std::fs::create_dir_all(&outside).expect("outside dir");
+        std::fs::write(outside.join("elsewhere.bin"), vec![0u8; 500]).expect("written");
+        std::os::unix::fs::symlink(outside.join("elsewhere.bin"), s.0.join("link.bin"))
             .expect("a link");
 
         let found = io_for(&s.dir()).list().expect("readable");

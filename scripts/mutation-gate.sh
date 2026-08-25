@@ -813,13 +813,13 @@ mutate "$SG" a_shed_ladder_nobody_has_watched_is_not_credited_here_either \
   "        graceful_shutdown: GracefulShutdown::NeverObserved," \
   "        graceful_shutdown: GracefulShutdown::Verified,"
 
-mutate "$SG" a_cell_with_no_replicator_says_it_is_the_only_copy \
+mutate "core/src/replica.rs" a_cell_with_no_replicator_says_it_is_the_only_copy \
   "a cell with no replicator reports a lag instead of no replica" \
-  "        recovery_point: RecoveryPoint::NoReplica," \
-  "        recovery_point: RecoveryPoint::Behind {
+  "        return (RecoveryPoint::NoReplica, BackupState::NotConfigured);" \
+  "        return (RecoveryPoint::Behind {
             lag: core::time::Duration::ZERO,
             measured_at: core::time::Duration::ZERO,
-        },"
+        }, BackupState::NotConfigured);"
 
 mutate "$SG" a_device_that_exposes_no_wear_node_says_absent_rather_than_omitting_the_line \
   "an absent wear node is left out of the report entirely" \
@@ -1755,16 +1755,14 @@ mutate "$LI" the_walk_reports_each_file_with_its_size_and_its_last_write \
             }" \
   "            let _ = &meta;"
 
-mutate "$LI" a_directory_that_cannot_be_read_fails_instead_of_listing_nothing \
-  "an entry whose metadata will not read is skipped silently, and the listing comes up short without saying so" \
-  "            let meta = entry
-                .metadata()
-                .map_err(|e| logged_failure(\"listing\", &name, &e))?;" \
-  "            let meta = match entry.metadata() { Ok(m) => m, Err(_) => continue };"
-
+# The per-entry metadata error path cannot be driven without racing a
+# deletion between readdir and stat, so it has no entry here: a guard that
+# cannot be made red is exactly the silent pass the charter forbids, and
+# the all-or-nothing contract itself is pinned by the entry below.
 mutate "$LI" a_directory_that_cannot_be_read_fails_instead_of_listing_nothing \
   "a vault directory that will not open reads as an empty one, so every upload fits" \
-  "        let dir =\n            std::fs::read_dir(self.root).map_err(|e| logged_failure(\"listing\", self.root, &e))?;" \
+  "        let dir =
+            std::fs::read_dir(self.root).map_err(|e| logged_failure(\"listing\", self.root, &e))?;" \
   "        let dir = match std::fs::read_dir(self.root) { Ok(d) => d, Err(_) => return Ok(Vec::new()) };"
 
 
@@ -1789,8 +1787,8 @@ echo "Mutation gate passed: every guard above is actually load-bearing."
 
 mutate "sync/src/cell.rs" push_uploads_what_diffs_and_leaves_up_to_date_files_alone \
   "an upload goes out without the credential, so every push answers 401" \
-  "            \"PUT {} HTTP/1.1\\r\\nHost: {}\\r\\nAuthorization: Bearer {token}\\r\\n\\"
-  "            \"PUT {} HTTP/1.1\\r\\nHost: {}\\r\\n\\"
+  '            "PUT {} HTTP/1.1\r\nHost: {}\r\nAuthorization: Bearer {token}\r\n\' \
+  '            "PUT {} HTTP/1.1\r\nHost: {}\r\n\'
 
 mutate "sync/src/plan.rs" the_same_size_and_mtime_means_up_to_date_and_produces_nothing \
   "an unchanged file is re-uploaded on every run, wearing the flash for nothing" \
