@@ -196,6 +196,50 @@ impl vayucell_core::serve::VaultIo for RealVaultIo<'_> {
         read_contained(self.root, path)
     }
 
+    fn list(&self) -> Result<Vec<vayucell_core::serve::StoredListing>, StorageFailure> {
+        // All or nothing, per the trait's contract: a directory that cannot be
+        // read fails the listing rather than answering with whatever happened
+        // to enumerate, because a client pruning against a short one would call
+        // the files it never heard about remote extras.
+        let mut out = Vec::new();
+        let dir =
+            std::fs::read_dir(self.root).map_err(|e| logged_failure("listing", self.root, &e))?;
+        for entry in dir {
+            let entry = entry.map_err(|e| logged_failure("listing", self.root, &e))?;
+            let name = match entry.file_name().into_string() {
+                Ok(name) => name,
+                Err(_) => continue, // not expressible as a vault name, so not addressable
+            };
+            if name.starts_with('.') {
+                // Unreachable through this API — Name refuses them as a class —
+                // so an operator-made dotfile is a foreign object here exactly
+                // as it is on the site: present, but not listed.
+                continue;
+            }
+            // DirEntry::metadata does not follow links: a link sitting in the
+            // vault directory is skipped like any other thing this API cannot
+            // have stored, rather than walked through.
+            let meta = entry
+                .metadata()
+                .map_err(|e| logged_failure("listing", &name, &e))?;
+            if !meta.is_file() {
+                continue;
+            }
+            let modified = meta
+                .modified()
+                .map_err(|e| logged_failure("listing", &name, &e))?
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            out.push(vayucell_core::serve::StoredListing {
+                name,
+                bytes: meta.len(),
+                modified,
+            });
+        }
+        Ok(out)
+    }
+
     fn write(
         &self,
         plan: &vayucell_core::vault::WritePlan,
@@ -1241,6 +1285,124 @@ mod usage_tests {
         std::fs::create_dir(s.0.join("sub")).expect("a subdirectory");
         std::fs::write(s.0.join("sub/big.bin"), vec![0u8; 5000]).expect("written");
         assert_eq!(used_bytes(&s.dir()), Some(4));
+    }
+}
+
+#[cfg(test)]
+mod listing_tests {
+    use super::RealVaultIo;
+    use vayucell_core::serve::{StorageFailure, VaultIo as _};
+
+    struct Scratch(std::path::PathBuf);
+    impl Scratch {
+        fn new(name: &str) -> Self {
+            let d = std::env::temp_dir().join(format!("vayucell-listing-{name}"));
+            let _ = std::fs::remove_dir_all(&d);
+            std::fs::create_dir_all(&d).expect("scratch");
+            Self(d)
+        }
+        fn dir(&self) -> String {
+            self.0.to_string_lossy().into_owned()
+        }
+        fn write(&self, rel: &str, bytes: &[u8]) {
+            std::fs::write(self.0.join(rel), bytes).expect("written");
+        }
+    }
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn io_for(dir: &str) -> RealVaultIo<'_> {
+        RealVaultIo { root: dir }
+    }
+
+    #[test]
+    fn the_walk_reports_each_file_with_its_size_and_its_last_write() {
+        let s = Scratch::new("files");
+        s.write("b.txt", b"1234567890");
+        s.write("a.txt", b"1234");
+        let mut found = io_for(&s.dir()).list().expect("readable");
+        // The route sorts; the walk reports what the directory yielded. Compare
+        // as a set so this test pins the contents and not an accident of order.
+        found.sort_by(|x, y| x.name.cmp(&y.name));
+        let names: Vec<_> = found.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, ["a.txt", "b.txt"]);
+        assert_eq!(found[0].bytes, 4);
+        assert_eq!(found[1].bytes, 10);
+        for entry in &found {
+            assert!(entry.modified > 0, "a real write has a real mtime");
+        }
+    }
+
+    #[test]
+    fn an_empty_vault_walks_to_an_empty_listing_rather_than_an_error() {
+        let s = Scratch::new("empty");
+        assert!(io_for(&s.dir()).list().expect("readable").is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn entries_whose_metadata_will_not_read_fail_the_listing_instead_of_vanishing() {
+        // A directory with read but no execute lets the walk list names while
+        // refusing every stat. That is precisely the state a short listing
+        // would lie about, so the contract answers Failed and the client
+        // retries. Permissions are restored before the scratch is removed so
+        // cleanup can run.
+        use std::os::unix::fs::PermissionsExt;
+        let s = Scratch::new("dark");
+        s.write("a.txt", b"x");
+        std::fs::set_permissions(&s.0, std::fs::Permissions::from_mode(0o444))
+            .expect("chmod");
+        let result = io_for(&s.dir()).list();
+        let _ = std::fs::set_permissions(&s.0, std::fs::Permissions::from_mode(0o755));
+        let e = result.expect_err("metadata unreadable");
+        assert!(matches!(e, StorageFailure::Failed(_)), "{e:?}");
+    }
+
+    #[test]
+    fn a_directory_that_cannot_be_read_fails_instead_of_listing_nothing() {
+        // Listing nothing is the answer a pruning client would act on; failing
+        // is the answer it retries against. The difference is somebody's files.
+        let s = Scratch::new("gone");
+        let dir = s.dir();
+        std::fs::remove_dir_all(&s.0).expect("removes it");
+        let e = io_for(&dir).list().expect_err("unreadable");
+        assert!(matches!(e, StorageFailure::Failed(_)), "{e:?}");
+    }
+
+    #[test]
+    fn things_this_api_could_never_have_stored_are_not_listed() {
+        // A subdirectory and a dotfile are foreign objects here: Name refuses
+        // trees and hidden names as classes, so nothing that arrived through
+        // the API can have made them. They are skipped, not served as names a
+        // later GET would 400 or 404 on.
+        let s = Scratch::new("foreign");
+        s.write("kept.txt", b"x");
+        s.write(".hidden", b"x");
+        std::fs::create_dir(s.0.join("sub")).expect("a subdirectory");
+
+        let found = io_for(&s.dir()).list().expect("readable");
+        let names: Vec<_> = found.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, ["kept.txt"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symbolic_link_is_skipped_rather_than_described_as_its_target() {
+        // DirEntry::metadata does not follow links, which is the whole reason
+        // it is used here: describing a link by its target would hand a sync
+        // client a name and a size belonging to something outside the vault.
+        let s = Scratch::new("link");
+        s.write("real.txt", b"1234");
+        std::fs::write(s.0.join("elsewhere.bin"), vec![0u8; 500]).expect("written");
+        std::os::unix::fs::symlink(s.0.join("elsewhere.bin"), s.0.join("link.bin"))
+            .expect("a link");
+
+        let found = io_for(&s.dir()).list().expect("readable");
+        let names: Vec<_> = found.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, ["real.txt"]);
     }
 }
 

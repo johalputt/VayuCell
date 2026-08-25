@@ -1718,6 +1718,55 @@ mutate "$AO" restart_delays_double_and_stop_at_sixteen_seconds \
     Duration::from_secs(2_u64.saturating_mul(1 << shift))" \
   "    Duration::from_secs(2)"
 
+# ── The vault as a sync target (ADR-0011) ────────────────────────────────────
+
+mutate "$SV" get_of_the_root_lists_what_is_stored_sorted_by_name \
+  "the listing is served whatever state the device is in, so a client mid-sync reads from a phone that has said it is in trouble" \
+  "fn list_vault(level: Level, stage: Stage, io: &dyn VaultIo) -> Response {
+    let availability = Availability::of(level, stage);
+    if !availability.is_serving() {" \
+  "fn list_vault(level: Level, stage: Stage, io: &dyn VaultIo) -> Response {
+    let _ = (level, stage);
+    if false {"
+
+mutate "$SV" get_of_the_root_lists_what_is_stored_sorted_by_name \
+  "the wire format stops being sorted, and a diffing client's output depends on which filesystem answered" \
+  "            entries.sort_by(|a, b| a.name.cmp(&b.name));" \
+  "            let _ = &mut entries;"
+
+mutate "$SV" get_of_the_root_lists_what_is_stored_sorted_by_name \
+  "the empty path is parsed as a name again, and the listing answers 400 to the one request a syncing folder cannot do without" \
+  "    if request.path == \"/\" || request.path.is_empty() {" \
+  "    if false {"
+
+mutate "$SV" a_name_with_a_quote_in_it_survives_the_listing_as_json \
+  "a stored name is pasted into the JSON raw, producing a body no JSON parser can read" \
+  "            if ch == '\"' {
+                out.push_str(\"\\\\\\\"\");
+            } else {
+                out.push(ch);
+            }" \
+  "            out.push(ch);"
+
+mutate "$LI" the_walk_reports_each_file_with_its_size_and_its_last_write \
+  "the walk reports directories and links as files, naming things this API could never have stored" \
+  "            if !meta.is_file() {
+                continue;
+            }" \
+  "            let _ = &meta;"
+
+mutate "$LI" a_directory_that_cannot_be_read_fails_instead_of_listing_nothing \
+  "an entry whose metadata will not read is skipped silently, and the listing comes up short without saying so" \
+  "            let meta = entry
+                .metadata()
+                .map_err(|e| logged_failure(\"listing\", &name, &e))?;" \
+  "            let meta = match entry.metadata() { Ok(m) => m, Err(_) => continue };"
+
+mutate "$LI" a_directory_that_cannot_be_read_fails_instead_of_listing_nothing \
+  "a vault directory that will not open reads as an empty one, so every upload fits" \
+  "        let dir =\n            std::fs::read_dir(self.root).map_err(|e| logged_failure(\"listing\", self.root, &e))?;" \
+  "        let dir = match std::fs::read_dir(self.root) { Ok(d) => d, Err(_) => return Ok(Vec::new()) };"
+
 
 echo
 # The suite was green before the first mutation and every mutation was undone,

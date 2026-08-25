@@ -632,6 +632,7 @@ struct FakeIo {
     stored: std::cell::RefCell<std::collections::BTreeMap<String, Vec<u8>>>,
     write_fails: Option<crate::serve::StorageFailure>,
     seen_plan: std::cell::RefCell<Option<(String, String)>>,
+    list_reply: Result<Vec<crate::serve::StoredListing>, crate::serve::StorageFailure>,
 }
 
 impl FakeIo {
@@ -640,7 +641,29 @@ impl FakeIo {
             stored: std::cell::RefCell::new(std::collections::BTreeMap::new()),
             write_fails: None,
             seen_plan: std::cell::RefCell::new(None),
+            list_reply: Ok(Vec::new()),
         }
+    }
+    /// What GET / will be told is stored. Names are given unsorted on purpose;
+    /// sorting is the route's job, not the filesystem's.
+    fn with_listing(self, entries: &[(&str, u64, u64)]) -> Self {
+        let listed = entries
+            .iter()
+            .map(|&(name, bytes, modified)| crate::serve::StoredListing {
+                name: name.to_owned(),
+                bytes,
+                modified,
+            })
+            .collect();
+        self.listed(listed)
+    }
+    fn failing_listing(mut self, why: &str) -> Self {
+        self.list_reply = Err(crate::serve::StorageFailure::Failed(why.to_owned()));
+        self
+    }
+    fn listed(mut self, entries: Vec<crate::serve::StoredListing>) -> Self {
+        self.list_reply = Ok(entries);
+        self
     }
     fn with(self, path: &str, bytes: &[u8]) -> Self {
         self.stored
@@ -681,6 +704,9 @@ impl crate::serve::VaultIo for FakeIo {
     fn remove(&self, path: &str) -> Result<bool, crate::serve::StorageFailure> {
         Ok(self.stored.borrow_mut().remove(path).is_some())
     }
+    fn list(&self) -> Result<Vec<crate::serve::StoredListing>, crate::serve::StorageFailure> {
+        self.list_reply.clone()
+    }
 }
 
 /// An io that panics on every call, for the paths that must not reach it.
@@ -697,6 +723,9 @@ impl crate::serve::VaultIo for NeverIo {
         panic!("the filesystem must not be touched")
     }
     fn remove(&self, _: &str) -> Result<bool, crate::serve::StorageFailure> {
+        panic!("the filesystem must not be touched")
+    }
+    fn list(&self) -> Result<Vec<crate::serve::StoredListing>, crate::serve::StorageFailure> {
         panic!("the filesystem must not be touched")
     }
 }
@@ -953,6 +982,192 @@ fn an_empty_store_refuses_every_device_including_a_well_formed_one() {
     let r = crate::serve::route_vault(&put("/a.txt"), &bearer(&a_secret()), &c, b"x", &NeverIo);
     assert_eq!(r.status, 401);
     assert!(text(&r).contains("no device is enrolled"), "{}", text(&r));
+}
+
+// ── The listing ───────────────────────────────────────────────────────────────
+//
+// GET / on the vault port answers what is stored. The site refuses to enumerate
+// itself as a class (ADR-0008 §3); the vault answers, because a folder being
+// synced against it cannot diff what it cannot list — and the vault's answer
+// sits behind credentials the site has never had.
+
+fn get_root() -> Request {
+    Request {
+        method: Method::Get,
+        path: "/".to_owned(),
+    }
+}
+
+#[test]
+fn get_of_the_root_lists_what_is_stored_sorted_by_name() {
+    let host = vault_host();
+    let c = ctx(&host);
+    // Handed to the route in no particular order; the wire format is sorted,
+    // so a client diffing against it never learns which filesystem it hit.
+    let io = FakeIo::new().with_listing(&[("z.txt", 1, 111), ("a.pdf", 4096, 222)]);
+    let r = crate::serve::route_vault(
+        &get_root(),
+        &bearer(&a_secret()),
+        &context(&c, Level::Normal, Stage::Serving),
+        b"",
+        &io,
+    );
+    assert_eq!(r.status, 200);
+    assert_eq!(r.content_type, "application/json");
+    assert_eq!(
+        text(&r),
+        r#"[{"name":"a.pdf","bytes":4096,"modified":222},{"name":"z.txt","bytes":1,"modified":111}]"#
+    );
+}
+
+#[test]
+fn an_empty_vault_lists_an_empty_array_not_an_error() {
+    // The state every sync starts from: nothing stored yet is an answer,
+    // not a failure, or a first upload could never be planned.
+    let host = vault_host();
+    let c = ctx(&host);
+    let r = crate::serve::route_vault(
+        &get_root(),
+        &bearer(&a_secret()),
+        &context(&c, Level::Normal, Stage::Serving),
+        b"",
+        &FakeIo::new(),
+    );
+    assert_eq!(r.status, 200);
+    assert_eq!(text(&r), "[]");
+}
+
+#[test]
+fn head_of_the_root_answers_with_the_length_and_no_body() {
+    // HEAD is how a client asks cheaply whether anything changed since the
+    // listing it already holds. The body exists in the response and is
+    // suppressed by rendering only, exactly like every other surface.
+    let host = vault_host();
+    let c = ctx(&host);
+    let io = FakeIo::new().with_listing(&[("a.txt", 5, 7)]);
+    let r = crate::serve::route_vault(
+        &Request {
+            method: Method::Head,
+            path: "/".to_owned(),
+        },
+        &bearer(&a_secret()),
+        &context(&c, Level::Normal, Stage::Serving),
+        b"",
+        &io,
+    );
+    assert_eq!(r.status, 200);
+    assert!(!text(&r).is_empty());
+    let out = String::from_utf8(r.render(crate::serve::Surface::Site, nonce(), Method::Head))
+        .expect("headers are text");
+    assert!(
+        !out.contains("{\"name\""),
+        "HEAD must not carry the listing"
+    );
+}
+
+#[test]
+fn a_stranger_asking_for_the_listing_learns_only_that_they_are_not_enrolled() {
+    // Authentication runs before everything, including before the governor:
+    // the same order that keeps a PUT from leaking the battery level keeps a
+    // listing from handing a stranger the shape of somebody's files.
+    let host = vault_host();
+    let c = ctx(&host);
+    let no_creds = crate::serve::parse_headers(&[]).expect("valid");
+    let r = crate::serve::route_vault(
+        &get_root(),
+        &no_creds,
+        &context(&c, Level::Normal, Stage::Serving),
+        b"",
+        &NeverIo,
+    );
+    assert_eq!(r.status, 401);
+}
+
+#[test]
+fn a_listing_is_refused_when_the_device_will_not_read() {
+    // ADR-0009 §2's read column applies to the directory as much as to a file:
+    // PROTECT stops serving, and a client mid-sync sees the refusal and waits.
+    let host = vault_host();
+    let c = ctx(&host);
+    let r = crate::serve::route_vault(
+        &get_root(),
+        &bearer(&a_secret()),
+        &context(&c, Level::Protect, Stage::Serving),
+        b"",
+        &NeverIo,
+    );
+    assert_eq!(r.status, 503);
+}
+
+#[test]
+fn a_listing_that_cannot_be_read_fails_instead_of_coming_up_short() {
+    // All of it or none of it. A partial listing would teach a pruning client
+    // to call the entries it never saw remote extras; a failure teaches it to
+    // retry, which is the only safe lesson here.
+    let host = vault_host();
+    let c = ctx(&host);
+    let io = FakeIo::new().failing_listing("the walk broke");
+    let r = crate::serve::route_vault(
+        &get_root(),
+        &bearer(&a_secret()),
+        &context(&c, Level::Normal, Stage::Serving),
+        b"",
+        &io,
+    );
+    assert_eq!(r.status, 500);
+    let body = text(&r);
+    assert!(
+        !body.contains('/'),
+        "the wire must not carry a path: {body}"
+    );
+}
+
+#[test]
+fn a_name_with_a_quote_in_it_survives_the_listing_as_json() {
+    // Name allows quotes; JSON does not, unescaped. The renderer escapes them
+    // rather than pretending the alphabet is narrower than the validator says.
+    let host = vault_host();
+    let c = ctx(&host);
+    let io = FakeIo::new().listed(vec![crate::serve::StoredListing {
+        name: r#"say "hi".txt"#.to_owned(),
+        bytes: 2,
+        modified: 9,
+    }]);
+    let r = crate::serve::route_vault(
+        &get_root(),
+        &bearer(&a_secret()),
+        &context(&c, Level::Normal, Stage::Serving),
+        b"",
+        &io,
+    );
+    assert_eq!(r.status, 200);
+    assert_eq!(
+        text(&r),
+        r#"[{"name":"say \"hi\".txt","bytes":2,"modified":9}]"#
+    );
+}
+
+#[test]
+fn storing_onto_the_listing_itself_is_a_method_error_not_a_bad_name() {
+    // Before the listing existed, GET / answered 400 "a file needs a name" —
+    // true and useless. PUT / and DELETE / are now told precisely that there
+    // is nothing here to write onto or remove.
+    let host = vault_host();
+    let c = ctx(&host);
+    for method in [Method::Put, Method::Delete] {
+        let request = Request {
+            method,
+            path: "/".to_owned(),
+        };
+        let r = crate::serve::route_vault(
+            &request,
+            &bearer(&a_secret()),
+            &context(&c, Level::Normal, Stage::Serving),
+            b"x",
+            &NeverIo,
+        );
+        assert_eq!(r.status, 405, "{method:?}");
+    }
 }
 
 // ── Headers ───────────────────────────────────────────────────────────────────

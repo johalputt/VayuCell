@@ -603,19 +603,48 @@ impl StorageFailure {
     }
 }
 
+/// One stored file, as the vault's listing reports it.
+///
+/// Everything a client diffing a folder against this vault needs, and nothing
+/// else: the name the file is stored under, how many bytes it holds, and when
+/// it was last written, in seconds since the Unix epoch. Sizes and mtimes are
+/// what a cheap diff compares; anything more — hashes, versions, sync state —
+/// would be a second copy of the truth this vault does not keep.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredListing {
+    /// The name the file is stored under, as [`crate::vault::Name`] checked it.
+    pub name: String,
+    /// The file's size in bytes.
+    pub bytes: u64,
+    /// The file's last write, in seconds since the Unix epoch.
+    pub modified: u64,
+}
+
 /// The filesystem, as the vault route needs it.
 ///
 /// A trait rather than three closures. With two it was a pair of arguments a
 /// caller could transpose; with three it is a shape somebody would get wrong
 /// silently, and a reader and a remover swapped is not a mistake anybody should
 /// be relying on review to catch.
-///
-/// Every method returns rather than performing anything the route decided
-/// against: the route settles *whether*, and this settles *how*.
 pub trait VaultIo {
     /// The bytes stored under `path`, or `None` for any reason it could not be
     /// read — absent, unreadable, or refused by a containment check.
     fn read(&self, path: &str) -> Option<Vec<u8>>;
+
+    /// Every file stored, with its size and last write.
+    ///
+    /// **All of it or none of it.** An error here means the caller receives no
+    /// listing at all, because a partial listing is a lie with consequences:
+    /// a client that prunes what a short listing did not mention would call
+    /// those files remote extras. A vault that cannot say what it holds says
+    /// so, and the retry is one request away.
+    ///
+    /// # Errors
+    ///
+    /// Returns what the caller may be told, under the same rule as
+    /// [`VaultIo::write`]: the detail belongs in the implementor's log, and
+    /// this value reaches the wire.
+    fn list(&self) -> Result<Vec<StoredListing>, StorageFailure>;
 
     /// Performs the ordering in a [`WritePlan`], in that order.
     ///
@@ -694,6 +723,25 @@ pub fn route_vault(
     // The path is one name, never a tree. The vault is flat on purpose: a
     // directory structure is a second thing to validate and a second place for a
     // traversal to hide.
+    // The empty name is the listing: GET / on the vault port asks what is
+    // stored, not for a file called "". Every other surface refuses to
+    // enumerate — ADR-0008 §3 calls a directory listing a failure delivered one
+    // status code at a time, and a published site must never become one. The
+    // vault answers, because its whole job is being a place another device's
+    // command can diff a folder against, and it can do so safely where the site
+    // cannot: behind credentials, over an authenticated surface that has never
+    // been the anonymous web.
+    if request.path == "/" || request.path.is_empty() {
+        return match request.method {
+            Method::Get | Method::Head => list_vault(ctx.level, ctx.stage, io),
+            _ => Response::refused(
+                405,
+                "Method Not Allowed",
+                "the listing is read; a file is stored under its own name",
+            ),
+        };
+    }
+
     let name = match Name::new(request.path.trim_start_matches('/')) {
         Ok(n) => n,
         Err(e) => return Response::refused(400, "Bad Request", &e.to_string()),
@@ -764,6 +812,63 @@ pub fn route_vault(
             }
         }
     }
+}
+
+/// Answers GET / on the vault: what is stored, sorted, as JSON.
+///
+/// The device is consulted with the same read rules ADR-0009 §2 gives every
+/// stored read — `DERATED` still answers, `PROTECT` does not — because a
+/// listing is a read of the vault's directory and nothing hotter than that.
+///
+/// A failure from [`VaultIo::list`] fails the whole answer. The route never
+/// renders a short one.
+fn list_vault(level: Level, stage: Stage, io: &dyn VaultIo) -> Response {
+    let availability = Availability::of(level, stage);
+    if !availability.is_serving() {
+        return Response::refused(
+            503,
+            "Service Unavailable",
+            &availability.describe_stored_file(),
+        );
+    }
+    match io.list() {
+        Ok(mut entries) => {
+            // Sorted here rather than trusted from the implementor: the wire
+            // format is a contract, and a client diffing against it should not
+            // care which order a filesystem happened to yield.
+            entries.sort_by(|a, b| a.name.cmp(&b.name));
+            Response::bytes(render_listing(&entries).into_bytes(), "application/json")
+        }
+        Err(failure) => {
+            let (status, reason) = failure.status();
+            Response::refused(status, reason, failure.told())
+        }
+    }
+}
+
+/// Renders the listing as JSON, names escaped, entries already sorted.
+fn render_listing(entries: &[StoredListing]) -> String {
+    let mut out = String::from("[");
+    for (i, entry) in entries.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        out.push_str("{\"name\":\"");
+        for ch in entry.name.chars() {
+            if ch == '"' {
+                out.push_str("\\\"");
+            } else {
+                out.push(ch);
+            }
+        }
+        out.push_str("\",\"bytes\":");
+        out.push_str(&entry.bytes.to_string());
+        out.push_str(",\"modified\":");
+        out.push_str(&entry.modified.to_string());
+        out.push('}');
+    }
+    out.push(']');
+    out
 }
 
 /// The response for a device that will not take a write.

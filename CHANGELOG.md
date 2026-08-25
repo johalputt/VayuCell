@@ -20,6 +20,17 @@ when the tag is cut.
 
 ### Added
 
+- **The vault answers `GET /` with what it stores** — one authenticated
+  request returning every file's name, size and last write as JSON, sorted.
+  A folder being kept in sync against a cell cannot diff what it cannot list,
+  and until now the only way to learn what was stored was to guess names. The
+  listing obeys ADR-0009 §2's read column — a derated cell still answers, a
+  protected one does not — and it is **all or nothing**: a directory that
+  cannot be walked fails the request rather than answering with whatever
+  happened to enumerate, because a client pruning against a short listing
+  would call the entries it never saw remote extras. Things the API could
+  never have stored — subdirectories, dotfiles, links — are not listed at all.
+
 - **Onion ingress: the site and the vault are now published through your
   system's tor daemon**, which closes the largest single gap between what this
   project is and what its headline says — as far as a binary that never dials
