@@ -394,7 +394,12 @@ mod tests {
     use super::*;
 
     fn hex(bytes: &[u8]) -> String {
-        bytes.iter().map(|b| format!("{b:02x}")).collect()
+        let mut s = String::with_capacity(bytes.len() * 2);
+        for b in bytes {
+            s.push(char::from_digit(u32::from(b >> 4), 16).expect("hex"));
+            s.push(char::from_digit(u32::from(b & 0xf), 16).expect("hex"));
+        }
+        s
     }
 
     #[test]

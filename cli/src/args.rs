@@ -1161,6 +1161,7 @@ mod tests {
         assert!(e.0.contains("vault, all, report and status"), "{}", e.0);
     }
 
+    #[test]
     fn all_takes_an_onion_directory_to_publish_through_the_system_daemon() {
         let a = parse(&argv(&[
             "all",

@@ -93,7 +93,7 @@ and no amount of green rows replaces it.
 | --- | --- |
 | Written | The capability registry, tier detection, the CSP and response security headers, **the battery safety governor** — state machine, verification loop, thresholds, recovery — the sysfs layer it drives, the sampling cadence, the mains-loss shed ladder, **the safety panel**, where a row that could not be checked is not allowed to read as one that was, **a published website**: a directory served to your own network, refused the moment the governor says the cell is in trouble, **file storage**: authenticated upload, download and delete, each device holding a credential that can be revoked on its own — and **onion ingress**: `all --onion-dir` publishes the site and the vault through your system's tor daemon, shed first by the governor, never claimed verified until a request arrives from outside — and **relay ingress**: `all --relay-via <HOST>` declares a rented tunnel with the dependency named in every start — and **the fleet contract**: declared roles, computed quorum with witnesses as tie-breakers only, a draining upgrade machine, and HMAC-sealed jail verdicts ([ADR-0014](docs/adr/ADR-0014-the-fleet-contract.md)) |
 | Not written | The fleet view, the hardware database itself, the Android shell, **anything that syncs on its own — storage is a request somebody makes, never a folder that mirrors itself**. The onion has never served an outside visitor either, because no handset has run this binary; what is written is the supervision, the contract and the honest wording, not a proof of reachability |
-| Checked | 628 unit tests and 32 doctests, line coverage held above its 80% floor in CI, **260 mutations each re-broken and each required to turn its named test red**, and **57 violations planted in a scratch repository that the gates must catch citing the right rule — a count pinned to itself, like the mutation gate's**. None of that is evidence about hardware; all of it is evidence about the code |
+| Checked | 629 unit tests and 32 doctests, line coverage held above its 80% floor in CI, **260 mutations each re-broken and each required to turn its named test red**, and **57 violations planted in a scratch repository that the gates must catch citing the right rule — a count pinned to itself, like the mutation gate's**. None of that is evidence about hardware; all of it is evidence about the code |
 | Unblocked | [Charter III.1](CHARTER.md) forbids anything serving traffic before the governor. The governor is now **written** — the ordering constraint is met in code, and the gate fails the build if it is ever removed. It is not met on hardware, and nothing serves traffic yet regardless |
 | Never tested on hardware | Everything. Every device-facing behaviour is exercised through a fake host describing handsets nobody here is holding |
 
@@ -648,7 +648,7 @@ scripts/release-gate.sh        # the version says the same thing everywhere
 cargo test --workspace
 ```
 
-A full run exercises **628 unit tests and 32 doctests** (2 ignored — the two
+A full run exercises **629 unit tests and 32 doctests** (2 ignored — the two
 snapshot regenerators), kills **260 mutations**, catches **57 planted violations** and two count proofs,
 and holds line coverage above a floor of 80. That is a suite that
 has been shown to fail when the code is wrong — the mutation gate is the proof,
