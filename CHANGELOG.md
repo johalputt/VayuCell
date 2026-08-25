@@ -20,6 +20,15 @@ when the tag is cut.
 
 ### Added
 
+- **Relay ingress — declaration without management**
+  ([ADR-0013](docs/adr/ADR-0013-relay-ingress-a-rented-dependency.md)).
+  `vayucell all --relay-via <HOST>` declares ADR-0003's rented-tunnel mode:
+  the hostname validated against DNS's real rules at typing time, the
+  supplier disclosure and forwarding instruction printed before anything
+  binds, unverified standing until an outside request is observed, and the
+  battery panel never announced through it. No dialing code, no tunnel
+  abstraction, no claims about the far end — the dependency is named in
+  every start instead.
 - **The replicator with its verified restore — replication by receipt**
   ([ADR-0012](docs/adr/ADR-0012-replication-by-receipt.md)). `vayucell-sync`
   gains `replicate` (pull the vault into a mirror folder, durable writes,

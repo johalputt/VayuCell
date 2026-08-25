@@ -437,11 +437,41 @@ it did. Stop running the companion and the claim simply expires into
 *nobody is still measuring* — which, by then, is true. See
 [ADR-0012](adr/ADR-0012-replication-by-receipt.md).
 
-### Keep it on its own port
+### 8f — Reachable from the clearnet through a rented relay (optional)
 
-Never point the vault and the website at the **same folder** — that would
-publish everything anybody uploads. And do not run them as two separate
-commands either. Run them together, with the next step.
+An onion address works everywhere Tor works and costs nothing — it is the
+mode this project prefers. If you also want ordinary browsers on a domain
+you own, the honest way is a rented relay: a small VPS with a DNS name
+that forwards connections to your phone. The phone never dials anywhere
+to make this work; the rented machine dials *in* to it.
+
+Start the cell naming the relay:
+
+```bash
+vayucell all --site-dir ~/site --vault-dir ~/files \
+  --relay-via home.example.org
+```
+
+The hostname is checked when you type it — letters, digits, hyphens,
+dots; no scheme or port. Before anything is served, the banner says three
+things: that a supplier can end this path at will and a relay terminating
+TLS reads everything passing through it; exactly which two addresses on
+the phone to forward to (the site port and the vault port); and that the
+path stands **unverified** until a request actually arrives from outside.
+The battery panel is never published through the relay.
+
+On the VPS, forward those two ports to the phone's LAN address — one
+`stream` block in an nginx config, or one SSH remote forward per port.
+That configuration lives on the machine you rent; nothing here can write
+it, and this program will never try.
+
+What this mode deliberately does not have: a tunnel manager, a health
+check, any state beyond what the words say. If the relay stops
+forwarding, you find out when your visitors do — and the dependency you
+bought is named in the banner every single start. See
+[ADR-0013](adr/ADR-0013-relay-ingress-a-rented-dependency.md).
+
+### Keep it on its own port
 
 ---
 
@@ -567,7 +597,7 @@ anywhere. If you also want Termux gone, uninstall it like any app.
 **No VayuCell release has been installed on a physical phone by its author.**
 
 Every device-facing behaviour is exercised against a simulated device in the
-test suite — 610 unit tests, and every safety check is deliberately re-broken
+test suite — 617 unit tests, and every safety check is deliberately re-broken
 in CI to prove the tests would notice. That is a real standard and it is not the
 same as a phone on a bench.
 

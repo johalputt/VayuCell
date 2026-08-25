@@ -116,6 +116,10 @@ pub struct Args {
     /// quote but cannot verify by measuring — the cell never dials. `None`
     /// means no replica has been pointed at this cell.
     pub replica_evidence: Option<String>,
+    /// The public hostname of a rented relay that forwards to this device.
+    /// Declaring it changes what the cell may claim: a supplier can end this
+    /// path at will, and the banner says so. `all` only.
+    pub relay_via: Option<String>,
     /// Where the credential store lives.
     pub store: String,
     /// The device name `enrol` adds. `None` means none was given.
@@ -247,7 +251,8 @@ COMMANDS:
                         three consecutive ports, under one governor and one
                         outage ladder. This is the one to run on a phone.
                         With --onion-dir it also publishes through your
-                        system's tor daemon
+                        system's tor daemon; with --relay-via it declares a
+                        rented relay visitors reach by name
     report              Print a device report to paste into an issue. Nothing
                         is sent anywhere; it says what it contains and what it
                         leaves out, so you can check before pasting
@@ -303,6 +308,13 @@ OPTIONS:
                         it as exactly that — a claim, aged against this
                         cell's clock, never presented as something this
                         device measured. vault, all, report and status
+    --relay-via <HOST>  The public hostname of a rented relay that forwards to
+                        this device. A supplier can end that path at will and
+                        a relay terminating TLS reads everything passing
+                        through it, so the banner names both and the posture
+                        counts it as an external dependency — not as
+                        infrastructure you own. The panel is never published
+                        through it. `all` only: publishing needs the governor
 
 EXIT CODES:
     0   the panel reads PROTECTED — every row was checked and held
@@ -334,6 +346,7 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
     let mut vault_only: Option<String> = None;
     let mut onion_dir: Option<String> = None;
     let mut replica_evidence: Option<String> = None;
+    let mut relay_via: Option<String> = None;
     let mut store = default_store();
     let mut device: Option<String> = None;
     let mut quota: u64 = DEFAULT_QUOTA;
@@ -377,6 +390,11 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
             }
             "--replica-evidence" => {
                 replica_evidence = Some(value_after(argv, &mut i, "--replica-evidence")?);
+            }
+            "--relay-via" => {
+                let raw = value_after(argv, &mut i, "--relay-via")?;
+                let host = crate::relay::validate_host(&raw).map_err(ArgError)?;
+                relay_via = Some(host);
             }
             "--store" => {
                 store = value_after(argv, &mut i, "--store")?;
@@ -535,6 +553,19 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
         ));
     }
 
+    // Same rule as --onion-dir and for the same reason: a relay path is
+    // outward-facing load whose shedding is enforced by the supervisor `all`
+    // runs. Accepting the flag under `site` or `vault` would publish a path
+    // no running governor can shed.
+    if relay_via.is_some() && command != Command::All {
+        return Err(ArgError(
+            "only `all` accepts --relay-via: publishing through a relay needs \
+             the supervisor running beside it, because ingress is load the \
+             governor sheds first and `site` or `vault` run no governor at all"
+                .to_owned(),
+        ));
+    }
+
     Ok(Args {
         command,
         supply_dir,
@@ -544,6 +575,7 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
         vault_dir,
         site_dir,
         onion_dir,
+        relay_via,
         replica_evidence,
         store,
         device,
@@ -620,6 +652,7 @@ mod tests {
                 vault_dir: None,
                 replica_evidence: None,
                 onion_dir: None,
+                relay_via: None,
                 store: super::default_store(),
                 device: None,
                 quota: super::DEFAULT_QUOTA,
@@ -1106,6 +1139,51 @@ mod tests {
             Some("/var/lib/vayucell/onion"),
             "{a:?}"
         );
+    }
+
+    #[test]
+    fn all_carries_the_relay_hostname_lowercased() {
+        let a = parse(&argv(&[
+            "all",
+            "--site-dir",
+            "/s",
+            "--relay-via",
+            "Relay.Example.ORG",
+        ]))
+        .expect("parses");
+        assert_eq!(a.relay_via.as_deref(), Some("relay.example.org"));
+    }
+
+    #[test]
+    fn a_relay_is_refused_wherever_no_governor_runs() {
+        for cmd in ["site", "vault"] {
+            let e =
+                parse(&argv(&[cmd, "--dir", "/d", "--relay-via", "r.example.org"])).expect_err(cmd);
+            assert!(
+                e.0.contains("only `all` accepts --relay-via"),
+                "{}: {}",
+                cmd,
+                e.0
+            );
+        }
+    }
+
+    #[test]
+    fn a_mangled_hostname_is_refused_naming_its_rule() {
+        for bad in [
+            "https://r.example.org",
+            "r.example.org:443",
+            "-r.example.org",
+            "r example org",
+        ] {
+            let e = parse(&argv(&["all", "--relay-via", bad])).expect_err(bad);
+            assert!(!e.0.is_empty(), "{bad:?}");
+            assert!(
+                !e.0.contains("panicked"),
+                "{bad:?} should refuse, not crash: {}",
+                e.0
+            );
+        }
     }
 
     #[test]

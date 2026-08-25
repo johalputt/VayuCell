@@ -1854,3 +1854,20 @@ mutate "sync/src/mirror.rs" replicate_leaves_matching_files_alone_and_prunes_onl
         for local in &locals {" \
   "    if true {
         for local in &locals {"
+
+# --- The relay half of ingress (ADR-0013) -----------------------------------
+
+mutate "cli/src/relay.rs" every_way_to_mistype_a_relay_is_refused_by_its_rule \
+  "a hostname carrying characters a DNS name cannot is accepted, and the banner promises reachability at an address nobody can type" \
+  "        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'.')" \
+  "        .all(|_| true)"
+
+mutate "cli/src/relay.rs" every_way_to_mistype_a_relay_is_refused_by_its_rule \
+  "an empty --relay-via value is accepted, and the cell declares a path via nothing" \
+  "    if host.is_empty() {" \
+  "    if false {"
+
+mutate "cli/src/relay.rs" a_name_longer_than_dns_allows_is_refused_with_the_count \
+  "a hostname longer than DNS allows is accepted, promising reachability at a name that cannot resolve" \
+  "    if host.len() > 253 {" \
+  "    if false {"

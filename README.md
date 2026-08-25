@@ -31,7 +31,7 @@
   <a href="deny.toml"><img alt="runtime deps: zero" src="https://img.shields.io/badge/runtime%20deps-zero-success.svg"></a>
   <a href="docs/CI.md"><img alt="coverage: floor 80" src="https://img.shields.io/badge/coverage-gated_%E2%89%A580%25-success"></a>
   <a href="GOVERNANCE-CONSTITUTION.md"><img alt="constitution: 110 rules" src="https://img.shields.io/badge/constitution-110%20rules-blueviolet"></a>
-  <a href="scripts/mutation-gate.sh"><img alt="mutations killed: 254/254" src="https://img.shields.io/badge/mutations%20killed-254%2F254-success"></a>
+  <a href="scripts/mutation-gate.sh"><img alt="mutations killed: 257/257" src="https://img.shields.io/badge/mutations%20killed-257%2F257-success"></a>
   <a href="scripts/gate-selftest.sh"><img alt="gates self-tested: 57 plants caught" src="https://img.shields.io/badge/gates%20self--tested-57%20plants%20caught-success"></a>
   <a href="CHARTER.md"><img alt="hardware tested: none yet" src="https://img.shields.io/badge/hardware%20tested-none%20yet-inactive"></a>
 </p>
@@ -91,9 +91,9 @@ and no amount of green rows replaces it.
 
 | | |
 | --- | --- |
-| Written | The capability registry, tier detection, the CSP and response security headers, **the battery safety governor** — state machine, verification loop, thresholds, recovery — the sysfs layer it drives, the sampling cadence, the mains-loss shed ladder, **the safety panel**, where a row that could not be checked is not allowed to read as one that was, **a published website**: a directory served to your own network, refused the moment the governor says the cell is in trouble, **file storage**: authenticated upload, download and delete, each device holding a credential that can be revoked on its own — and **onion ingress**: `all --onion-dir` publishes the site and the vault through your system's tor daemon, shed first by the governor, never claimed verified until a request arrives from outside |
-| Not written | The fleet view, the hardware database itself, the Android shell, **anything that syncs on its own — storage is a request somebody makes, never a folder that mirrors itself** — and **relay ingress: described and governed in code, but not implemented**. The onion has never served an outside visitor either, because no handset has run this binary; what is written is the supervision, the contract and the honest wording, not a proof of reachability |
-| Checked | 610 unit tests and 32 doctests, line coverage held above its 80% floor in CI, **254 mutations each re-broken and each required to turn its named test red**, and **57 violations planted in a scratch repository that the gates must catch citing the right rule — a count pinned to itself, like the mutation gate's**. None of that is evidence about hardware; all of it is evidence about the code |
+| Written | The capability registry, tier detection, the CSP and response security headers, **the battery safety governor** — state machine, verification loop, thresholds, recovery — the sysfs layer it drives, the sampling cadence, the mains-loss shed ladder, **the safety panel**, where a row that could not be checked is not allowed to read as one that was, **a published website**: a directory served to your own network, refused the moment the governor says the cell is in trouble, **file storage**: authenticated upload, download and delete, each device holding a credential that can be revoked on its own — and **onion ingress**: `all --onion-dir` publishes the site and the vault through your system's tor daemon, shed first by the governor, never claimed verified until a request arrives from outside — and **relay ingress**: `all --relay-via <HOST>` declares a rented tunnel with the dependency named in every start |
+| Not written | The fleet view, the hardware database itself, the Android shell, **anything that syncs on its own — storage is a request somebody makes, never a folder that mirrors itself**. The onion has never served an outside visitor either, because no handset has run this binary; what is written is the supervision, the contract and the honest wording, not a proof of reachability |
+| Checked | 617 unit tests and 32 doctests, line coverage held above its 80% floor in CI, **257 mutations each re-broken and each required to turn its named test red**, and **57 violations planted in a scratch repository that the gates must catch citing the right rule — a count pinned to itself, like the mutation gate's**. None of that is evidence about hardware; all of it is evidence about the code |
 | Unblocked | [Charter III.1](CHARTER.md) forbids anything serving traffic before the governor. The governor is now **written** — the ordering constraint is met in code, and the gate fails the build if it is ever removed. It is not met on hardware, and nothing serves traffic yet regardless |
 | Never tested on hardware | Everything. Every device-facing behaviour is exercised through a fake host describing handsets nobody here is holding |
 
@@ -380,6 +380,18 @@ loud stays **unverified**, which is also why the panel is never published —
 the battery report of somebody's home is not the thing this mode exists to
 hand the world.
 
+**The relay half is built too, on purpose as less.**
+`vayucell all --relay-via <HOST>` ([ADR-0013](docs/adr/ADR-0013-relay-ingress-a-rented-dependency.md))
+declares the rented-tunnel mode of ADR-0003's table: the hostname is
+validated the moment it is typed, startup prints the supplier disclosure,
+the exact forwarding instruction for the site and vault addresses, and
+**unverified** standing — all before anything binds. There is no tunnel
+abstraction behind it and there are no keys here: the rented machine dials
+*in*, so configuring it belongs to whoever rents it, and the cell's whole
+job is to name the dependency every single start rather than hide it
+behind the word "tunnel". The battery panel is never announced through it,
+pinned by test.
+
 ### 🌐 The local-only listener
 
 The first thing in this project that a browser has ever spoken to. `vayucell
@@ -636,8 +648,8 @@ scripts/release-gate.sh        # the version says the same thing everywhere
 cargo test --workspace
 ```
 
-A full run exercises **610 unit tests and 32 doctests** (2 ignored — the two
-snapshot regenerators), kills **254 mutations**, catches **57 planted violations** and two count proofs,
+A full run exercises **617 unit tests and 32 doctests** (2 ignored — the two
+snapshot regenerators), kills **257 mutations**, catches **57 planted violations** and two count proofs,
 and holds line coverage above a floor of 80. That is a suite that
 has been shown to fail when the code is wrong — the mutation gate is the proof,
 and it asserts its own match count so a mutation that failed to apply cannot be
@@ -860,7 +872,7 @@ and has no other symptom.
 | --- | --- |
 | **Charter** | A serving capability registered while the governor is gone. `Capability::verify` demoted to an `Option`, so a control with no read-back would compile. A generic success variant that would absorb "not checked". `Absent` and `Unverified` collapsing into one answer. A tier detector that defaults to T0. Telemetry, a treasury, a kill switch, a remote wipe, a dependency on a host this project runs. A `[dependencies]` section with anything in it. An edit to Article III or V whose SHA-256 no longer matches `.charter-digests` |
 | **Gate self-test** | A gate that has only ever been observed passing. **Fifty-seven violations** planted in a scratch copy — the governor deleted, `verify` made optional, telemetry added, an outbound connection opened in the binary crate, a third-party dependency added to the CLI crate, a bot-authored commit, a workflow tag that resolves to nothing — each of which the matching gate must catch **citing the right rule**. A plant that changed nothing is scored `STALE`, not `caught`: the sandbox is fingerprinted before and after |
-| **Mutation** | **Two hundred and fifty-four** safety and honesty guards, each re-broken in turn, each required to turn its named test red. A green suite proves the code passes its tests; this proves the tests would notice if the code were wrong. Every mutation asserts its own match count, because one that failed to apply would otherwise be reported as one the code survived |
+| **Mutation** | **Two hundred and fifty-seven** safety and honesty guards, each re-broken in turn, each required to turn its named test red. A green suite proves the code passes its tests; this proves the tests would notice if the code were wrong. Every mutation asserts its own match count, because one that failed to apply would otherwise be reported as one the code survived |
 | **Doctests** | A `compile_fail` proof that stopped being collected. The count is asserted **exactly, in both directions** — too few means a proof moved onto a private item, where rustdoc runs zero tests and still prints `ok`; too many means somebody added a proof without raising the number |
 | **Rust** | Unformatted code, a `clippy::pedantic` warning at `-D warnings` over all targets, a failed build or test, a broken intra-doc link, and the removal of *either* `#![forbid(unsafe_code)]` or `unsafe_code = "deny"` — either alone can be dropped in a diff that looks unrelated |
 | **Coverage** | Production line coverage below **80%**, with test files excluded so the figure is not inflated by the coverage of the tests themselves. A missing coverage tool is a failure, never a pass |
@@ -989,6 +1001,7 @@ for.
 | [`ADR-0010`](docs/adr/ADR-0010-per-device-credentials.md) | Per-device credentials: deciding whose file it is |
 | [`ADR-0011`](docs/adr/ADR-0011-synchronising-a-folder-to-a-vault.md) | Synchronising a folder to a vault: the companion that dials, so the cell never has to |
 | [`ADR-0012`](docs/adr/ADR-0012-replication-by-receipt.md) | Replication by receipt: the companion claims, the cell quotes |
+| [`ADR-0013`](docs/adr/ADR-0013-relay-ingress-a-rented-dependency.md) | Relay ingress: a rented dependency, named as one |
 | [`docs/INSTALL.md`](docs/INSTALL.md) | Putting it on a phone, written for somebody who has never opened a terminal |
 | [`docs/CI.md`](docs/CI.md) | Every gate, and every parameter it checks with |
 | [`docs/BRAND.md`](docs/BRAND.md) | The mark: how it is constructed, and the rules for using it |

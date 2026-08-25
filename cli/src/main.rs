@@ -26,6 +26,7 @@ mod enrol;
 mod halted;
 mod listen;
 mod onion;
+mod relay;
 mod report;
 mod storage;
 mod survey;
@@ -599,6 +600,17 @@ fn all(a: &Args) -> i32 {
 
     let onion_live = onion_plan.is_some() && daemon.is_some();
 
+    // The relay path is declared the same way the onion one is: disclosures
+    // and consequences before anything binds, per ADR-0003 §5.4. There is
+    // no daemon to find here — the rented side dials IN to this device, so
+    // there is nothing to supervise and nothing to fail to find — which is
+    // exactly why every sentence about it must be said by us.
+    if let Some(host) = &a.relay_via {
+        for line in crate::relay::startup_lines(host, &site_addr, &vault_addr) {
+            println!("vayucell: {line}");
+        }
+    }
+
     println!(
         "vayucell: one governor, {} surface(s):",
         1 + usize::from(site.is_some()) + usize::from(vault.is_some()) + usize::from(onion_live)
@@ -616,6 +628,9 @@ fn all(a: &Args) -> i32 {
         // The address is printed by the supervision thread the moment the
         // daemon publishes one — which can be minutes into a cold start.
         println!("  onion  through your system's tor daemon; UNVERIFIED until a request arrives from outside");
+    }
+    if let Some(host) = &a.relay_via {
+        println!("  relay  {host}; UNVERIFIED until a request arrives from outside");
     }
 
     // Scoped threads, so every surface borrows the one cell rather than each
