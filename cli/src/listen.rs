@@ -1360,6 +1360,10 @@ mod listing_tests {
         let s = Scratch::new("files");
         s.write("b.txt", b"1234567890");
         s.write("a.txt", b"1234");
+        // A subdirectory shares the walk's name filter, so only the
+        // is-file check stands between it and being listed as a stored
+        // file this API could never have written.
+        std::fs::create_dir(s.0.join("subdir")).expect("a subdirectory");
         let mut found = io_for(&s.dir()).list().expect("readable");
         // The route sorts; the walk reports what the directory yielded. Compare
         // as a set so this test pins the contents and not an accident of order.
