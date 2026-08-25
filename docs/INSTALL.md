@@ -393,6 +393,50 @@ is no separate TLS layer here. See
 [ADR-0011](adr/ADR-0011-synchronising-a-folder-to-a-vault.md) for the whole
 reasoning.
 
+### 8e — Keep a replica, and prove it restores (optional)
+
+A folder kept in step is a backup only if it still *restores*, and "I ran
+push yesterday" is a memory, not evidence. Two more commands turn the
+mirror into something with a paper trail:
+
+```bash
+# pull the vault into ~/mirror, then leave a dated claim in receipts.json
+VAYUCELL_TOKEN=PASTE-THE-SECRET-HERE \
+vayucell-sync replicate ~/mirror <phone-ip>:8082 --receipt ~/receipts.json
+
+# prove it: download EVERY file afresh and compare against the mirror,
+# byte for byte — this is the restore being verified
+VAYUCELL_TOKEN=PASTE-THE-SECRET-HERE \
+vayucell-sync drill ~/mirror <phone-ip>:8082 --receipt ~/receipts.json
+```
+
+The rules that make the receipt mean something:
+
+- **`--receipt` is required.** A run without somewhere to leave evidence
+  refuses to start, rather than doing work nobody can later check.
+- **A receipt is written only by a complete run.** A `drill` that dies on
+  file 9 of 12 writes nothing; the previous receipt stands until it ages.
+- **A mismatch names the file** instead of rounding it away, and nothing
+  claims success when one is found.
+- **`--prune` exists on `replicate`, never on `drill`.** The drill deletes
+  nothing anywhere; it reads two places and compares them.
+
+Then tell the phone about the file:
+
+```bash
+vayucell vault --dir ~/files --bind 0.0.0.0:8082 \
+  --replica-evidence /path/to/receipts.json
+```
+
+From that moment the startup banner stops saying *this phone is the only
+copy* and quotes the receipt instead — how far behind the newest covered
+change is, and when a restore last passed — and every such line says it is
+*"as claimed by the replica's own receipt"*. The phone has no socket out;
+it did not measure any of this, and the wording never lets it sound like
+it did. Stop running the companion and the claim simply expires into
+*nobody is still measuring* — which, by then, is true. See
+[ADR-0012](adr/ADR-0012-replication-by-receipt.md).
+
 ### Keep it on its own port
 
 Never point the vault and the website at the **same folder** — that would
@@ -523,7 +567,7 @@ anywhere. If you also want Termux gone, uninstall it like any app.
 **No VayuCell release has been installed on a physical phone by its author.**
 
 Every device-facing behaviour is exercised against a simulated device in the
-test suite — 594 unit tests, and every safety check is deliberately re-broken
+test suite — 610 unit tests, and every safety check is deliberately re-broken
 in CI to prove the tests would notice. That is a real standard and it is not the
 same as a phone on a bench.
 

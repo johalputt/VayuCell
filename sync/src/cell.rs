@@ -116,6 +116,32 @@ impl Cell {
         }
     }
 
+    /// Fetches one file's bytes with `GET /<name>`.
+    ///
+    /// # Errors
+    ///
+    /// Anything that is not a `2xx`, with the vault's own wording; wire and
+    /// unspeakable answers as everywhere else.
+    pub fn get(&self, name: &str, token: &str) -> Result<Vec<u8>, CellError> {
+        let mut stream = self.connect()?;
+        let head = format!(
+            "GET {} HTTP/1.1\r\nHost: {}\r\nAuthorization: Bearer {token}\r\n\
+             Connection: close\r\n\r\n",
+            encode_path(name),
+            self.host
+        );
+        stream.write_all(head.as_bytes()).map_err(wire)?;
+        let (status, body) = read_response(&mut stream)?;
+        if (200..300).contains(&status) {
+            Ok(body)
+        } else {
+            Err(CellError::Refused {
+                status,
+                body: String::from_utf8_lossy(&body).into_owned(),
+            })
+        }
+    }
+
     /// Removes one file with `DELETE /<name>`.
     ///
     /// A 404 counts as success: deleting something already gone is the outcome

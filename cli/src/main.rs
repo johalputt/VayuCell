@@ -104,6 +104,7 @@ fn main() -> ExitCode {
                             vayucell_core::runtime::RealClock::new().wall_clock_unix()
                         },
                     },
+                    parsed.replica_evidence.as_deref(),
                 )
             );
             0
@@ -339,7 +340,14 @@ fn vault(a: &Args) -> i32 {
 
     announce_ungoverned();
 
-    match listen::serve_vault(&a.bind, &root, &credentials, &context, a.quota) {
+    match listen::serve_vault(
+        &a.bind,
+        &root,
+        &credentials,
+        &context,
+        a.quota,
+        a.replica_evidence.as_deref(),
+    ) {
         Ok(()) => 0,
         Err(e) => {
             eprintln!("vayucell: {e}");
@@ -644,7 +652,14 @@ fn all(a: &Args) -> i32 {
             .map(|(root, creds)| {
                 scope.spawn(|| {
                     let context = || governed.context(&RealHost);
-                    listen::serve_vault(&vault_addr, root, creds, &context, a.quota)
+                    listen::serve_vault(
+                        &vault_addr,
+                        root,
+                        creds,
+                        &context,
+                        a.quota,
+                        a.replica_evidence.as_deref(),
+                    )
                 })
             });
 

@@ -1818,3 +1818,39 @@ mutate "sync/src/main.rs" prune_only_deletes_when_the_flag_says_so_and_only_afte
         for action in actions {" \
   "    if true {
         for action in actions {"
+
+# --- The replica and its receipts (ADR-0012) --------------------------------
+
+mutate "core/src/replica.rs" a_stamp_ahead_of_this_clock_refuses_whole_instead_of_clamping_to_zero \
+  "a receipt stamped ahead of this clock is clamped to a flattering lag instead of refused" \
+  "    if completed_unix > now || covered_mtime > now {" \
+  "    if false {"
+
+mutate "core/src/replica.rs" a_stamp_ahead_of_this_clock_refuses_whole_instead_of_clamping_to_zero \
+  "only one half of the skew is refused: a receipt whose completion is ahead passes, and its lag is arithmetic on a claim that cannot be dated" \
+  "    if completed_unix > now || covered_mtime > now {" \
+  "    if covered_mtime > now {"
+
+mutate "core/src/replica.rs" a_receipt_past_the_standing_window_is_unreachable_not_eternally_young \
+  "the five-minute window is dropped, so yesterday's companion run reports as a live measurement forever" \
+  "    if now - completed_unix > MEASUREMENT_STANDS_FOR.as_secs() {" \
+  "    if false {"
+
+mutate "sync/src/mirror.rs" replicate_leaves_matching_files_alone_and_prunes_only_when_told \
+  "a changed file keeps its stale local copy while the receipt still claims full coverage" \
+  "        if !up_to_date {
+            let body = cell.get(&entry.name, token)?;" \
+  "        if false {
+            let body = cell.get(&entry.name, token)?;"
+
+mutate "sync/src/mirror.rs" drill_compares_fresh_downloads_against_the_mirror_byte_for_byte \
+  "the drill tolerates a byte difference, which is the archive grading its own homework" \
+  "        if fresh.len() != mirrored.len() || fresh != mirrored {" \
+  "        if false {"
+
+mutate "sync/src/mirror.rs" replicate_leaves_matching_files_alone_and_prunes_only_when_told \
+  "the mirror prunes files the vault no longer has without being told, so --prune stops meaning anything" \
+  "    if prune {
+        for local in &locals {" \
+  "    if true {
+        for local in &locals {"

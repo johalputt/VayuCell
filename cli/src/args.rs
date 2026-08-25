@@ -112,6 +112,10 @@ pub struct Args {
     /// The hidden-service directory `all` publishes through the system's
     /// tor daemon. `None` means the cell publishes nothing.
     pub onion_dir: Option<String>,
+    /// A file of dated claims written by `vayucell-sync`, which this cell can
+    /// quote but cannot verify by measuring — the cell never dials. `None`
+    /// means no replica has been pointed at this cell.
+    pub replica_evidence: Option<String>,
     /// Where the credential store lives.
     pub store: String,
     /// The device name `enrol` adds. `None` means none was given.
@@ -291,6 +295,14 @@ OPTIONS:
                         What it already holds is measured before every upload,
                         and an upload is refused if the directory cannot be
                         measured at all
+    --replica-evidence <FILE>
+                        A receipt file written by `vayucell-sync replicate`
+                        and `vayucell-sync drill`. The cell never dials, so it
+                        cannot measure its own replica; this file is the
+                        replica's dated claim, and the storage section quotes
+                        it as exactly that — a claim, aged against this
+                        cell's clock, never presented as something this
+                        device measured. vault, all, report and status
 
 EXIT CODES:
     0   the panel reads PROTECTED — every row was checked and held
@@ -321,6 +333,7 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
     let mut site_only: Option<String> = None;
     let mut vault_only: Option<String> = None;
     let mut onion_dir: Option<String> = None;
+    let mut replica_evidence: Option<String> = None;
     let mut store = default_store();
     let mut device: Option<String> = None;
     let mut quota: u64 = DEFAULT_QUOTA;
@@ -361,6 +374,9 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
             }
             "--onion-dir" => {
                 onion_dir = Some(value_after(argv, &mut i, "--onion-dir")?);
+            }
+            "--replica-evidence" => {
+                replica_evidence = Some(value_after(argv, &mut i, "--replica-evidence")?);
             }
             "--store" => {
                 store = value_after(argv, &mut i, "--store")?;
@@ -492,6 +508,23 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
         ));
     }
 
+    // The storage section quotes whatever this file says, so it belongs
+    // exactly where that section prints. Elsewhere it would be an argument
+    // the operator cannot see doing anything, which is worse than refusing
+    // the word they actually typed.
+    if replica_evidence.is_some()
+        && !matches!(
+            command,
+            Command::Vault | Command::All | Command::Report | Command::Status
+        )
+    {
+        return Err(ArgError(
+            "--replica-evidence belongs to vault, all, report and status — \
+             the commands that show a storage section"
+                .to_owned(),
+        ));
+    }
+
     if command == Command::Inspect && inspection.is_none() {
         return Err(ArgError(
             "inspect needs --lies-flat or --deformed. Put the phone face-down on \
@@ -511,6 +544,7 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
         vault_dir,
         site_dir,
         onion_dir,
+        replica_evidence,
         store,
         device,
         quota,
@@ -584,6 +618,7 @@ mod tests {
                 bind: super::DEFAULT_BIND.to_owned(),
                 site_dir: None,
                 vault_dir: None,
+                replica_evidence: None,
                 onion_dir: None,
                 store: super::default_store(),
                 device: None,
@@ -1018,6 +1053,45 @@ mod tests {
     }
 
     #[test]
+    fn vault_accepts_a_replica_evidence_path_and_carries_it() {
+        let a = parse(&argv(&[
+            "vault",
+            "--dir",
+            "/d",
+            "--replica-evidence",
+            "/data/replica.json",
+        ]))
+        .expect("parses");
+        assert_eq!(a.replica_evidence.as_deref(), Some("/data/replica.json"));
+    }
+
+    #[test]
+    fn all_carries_the_replica_evidence_too() {
+        let a = parse(&argv(&[
+            "all",
+            "--vault-dir",
+            "/d",
+            "--replica-evidence",
+            "r.json",
+        ]))
+        .expect("parses");
+        assert_eq!(a.replica_evidence.as_deref(), Some("r.json"));
+    }
+
+    #[test]
+    fn a_command_with_no_storage_section_refuses_the_flag_rather_than_ignoring_it() {
+        let e = parse(&argv(&[
+            "site",
+            "--dir",
+            "/d",
+            "--replica-evidence",
+            "r.json",
+        ]))
+        .expect_err("refused");
+        assert!(e.0.contains("storage section"), "{}", e.0);
+        assert!(e.0.contains("vault, all, report and status"), "{}", e.0);
+    }
+
     fn all_takes_an_onion_directory_to_publish_through_the_system_daemon() {
         let a = parse(&argv(&[
             "all",

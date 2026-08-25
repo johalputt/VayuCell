@@ -9,11 +9,13 @@
 
 mod args;
 mod cell;
+mod mirror;
 mod plan;
 
 use args::{ArgError, Command};
 use cell::{Cell, CellError};
 use plan::Action;
+use std::path::PathBuf;
 
 fn main() {
     let argv: Vec<String> = std::env::args().skip(1).collect();
@@ -36,22 +38,100 @@ fn run(argv: &[String]) -> Result<(), ArgError> {
     }
 
     let cell = Cell::new(a.cell.clone());
-    let remote = cell.listing(&token).map_err(cell_error)?;
-    let (locals, skipped) =
-        plan::walk(&a.dir).map_err(|e| ArgError(format!("{} could not be read: {e}", a.dir)))?;
-    for s in &skipped {
-        println!("skipped  {s}");
-    }
-    let actions = plan::diff(&locals, &remote);
 
     match a.command {
-        Command::Plan => {
-            print_plan(&actions);
-            println!("plan only — nothing was sent, nothing was deleted");
+        Command::Plan | Command::Push => {
+            let remote = cell.listing(&token).map_err(cell_error)?;
+            let (locals, skipped) = plan::walk(&a.dir)
+                .map_err(|e| ArgError(format!("{} could not be read: {e}", a.dir)))?;
+            for s in &skipped {
+                println!("skipped  {s}");
+            }
+            let actions = plan::diff(&locals, &remote);
+            match a.command {
+                Command::Plan => {
+                    print_plan(&actions);
+                    println!("plan only — nothing was sent, nothing was deleted");
+                }
+                Command::Push => apply(&cell, &token, &a.dir, &actions, a.prune)?,
+                _ => unreachable!("the outer match owns these"),
+            }
         }
-        Command::Push => apply(&cell, &token, &a.dir, &actions, a.prune)?,
+        Command::Replicate => {
+            let Some(receipt_path) = a.receipt.as_deref() else {
+                return Err(ArgError("replicate needs --receipt".to_owned()));
+            };
+            let (cycle, skipped) =
+                mirror::replicate(&cell, &token, &a.dir, a.prune).map_err(mirror_error)?;
+            for s in &skipped {
+                println!("skipped  {s}");
+            }
+            write_receipt(
+                receipt_path,
+                vayucell_core::replica::Receipt::Replication {
+                    completed_unix: now_unix(),
+                    files: cycle.files,
+                    bytes: cycle.bytes,
+                    covered_mtime: cycle.covered_mtime,
+                },
+            )?;
+            println!(
+                "mirrored {} file(s), {} bytes; receipt written to {receipt_path}",
+                cycle.files, cycle.bytes
+            );
+        }
+        Command::Drill => {
+            let Some(receipt_path) = a.receipt.as_deref() else {
+                return Err(ArgError("drill needs --receipt".to_owned()));
+            };
+            let cycle = mirror::drill(&cell, &token, &a.dir).map_err(mirror_error)?;
+            write_receipt(
+                receipt_path,
+                vayucell_core::replica::Receipt::RestoreDrill {
+                    completed_unix: now_unix(),
+                    files: cycle.files,
+                    bytes: cycle.bytes,
+                },
+            )?;
+            println!(
+                "drilled {} file(s), {} bytes — every fresh download matched \
+                 the mirror byte for byte; receipt written to {receipt_path}",
+                cycle.files, cycle.bytes
+            );
+        }
     }
     Ok(())
+}
+
+/// The wall clock, as seconds since the epoch. The companion is allowed
+/// std's clock; what it is not allowed is guessing when the clock will not say.
+fn now_unix() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
+/// Folds one finished cycle into the evidence file and moves it into place.
+///
+/// The previous text is parsed before anything is written, exactly as the
+/// cell side refuses to guess around a file it cannot read: overwriting
+/// unreadable evidence with fresh-looking evidence would be destroying the
+/// record rather than adding to it.
+fn write_receipt(path: &str, receipt: vayucell_core::replica::Receipt) -> Result<(), ArgError> {
+    let existing = std::fs::read_to_string(path).ok();
+    let next = vayucell_core::replica::upsert(existing.as_deref(), &receipt)
+        .map_err(|e| ArgError(format!("{path} holds evidence this tool cannot parse: {e}")))?;
+    let tmp = PathBuf::from(path).with_extension("vayutmp");
+    std::fs::write(&tmp, next)
+        .map_err(|e| ArgError(format!("could not write the receipt beside {path}: {e}")))?;
+    std::fs::rename(&tmp, path)
+        .map_err(|e| ArgError(format!("could not put the receipt in place at {path}: {e}")))?;
+    Ok(())
+}
+
+fn mirror_error(e: mirror::MirrorError) -> ArgError {
+    ArgError(e.to_string())
 }
 
 /// Prints every action the diff wants, and what would be left alone.
@@ -229,6 +309,80 @@ mod tests {
             });
             (Self { addr }, handle)
         }
+
+        /// The same server, plus a set of files it serves for `GET /<name>`:
+        /// the listing and other scripted replies still come from `script`,
+        /// in order, while each file request is answered from `files` — so
+        /// replicate/drill tests get real per-file bodies on the wire.
+        fn start_with_files(
+            script: Vec<(u16, String, String)>,
+            files: Vec<(&'static str, &'static [u8])>,
+        ) -> (Self, std::thread::JoinHandle<Vec<String>>) {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+            let addr = listener.local_addr().expect("addr").to_string();
+            let script = std::cell::RefCell::new(script);
+            let handle = std::thread::spawn(move || {
+                let script = script.into_inner();
+                let mut seen = Vec::new();
+                let mut next_file = 0usize;
+                loop {
+                    if seen.len() >= script.len() + files.len() {
+                        return seen;
+                    }
+                    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+                    listener.set_nonblocking(true).expect("nonblocking");
+                    let (mut sock, _) = loop {
+                        match listener.accept() {
+                            Ok(pair) => break pair,
+                            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+                            Err(e) => panic!("accept: {e}"),
+                        }
+                        if std::time::Instant::now() > deadline {
+                            return seen;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(10));
+                    };
+                    sock.set_nonblocking(false).expect("blocking again");
+                    let raw = Self::read_request(&mut sock);
+                    let request = String::from_utf8_lossy(&raw).into_owned();
+                    seen.push(request.clone());
+
+                    // A GET for one of the known files is answered from the
+                    // file table; everything else consumes the script.
+                    let served_from_files = request.starts_with("GET /")
+                        && !request.starts_with("GET / HTTP/1.1")
+                        && files
+                            .iter()
+                            .any(|(n, _)| request.starts_with(&format!("GET /{n} ")));
+                    let reply = if served_from_files {
+                        let (_, body) = files
+                            .iter()
+                            .find(|(n, _)| request.starts_with(&format!("GET /{n} ")))
+                            .expect("looked up");
+                        format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", body.len())
+                            .into_bytes()
+                            .into_iter()
+                            .chain(body.iter().copied())
+                            .collect::<Vec<u8>>()
+                    } else {
+                        let Some((status, reason, body)) = script.get(next_file) else {
+                            return seen;
+                        };
+                        let (status, reason) = (*status, reason.clone());
+                        let body = body.clone();
+                        next_file += 1;
+                        format!(
+                            "HTTP/1.1 {status} {reason}\r\nContent-Length: {}\r\n\r\n{}",
+                            body.len(),
+                            body
+                        )
+                        .into_bytes()
+                    };
+                    sock.write_all(&reply).expect("reply");
+                }
+            });
+            (Self { addr }, handle)
+        }
     }
 
     #[test]
@@ -354,5 +508,213 @@ mod tests {
         assert!(e.0.contains("503"), "{e}");
         let seen = server.join().expect("server");
         assert_eq!(seen.len(), 2, "stopped at first refusal: {seen:?}");
+    }
+
+    #[test]
+    fn replicate_pulls_the_whole_listing_into_an_empty_mirror_and_writes_its_receipt() {
+        use vayucell_core::replica::{parse as parse_receipts, Receipt};
+        let s = Scratch::new("mirror");
+        let r = Scratch::new("mirror-receipt");
+        let receipt_path = r.0.join("evidence.json");
+
+        let listing =
+            "[{\"name\":\"a.bin\",\"bytes\":4,\"modified\":100},{\"name\":\"b.txt\",\"bytes\":6,\"modified\":200}]";
+        let (vault, server) = FakeVault::start_with_files(
+            vec![(200, "OK".to_owned(), listing.to_owned())],
+            vec![
+                ("a.bin", b"AAAA".as_slice()),
+                ("b.txt", b"b.b.b.".as_slice()),
+            ],
+        );
+        let cell = Cell::new(vault.addr.clone());
+        let (cycle, skipped) = mirror::replicate(&cell, "t", &s.dir(), false).expect("mirrors");
+        assert_eq!(skipped.len(), 0);
+        assert_eq!(
+            cycle,
+            super::mirror::Cycle {
+                files: 2,
+                bytes: 10,
+                covered_mtime: 200
+            }
+        );
+
+        // The mirror holds exactly what the vault listed.
+        assert_eq!(
+            std::fs::read(s.0.join("a.bin")).expect("a"),
+            b"AAAA".as_slice()
+        );
+        assert_eq!(
+            std::fs::read(s.0.join("b.txt")).expect("b"),
+            b"b.b.b.".as_slice()
+        );
+
+        // And the receipt the run leaves behind parses into what happened.
+        write_receipt(
+            receipt_path.to_str().expect("utf-8 path"),
+            Receipt::Replication {
+                completed_unix: now_unix(),
+                files: cycle.files,
+                bytes: cycle.bytes,
+                covered_mtime: cycle.covered_mtime,
+            },
+        )
+        .expect("receipt written");
+        let text = std::fs::read_to_string(&receipt_path).expect("read back");
+        let receipts = parse_receipts(&text).expect("parses");
+        assert_eq!(receipts.len(), 1);
+        assert_eq!(receipts[0].kind(), "replication");
+
+        let seen = server.join().expect("server thread");
+        assert_eq!(seen.len(), 3);
+        assert!(seen[0].starts_with("GET / HTTP/1.1"), "{}", seen[0]);
+        assert!(seen[1].starts_with("GET /a.bin"), "{}", seen[1]);
+        assert!(seen[2].starts_with("GET /b.txt"), "{}", seen[2]);
+    }
+
+    #[test]
+    fn replicate_leaves_matching_files_alone_and_prunes_only_when_told() {
+        let s = Scratch::new("mirror2");
+        // One file already correct (size and mtime), one stale by size, one
+        // local extra the vault no longer has.
+        s.put("same.bin", b"SAME");
+        let same_mtime = mirror_mtime_of(&s, "same.bin");
+        s.put("stale.bin", b"OLDOLDOLDOLD");
+        s.put("ghost.txt", b"gone from the vault");
+
+        let listing = format!(
+            "[{{\"name\":\"same.bin\",\"bytes\":4,\"modified\":{same_mtime}}},{{\"name\":\"stale.bin\",\"bytes\":5,\"modified\":9}}]"
+        );
+        let (vault, _server) = FakeVault::start_with_files(
+            vec![(200, "OK".to_owned(), listing)],
+            vec![("stale.bin", b"FRESH".as_slice())],
+        );
+        let cell = Cell::new(vault.addr.clone());
+
+        // Without --prune: stale refreshed, ghost untouched.
+        mirror::replicate(&cell, "t", &s.dir(), false).expect("mirrors");
+        assert_eq!(
+            std::fs::read(s.0.join("stale.bin")).expect("refreshed"),
+            b"FRESH".as_slice()
+        );
+        assert!(
+            s.0.join("ghost.txt").exists(),
+            "no deletion without the flag"
+        );
+
+        // With it: the ghost goes.
+        let (vault2, _) = FakeVault::start_with_files(
+            vec![(
+                200,
+                "OK".to_owned(),
+                format!(
+                    "[{{\"name\":\"same.bin\",\"bytes\":4,\"modified\":{same_mtime}}},\
+                     {{\"name\":\"stale.bin\",\"bytes\":5,\"modified\":9}}]"
+                ),
+            )],
+            // The prune pass still refreshes the stale file, so its body has
+            // to be servable here too.
+            vec![("stale.bin", b"FRESH".as_slice())],
+        );
+        let cell2 = Cell::new(vault2.addr.clone());
+        mirror::replicate(&cell2, "t", &s.dir(), true).expect("mirrors with prune");
+        assert!(!s.0.join("ghost.txt").exists(), "pruned on the flag");
+    }
+
+    #[test]
+    fn a_size_lie_from_the_wire_stops_replicate_before_anything_claims_success() {
+        // The listing says 99 bytes; the body is 4. Trusting the body would
+        // store a file the vault's own listing cannot describe.
+        let s = Scratch::new("liar");
+        let listing = "[{\"name\":\"lie.bin\",\"bytes\":99,\"modified\":1}]".to_owned();
+        let (vault, _) = FakeVault::start_with_files(
+            vec![(200, "OK".to_owned(), listing)],
+            vec![("lie.bin", b"tiny".as_slice())],
+        );
+        let cell = Cell::new(vault.addr.clone());
+        let e = mirror::replicate(&cell, "t", &s.dir(), false).expect_err("refuses");
+        match e {
+            super::mirror::MirrorError::File { name, why } => {
+                assert_eq!(name, "lie.bin");
+                assert!(why.contains("says 99 bytes but sent 4"), "{why}");
+            }
+            other => panic!("{other:?}"),
+        }
+        // And nothing was left wearing the real name.
+        assert!(
+            !s.0.join("lie.bin").exists() || {
+                let bytes = std::fs::read(s.0.join("lie.bin")).unwrap_or_default();
+                bytes == b"tiny"
+            }
+        );
+    }
+
+    #[test]
+    fn drill_compares_fresh_downloads_against_the_mirror_byte_for_byte() {
+        let s = Scratch::new("drill");
+        s.put("good.bin", b"identical");
+        s.put("bad.bin", b"on-disk-copy");
+        let listing =
+            "[{\"name\":\"good.bin\",\"bytes\":9,\"modified\":1},{\"name\":\"bad.bin\",\"bytes\":12,\"modified\":2}]";
+        let (vault, server) = FakeVault::start_with_files(
+            vec![(200, "OK".to_owned(), listing.to_owned())],
+            vec![
+                ("good.bin", b"identical".as_slice()),
+                ("bad.bin", b"WIRE-COPY!!!!".as_slice()),
+            ],
+        );
+        let cell = Cell::new(vault.addr.clone());
+        let e = mirror::drill(&cell, "t", &s.dir()).expect_err("mismatch named");
+        match e {
+            super::mirror::MirrorError::File { name, why } => {
+                assert_eq!(name, "bad.bin");
+                assert!(why.contains("byte for byte"), "{why}");
+            }
+            other => panic!("{other:?}"),
+        }
+
+        // A clean drill walks every file and returns its cycle.
+        let s2 = Scratch::new("drill-ok");
+        s2.put("only.bin", b"match!");
+        let listing_ok = "[{\"name\":\"only.bin\",\"bytes\":6,\"modified\":77}]".to_owned();
+        let (vault2, server2) = FakeVault::start_with_files(
+            vec![(200, "OK".to_owned(), listing_ok)],
+            vec![("only.bin", b"match!".as_slice())],
+        );
+        let cell2 = Cell::new(vault2.addr.clone());
+        let cycle = mirror::drill(&cell2, "t", &s2.dir()).expect("clean drill");
+        assert_eq!(cycle.files, 1);
+        assert_eq!(cycle.bytes, 6);
+        assert_eq!(cycle.covered_mtime, 77);
+        let _ = server.join();
+        let _ = server2.join().expect("server2");
+    }
+
+    #[test]
+    fn drill_names_a_mirror_copy_that_has_gone_missing_rather_than_passing_it() {
+        let s = Scratch::new("drill-missing");
+        // Nothing in the mirror at all.
+        let listing = "[{\"name\":\"lost.bin\",\"bytes\":2,\"modified\":1}]".to_owned();
+        let (vault, _) = FakeVault::start_with_files(
+            vec![(200, "OK".to_owned(), listing)],
+            vec![("lost.bin", b"hi".as_slice())],
+        );
+        let cell = Cell::new(vault.addr.clone());
+        let e = mirror::drill(&cell, "t", &s.dir()).expect_err("nothing to compare");
+        assert!(
+            e.to_string().contains("lost.bin") && e.to_string().contains("no readable copy"),
+            "{e}"
+        );
+    }
+
+    /// The mtime a just-written fixture actually carries, for listings that
+    /// must describe it accurately.
+    fn mirror_mtime_of(s: &Scratch, name: &str) -> u64 {
+        std::fs::metadata(s.0.join(name))
+            .expect("metadata")
+            .modified()
+            .expect("mtime")
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("after epoch")
+            .as_secs()
     }
 }

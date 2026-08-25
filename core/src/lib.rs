@@ -27,6 +27,7 @@ pub mod host;
 pub mod ingress;
 pub mod onion;
 pub mod panel;
+pub mod replica;
 pub mod runtime;
 pub mod sampler;
 pub mod serve;

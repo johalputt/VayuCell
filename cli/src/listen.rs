@@ -117,12 +117,38 @@ pub fn serve_site(
 /// # Errors
 ///
 /// Returns the reason the listener could not be established.
+/// The startup sentences a cell with a configured replica prints.
+///
+/// `None` means nothing was configured and the caller falls back to the
+/// only-copy sentence. Every line here is worded as a claim from the
+/// receipt, because that is all it is: this process has no socket out, so
+/// it never measured any of it.
+fn vault_replica_lines(evidence: Option<&str>) -> Option<Vec<String>> {
+    let path = evidence?;
+    let text = std::fs::read_to_string(path).ok();
+    let today = {
+        use vayucell_core::runtime::Clock as _;
+        vayucell_core::runtime::RealClock::new().wall_clock_unix()
+    };
+    let (recovery, backup) =
+        vayucell_core::replica::posture_parts(text.as_deref(), today, Duration::ZERO);
+    Some(vec![
+        format!(
+            "{}, {} (receipt: {path})",
+            recovery.describe(Duration::ZERO),
+            crate::storage::EVIDENCE_PREAMBLE
+        ),
+        backup.describe(today),
+    ])
+}
+
 pub fn serve_vault(
     addr: &str,
     root: &vayucell_core::vault::VaultRoot,
     credentials: &vayucell_core::auth::Credentials,
     context: &(dyn Fn() -> (vayucell_core::governor::Level, vayucell_core::shed::Stage) + Sync),
     limit: u64,
+    replica_evidence: Option<&str>,
 ) -> Result<(), String> {
     let listener = TcpListener::bind(addr).map_err(|e| format!("{addr}: {e}"))?;
     let bound = listener
@@ -147,12 +173,23 @@ pub fn serve_vault(
     // phone. ADR-0004's opening sentence is that a phone is a replica and never
     // the only copy, and until this printed, nothing anywhere told an operator
     // that it is the only copy — the honesty types existed and had no caller.
-    println!(
-        "vayucell: {}\n\
-         \x20         Nothing here replicates yet, so keep a copy elsewhere of \
-         anything you would mind losing.",
-        vayucell_core::durability::RecoveryPoint::NoReplica.describe(Duration::ZERO)
-    );
+    // With --replica-evidence the shape changes but not the honesty: this
+    // cell cannot dial and therefore cannot measure its own replica, so what
+    // it quotes is the replica's dated claim, aged against this clock —
+    // staleness, clock skew and unreadable files all render as exactly that.
+    match vault_replica_lines(replica_evidence) {
+        None => println!(
+            "vayucell: {}\n\
+             \x20         Nothing here replicates yet, so keep a copy elsewhere of \
+             anything you would mind losing.",
+            vayucell_core::durability::RecoveryPoint::NoReplica.describe(Duration::ZERO)
+        ),
+        Some(lines) => {
+            for line in lines {
+                println!("vayucell: {line}");
+            }
+        }
+    }
 
     accept_loop(&listener, Surface::Site, &|request, headers, body| {
         let (level, stage) = context();

@@ -20,6 +20,23 @@ pub enum Command {
     Plan,
     /// Apply the uploads, and prune only when told.
     Push,
+    /// Pull the vault down into the local folder — a replica — and write a
+    /// receipt when the whole cycle succeeded.
+    Replicate,
+    /// Download every stored file afresh and compare against the replica
+    /// byte for byte; the restore drill. Writes its own receipt on success.
+    Drill,
+}
+
+impl Command {
+    /// The two commands that write evidence, and what they call it.
+    ///
+    /// `None` for plan and push: those move files between a folder and the
+    /// vault, and leave no claims behind about anything having been verified.
+    #[must_use]
+    pub const fn receipt_wanted(self) -> bool {
+        matches!(self, Self::Replicate | Self::Drill)
+    }
 }
 
 /// A parsed invocation.
@@ -37,19 +54,36 @@ pub struct Args {
     pub prune: bool,
     /// Environment variable holding the device token.
     pub token_env: String,
+    /// Where `replicate`/`drill` write their receipt. Always `None` for plan
+    /// and push, which leave no claims.
+    pub receipt: Option<String>,
 }
 
 const USAGE: &str = "usage:
-  vayucell-sync plan <LOCAL_DIR> <HOST:PORT>
-  vayucell-sync push <LOCAL_DIR> <HOST:PORT> [--prune]
+  vayucell-sync plan      <LOCAL_DIR> <HOST:PORT>
+  vayucell-sync push      <LOCAL_DIR> <HOST:PORT> [--prune]
+  vayucell-sync replicate <MIRROR_DIR> <HOST:PORT> --receipt <FILE> [--prune]
+  vayucell-sync drill     <MIRROR_DIR> <HOST:PORT> --receipt <FILE>
 
 options:
   --token-env <VAR>   environment variable holding the device token
                       (default: VAYUCELL_TOKEN)
+  --receipt <FILE>    where replicate/drill leave their dated claim
+                      (required by both; nothing else writes one)
 
 plan prints what would move and touches nothing. push applies it;
 --prune additionally deletes remote files that no longer exist locally,
-which is why it is a flag you have to type.";
+which is why it is a flag you have to type.
+
+replicate pulls the vault into MIRROR_DIR: every listed file downloaded,
+changed files re-downloaded, and — with --prune — local copies of files
+the vault no longer has removed. drill downloads every file AFRESH and
+compares it against the mirror byte for byte: that comparison is the
+restore being verified, and it is why drill takes no flags beyond
+--receipt and --token-env. A command that finishes completely leaves a
+receipt naming when it finished and what it covered; a command that fails
+midway leaves the previous receipt standing, which ages out and reads as
+nobody measuring.";
 
 /// Parses an argument vector.
 ///
@@ -62,9 +96,12 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
     let command = match word.as_str() {
         "plan" => Command::Plan,
         "push" => Command::Push,
+        "replicate" => Command::Replicate,
+        "drill" => Command::Drill,
         other => {
             return Err(ArgError(format!(
-                "first argument is `{other}`, which is not plan or push.\n\n{USAGE}"
+                "first argument is `{other}`, which is not plan, push, \
+                 replicate or drill.\n\n{USAGE}"
             )))
         }
     };
@@ -101,13 +138,33 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
 
     let mut prune = false;
     let mut token_env = "VAYUCELL_TOKEN".to_owned();
+    let mut receipt: Option<String> = None;
     while let Some(flag) = iter.next() {
         match flag.as_str() {
-            "--prune" if command == Command::Push => prune = true,
+            "--prune" if matches!(command, Command::Push | Command::Replicate) => prune = true,
+            "--prune" if command == Command::Drill => {
+                return Err(ArgError(
+                    "--prune belongs to push and replicate; drill deletes nothing,                      here or anywhere."
+                        .to_owned(),
+                ))
+            }
             "--prune" => {
                 return Err(ArgError(
                     "--prune belongs to push; plan never deletes anything.".to_owned(),
                 ))
+            }
+            "--receipt" => {
+                let v = iter
+                    .next()
+                    .ok_or_else(|| ArgError("--receipt needs a file path".to_owned()))?
+                    .clone();
+                if !command.receipt_wanted() {
+                    return Err(ArgError(
+                        "--receipt belongs to replicate and drill: plan and push move                          files, they leave no claims about verification."
+                            .to_owned(),
+                    ));
+                }
+                receipt = Some(v);
             }
             "--token-env" => {
                 token_env = iter
@@ -123,12 +180,27 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
         }
     }
 
+    // A receipt path is how the cell ever hears about any of this. Requiring
+    // it up front beats discovering at the end of a long cycle that the run
+    // just made no evidence.
+    let receipt = match (command.receipt_wanted(), receipt) {
+        (true, Some(r)) => Some(r),
+        (true, None) => {
+            return Err(ArgError(
+                "this command writes a receipt when it succeeds, so --receipt                  <FILE> is required: without a path there is nowhere to leave                  the dated claim the cell would read"
+                    .to_owned(),
+            ))
+        }
+        (false, _) => None,
+    };
+
     Ok(Args {
         command,
         dir,
         cell,
         prune,
         token_env,
+        receipt,
     })
 }
 
@@ -205,6 +277,65 @@ mod tests {
         let e = parse(&argv(&["plan", "/d", "https://h:1"])).expect_err("tls requested");
         assert!(e.0.contains("plain HTTP"), "{}", e.0);
         assert!(e.0.contains("onion path is already encrypted"), "{}", e.0);
+    }
+
+    #[test]
+    fn replicate_requires_a_receipt_path_because_claims_need_somewhere_to_land() {
+        let e = parse(&argv(&["replicate", "/mirror", "h:1"])).expect_err("no receipt");
+        assert!(e.0.contains("--receipt"), "{}", e.0);
+        let a = parse(&argv(&[
+            "replicate",
+            "/mirror",
+            "h:1",
+            "--receipt",
+            "/r.json",
+        ]))
+        .expect("valid");
+        assert_eq!(a.command, Command::Replicate);
+        assert_eq!(a.receipt.as_deref(), Some("/r.json"));
+        assert!(!a.prune);
+    }
+
+    #[test]
+    fn drill_takes_the_same_receipt_and_refuses_prune_in_its_own_words() {
+        let a = parse(&argv(&["drill", "/mirror", "h:1", "--receipt", "/r.json"])).expect("valid");
+        assert_eq!(a.command, Command::Drill);
+        assert!(!a.prune);
+
+        let e = parse(&argv(&[
+            "drill",
+            "/mirror",
+            "h:1",
+            "--receipt",
+            "/r.json",
+            "--prune",
+        ]))
+        .expect_err("drill deletes nothing");
+        assert!(e.0.contains("deletes nothing"), "{}", e.0);
+    }
+
+    #[test]
+    fn plan_and_push_leave_no_claims_so_the_receipt_flag_belongs_to_others() {
+        let e = parse(&argv(&["push", "/d", "h:1", "--receipt", "/r.json"]))
+            .expect_err("misplaced flag");
+        assert!(e.0.contains("leave no claims"), "{}", e.0);
+        let e = parse(&argv(&["plan", "/d", "h:1", "--receipt", "/r.json"]))
+            .expect_err("misplaced flag");
+        assert!(e.0.contains("leave no claims"), "{}", e.0);
+    }
+
+    #[test]
+    fn replicate_can_prune_its_mirror_when_the_vault_shrinks() {
+        let a = parse(&argv(&[
+            "replicate",
+            "/m",
+            "h:1",
+            "--receipt",
+            "/r",
+            "--prune",
+        ]))
+        .expect("valid");
+        assert!(a.prune);
     }
 
     #[test]

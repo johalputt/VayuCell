@@ -20,6 +20,23 @@ when the tag is cut.
 
 ### Added
 
+- **The replicator with its verified restore — replication by receipt**
+  ([ADR-0012](docs/adr/ADR-0012-replication-by-receipt.md)). `vayucell-sync`
+  gains `replicate` (pull the vault into a mirror folder, durable writes,
+  `--prune`) and `drill` (re-download every listed file and compare it
+  against the mirror byte for byte); both require `--receipt`, write it
+  only on complete success, and refuse to overwrite receipt text they
+  cannot parse. The cell gains `--replica-evidence` on `vault`, `all`,
+  `report` and `status`: the startup banner and the storage section quote
+  the receipts through the staleness rules ADR-0004 already pinned, every
+  line worded as a claim from the replica rather than as something the
+  phone measured.
+- **`core/src/replica.rs`: a receipt format too small to lie
+  interestingly** — strict byte-level parser (ASCII only, duplicate fields
+  refused, trailing bytes refused, every malformation named), conversion
+  into `RecoveryPoint`/`BackupState` under the standing five-minute
+  window, clock-skew refusal instead of clamping, and an upsert that will
+  not bulldoze unreadable evidence.
 - **`vayucell-sync`: the companion that keeps one folder of yours in step with
   one vault** — a new `sync/` crate building its own binary, because the dialing
   half of sync cannot live in a program whose charter forbids it from dialing
