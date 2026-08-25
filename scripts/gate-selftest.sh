@@ -161,6 +161,13 @@ violation "$CHARTER" "V.2 production source opens an outbound connection" \
   "V.2" \
   "printf 'fn dial() { let _ = std::net::TcpStream::connect(\"h:1\"); }\n' >> cli/src/device.rs"
 
+# The carve-out for the companion is guarded rather than assumed: if
+# sync/ vanished while the exclusion stayed, an unwatched directory
+# would exist only in a comment.
+violation "$CHARTER" "V.2 the scan excludes sync/, which no longer exists" \
+  "no longer exists" \
+  "rm -rf sync"
+
 # The same call inside a test module must NOT be caught. A check that flagged it
 # would be reporting this repo's own pool tests as egress, and the usual repair
 # for that is to loosen the check until it catches nothing — so the discrimination
@@ -439,9 +446,23 @@ expect_doctest_failure 999 "a compile-time proof stops being collected" \
 expect_doctest_failure 1 "a proof is added without the count being raised" \
   "keeps meaning something"
 
+# The plant count is pinned to itself, the way the mutation gate pins its own
+# match count: prose elsewhere quotes a number, and a number nobody checks is
+# a claim. Adding or removing a plant without touching this pin fails the run
+# and puts the recount in the diff where review will see it.
+PLANTS="$(grep -c '^violation ' "$0")"
+EXPECTED_PLANTS=57
+if [ "$PLANTS" -ne "$EXPECTED_PLANTS" ]; then
+  echo "GATE SELF-TEST FAILED — the script now plants $PLANTS violations but"
+  echo "pins $EXPECTED_PLANTS. Re-count by hand, then update both this pin"
+  echo "and every number that quotes it."
+  exit 1
+fi
+
 echo
 if [ "$FAILED" -ne 0 ]; then
   echo "GATE SELF-TEST FAILED — a gate does not catch what it claims to."
   exit 1
 fi
-echo "Gate self-test passed: every check above is actually enforcing something."
+echo "Gate self-test passed: $PLANTS planted violations plus two count proofs,"
+echo "and every check above is actually enforcing something."

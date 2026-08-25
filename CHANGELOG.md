@@ -20,6 +20,23 @@ when the tag is cut.
 
 ### Added
 
+- **`vayucell-sync`: the companion that keeps one folder of yours in step with
+  one vault** — a new `sync/` crate building its own binary, because the dialing
+  half of sync cannot live in a program whose charter forbids it from dialing
+  (`vayucell-sync plan --dir <DIR> host:port`, then
+  `VAYUCELL_TOKEN=… vayucell-sync push …`). `plan` prints the difference and
+  moves nothing; `push` uploads what differs by size or mtime, and deletes the
+  remote copies of files you removed locally **only when you pass `--prune`,
+  and only after every upload succeeded**. The cell is dialed only while the
+  command runs: no watcher, no schedule, nothing resident. It speaks exactly
+  the vault's plain-HTTP dialect — over Tor the onion path already encrypts,
+  which is why there is no TLS here to trust instead — and it refuses chunked
+  answers by name rather than parsing them halfway. Names the protocol could
+  not read back are skipped with a warning rather than stored blind. Decision
+  in [`docs/adr/ADR-0011-synchronising-a-folder-to-a-vault.md`](docs/adr/ADR-0011-synchronising-a-folder-to-a-vault.md),
+  governance in
+  [`docs/vcip/VCIP-0002-the-folder-companion-and-the-vault-listing.md`](docs/vcip/VCIP-0002-the-folder-companion-and-the-vault-listing.md).
+
 - **The vault answers `GET /` with what it stores** — one authenticated
   request returning every file's name, size and last write as JSON, sorted.
   A folder being kept in sync against a cell cannot diff what it cannot list,

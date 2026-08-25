@@ -1,0 +1,22 @@
+[package]
+name = "vayucell-sync"
+version = "0.0.13"
+edition = "2021"
+rust-version = "1.80"
+license = "Apache-2.0"
+description = "The companion that keeps a folder in step with a VayuCell vault: it plans, it pushes, and it only ever dials when you invoke it."
+repository = "https://github.com/johalputt/VayuCell"
+
+[[bin]]
+name = "vayucell-sync"
+path = "src/main.rs"
+
+# ADR-0005 §5.1 — no third-party runtime dependencies here either. This crate
+# exists to dial one server over plain HTTP; a client library would outgrow its
+# purpose long before it earned a dependency.
+[dependencies]
+vayucell-core = { path = "../core", version = "0.0.13" }
+
+[lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"

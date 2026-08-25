@@ -1784,3 +1784,37 @@ if [ "$FAILED" -ne 0 ]; then
   exit 1
 fi
 echo "Mutation gate passed: every guard above is actually load-bearing."
+
+# ── The companion that keeps a folder in step (ADR-0011) ─────────────────────
+
+mutate "sync/src/cell.rs" push_uploads_what_diffs_and_leaves_up_to_date_files_alone \
+  "an upload goes out without the credential, so every push answers 401" \
+  "            \"PUT {} HTTP/1.1\\r\\nHost: {}\\r\\nAuthorization: Bearer {token}\\r\\n\\"
+  "            \"PUT {} HTTP/1.1\\r\\nHost: {}\\r\\n\\"
+
+mutate "sync/src/plan.rs" the_same_size_and_mtime_means_up_to_date_and_produces_nothing \
+  "an unchanged file is re-uploaded on every run, wearing the flash for nothing" \
+  "            Some(_) => {}" \
+  "            Some(_) => {
+                actions.push(Action::Upload {
+                    name: local.name.clone(),
+                    why: Difference::Mtime,
+                })
+            }"
+
+mutate "sync/src/plan.rs" the_walk_takes_top_level_files_and_skips_the_rest_out_loud \
+  "a hidden file is swept into the plan, where the vault will refuse it by name later" \
+  "        if raw.starts_with('.') {" \
+  "        if false {"
+
+mutate "sync/src/plan.rs" the_walk_takes_top_level_files_and_skips_the_rest_out_loud \
+  "a subdirectory is treated as a storable file" \
+  "        if !meta.is_file() {" \
+  "        if false {"
+
+mutate "sync/src/main.rs" prune_only_deletes_when_the_flag_says_so_and_only_after_uploads_win \
+  "deletion stops needing --prune, and a plain push empties the vault of anything the folder lost" \
+  "    if prune {
+        for action in actions {" \
+  "    if true {
+        for action in actions {"

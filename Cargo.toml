@@ -1,5 +1,5 @@
 [workspace]
-members = ["core", "cli"]
+members = ["core", "cli", "sync"]
 
 # The fuzz harness carries a third-party dependency and must never be built
 # into anything that ships. Excluding it here is what makes that true;

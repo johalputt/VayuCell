@@ -1353,8 +1353,7 @@ mod listing_tests {
         use std::os::unix::fs::PermissionsExt;
         let s = Scratch::new("dark");
         s.write("a.txt", b"x");
-        std::fs::set_permissions(&s.0, std::fs::Permissions::from_mode(0o444))
-            .expect("chmod");
+        std::fs::set_permissions(&s.0, std::fs::Permissions::from_mode(0o444)).expect("chmod");
         let result = io_for(&s.dir()).list();
         let _ = std::fs::set_permissions(&s.0, std::fs::Permissions::from_mode(0o755));
         let e = result.expect_err("metadata unreadable");

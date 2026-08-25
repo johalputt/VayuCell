@@ -295,8 +295,21 @@ fi
 if ! python3 -c 'pass' >/dev/null 2>&1; then
   fail "V.2 python3 is unusable on PATH, so the outbound-connection scan would read nothing and pass"
 else
+  # The companion, and the one carve-out. `sync/` is `vayucell-sync`: a command
+  # for the machine that HOLDS the files, whose entire purpose is dialling the
+  # cell you name. The cell itself — core/ and cli/ — remains scanned in full,
+  # because "it binds, and it never connects" is a claim about what runs on the
+  # phone, not about every binary this repository builds. The carve-out is
+  # guarded rather than assumed: if sync/ vanished while this exclusion stayed,
+  # an unwatched directory would exist only in this comment.
+  if [ ! -d sync/src ]; then
+    fail "V.2 the scan excludes sync/, which no longer exists — remove the exclusion or restore the crate"
+  fi
   egress=""
   while IFS= read -r f; do
+    case "$f" in
+      ./sync/*) continue ;;
+    esac
     if strip_test_items "$f" | strip_comments_stdin \
         | grep -qE '(TcpStream|UdpSocket)::(connect|bind|connect_timeout)|reqwest|ureq|\bcurl\b'; then
       egress="$egress $f"
@@ -306,7 +319,7 @@ else
     fail "V.2 production source opens an outbound connection; a cell must not dial out:"
     printf '        %s\n' $egress
   else
-    pass "V.2 no production source opens an outbound connection — it listens, never dials"
+    pass "V.2 no production source outside the sync companion opens an outbound connection"
   fi
 fi
 

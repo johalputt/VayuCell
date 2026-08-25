@@ -388,7 +388,7 @@ of it compiles.
 | **P1** | **Battery Safety Governor** + posture report | Safe unattended operation | Ceiling is set, read back, and reverting is detected | ◐ **written, unproven on hardware.** The state machine, the read-back, the reversion detection, the shed ladder, the halt record and the panel all exist and are mutation-tested. Every one of them has been exercised against a fake host and **has governed zero real cells** |
 | **P2** | T0/T1 runtime, service supervisor, one-click installer | A phone that serves something | Survives 30 days unattended with Doze active | ◐ **needs a device.** The supervisor loop is in `core/src/runtime.rs`, the binary runs it, and thirty *simulated* days is a test. A service supervisor and Doze survival cannot be simulated |
 | **P3** | **Sovereign Ingress** — onion, relay, local | A reachable server with no public IP | Reachable from outside with no port forward | ◐ **onion written, relay not.** The modes, their seven declared properties and the governor's authority over them are in `core/src/ingress.rs`, local-only is served, and `all --onion-dir` now supervises your system's tor daemon to publish the site and the vault — contract in `core/src/onion.rs`, supervision in `cli/src/onion.rs`, decision in [VCIP-0001](docs/vcip/VCIP-0001-onion-ingress-via-system-tor.md). The key stays in the daemon's own directory, the daemon is shed first at DERATED and stopped before every halt exit, and reachability reads **unverified** until a request from outside has been observed — which has not happened, because no handset has run this. **Relay is not implemented**, and the gate needs hardware plus an outside vantage point |
-| **P4** | Catalogue: site + personal cloud | The two headline uses | A real site and real file sync, served from a phone | ◐ **half.** `vayucell site` serves a directory under the governor's authority (ADR-0008) and `vayucell vault` accepts authenticated files (ADR-0009). **File sync is not written**, and neither half has run on a handset |
+| **P4** | Catalogue: site + personal cloud | The two headline uses | A real site and real file sync, served from a phone | ◐ **code complete, unproven on hardware.** `vayucell site` serves a directory under the governor's authority (ADR-0008) and `vayucell vault` accepts authenticated files (ADR-0009), now with an authenticated listing so a client can decide what differs. The companion `vayucell-sync` keeps one folder of yours in step — plan/push, prune only on the flag, dials only while it runs (ADR-0011). What remains is the gate: a handset serving both halves, and sync run against it from another machine |
 | **P5** | **T2 virtualised tier** (pKVM guest) | Server-grade on unrooted, updated phones | Guest survives host reboot; escapes Doze | ⬜ not started |
 | **P6** | Replication lag as the stated guarantee, verified-restore reporting, wear observation | Data you can trust | Graceful-shutdown ladder verified; an unrestored backup reads *unverified* | ◐ **observable half done.** `core/src/durability.rs` holds the honesty machinery — a lag that goes stale, a restore drill that expires, no variant meaning *durable* — and it now has a producer: `cli/src/storage.rs` builds a posture, `core/src/wear.rs` reads the flash's own life-time estimate, and `vayucell vault` tells an operator at startup that this phone is the only copy. **There is still no replicator and no backup system**, so the lag and the restore drill describe a subsystem that does not exist yet. The gate needs both, plus a device |
 | **P7** | **Fleet** — roles, replication, rolling upgrade, shared verdicts | Redundancy and scale | One node killed mid-write loses nothing | ⬜ not started |
@@ -397,14 +397,15 @@ of it compiles.
 
 **Two phases have their code, three are part-built, five are untouched — and
 that undercounts what is left.** Everything written so far is the layer
-*underneath* the product: eleven core modules and twenty gates, serving a directory
-and storing files on your own network. The three things that would make this the
-thing the README describes were **an onion service** (P3), **file sync** (P4),
-and **a replicator with verified restore** (P6). The first of those now has its
-code — supervised against the system's tor daemon, governed, honestly worded,
-and still never exercised by an outside visitor — so what remains unbuilt is
-**file sync** and **the replicator with its verified restore**, plus the relay
-half of P3.
+*underneath* the product: eleven core modules and twenty gates, serving a directory,
+storing files on your own network, and — as of the companion — keeping a folder
+of yours in step with that store when you tell it to. The three things that would
+make this the thing the README describes were **an onion service** (P3), **file
+sync** (P4), and **a replicator with verified restore** (P6). The first of those
+now has its code, and file sync's does too — `vayucell-sync`, dialing from your
+side so the cell never dials at all (ADR-0011) — both still never exercised by an
+outside visitor or a real handset. What remains unbuilt is **the replicator with
+its verified restore**, plus the relay half of P3.
 
 **Four gates cannot be closed by writing code.** P2, P3, P4 and P6 all end in a
 sentence about a device: thirty days unattended, reachable from outside, served

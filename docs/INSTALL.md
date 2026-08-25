@@ -17,17 +17,22 @@ See [Step 7](#step-7--host-a-website-optional).
 
 And it can **store files** — upload, download and delete, with every device that
 may do so holding its own credential you can revoke on its own. See
-[Step 8](#step-8--store-files-optional).
+[Step 8](#step-8--store-files-optional). With the small companion program built
+from this repository it can also **keep one of your laptop's folders in step
+with the vault** — you run the command when you want that to happen; nothing
+watches anything on its own. See [Step 8d](#8d--keep-a-folder-in-step-optional-companion).
 
 All of it runs from a single command — [Step 9](#step-9--the-command-to-actually-leave-running).
 
 **What it does not do yet, stated plainly:** nothing it serves is reachable from
-outside your own network. There is no sync, no folder that mirrors itself onto
-your laptop, no phone app, and no link you can send to somebody in another
-building. Putting a file on it means typing a command, or pointing something you
-already have at the address yourself.
+outside your own network. There is no phone app, and no link you can send to
+somebody in another building. Putting a file on it means typing a command,
+pointing something you already have at the address yourself, or running the
+companion from Step 8d.
 
-If you want a file store that **syncs on its own**, this is not that yet.
+If you want a file store that **syncs on its own** — watching folders,
+reconciling on its own schedule — this is not that. Sync here is something
+you start, watch say what it did, and stop.
 
 ---
 
@@ -346,6 +351,48 @@ written, flushed, and renamed into place — and stops there. It does not tell y
 your file is safe. Nothing was copied anywhere else, this is one phone, and a
 phone can be dropped. **Keep your only copy somewhere else.**
 
+### 8d — Keep a folder in step (optional, companion)
+
+Typing one `curl` per file is fine until the folder has twenty files. This
+repository also builds a small second program, `vayucell-sync`, that compares a
+folder on your computer against the vault and moves exactly what differs. It
+lives in the [`sync/`](../sync/) directory of the repository — build it once
+where you have Rust installed:
+
+```bash
+cargo install --path sync
+```
+
+Then, from your laptop:
+
+```bash
+# look first: prints what would move and deletes nothing
+vayucell-sync plan --dir ~/myfolder <phone-ip>:8082
+
+# then do it — the secret from step 8a goes in the environment, not the history
+VAYUCELL_TOKEN=PASTE-THE-SECRET-HERE \
+vayucell-sync push --dir ~/myfolder <phone-ip>:8082
+```
+
+What it does with a folder of three files where one changed and one was deleted
+locally:
+
+```text
+uploaded notes.txt (412 bytes, size)
+2 remote file(s) no longer exist locally; run again with --prune to delete them
+```
+
+**Deletion always asks twice.** A file you removed on the laptop stays on the
+vault until you run `push` again with `--prune`. Nothing is ever deleted by the
+same run that could fail halfway, and `plan` can never delete anything at all.
+
+The phone is only contacted while the command runs. It never reaches back to
+your laptop, nothing watches folders, and nothing runs on a schedule. Plain HTTP
+is all it speaks — over Tor, the onion path already encrypts, which is why there
+is no separate TLS layer here. See
+[ADR-0011](adr/ADR-0011-synchronising-a-folder-to-a-vault.md) for the whole
+reasoning.
+
 ### Keep it on its own port
 
 Never point the vault and the website at the **same folder** — that would
@@ -476,9 +523,9 @@ anywhere. If you also want Termux gone, uninstall it like any app.
 **No VayuCell release has been installed on a physical phone by its author.**
 
 Every device-facing behaviour is exercised against a simulated device in the
-test suite — 328 tests, and every safety check is deliberately re-broken in CI
-to prove the tests would notice. That is a real standard and it is not the same
-as a phone on a bench.
+test suite — 594 unit tests, and every safety check is deliberately re-broken
+in CI to prove the tests would notice. That is a real standard and it is not the
+same as a phone on a bench.
 
 You are, right now, closer to a first tester than a user. If you run this, a
 [device report](https://github.com/johalputt/VayuCell/issues/new?template=device-report.yml)

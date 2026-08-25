@@ -12,3 +12,10 @@ dependencies = [
 [[package]]
 name = "vayucell-core"
 version = "0.0.13"
+
+[[package]]
+name = "vayucell-sync"
+version = "0.0.13"
+dependencies = [
+ "vayucell-core",
+]
