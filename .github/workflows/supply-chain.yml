@@ -61,7 +61,7 @@ jobs:
               sys.exit(1)
           print("no third-party runtime components — the charter's claim holds")
           PY
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sbom
           path: sbom.cdx.json
@@ -135,7 +135,7 @@ jobs:
           # scan still runs and every other check is still scored. The fallback
           # is the current behaviour, made visible rather than implicit.
           repo_token: ${{ secrets.SCORECARD_TOKEN || github.token }}
-      - uses: github/codeql-action/upload-sarif@c4dd10e44af883a891fe31ced449bcb4a6728b9b # v3
+      - uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
         with:
           sarif_file: scorecard.sarif
         continue-on-error: true
