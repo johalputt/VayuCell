@@ -124,12 +124,18 @@ pub enum UpgradeState {
     /// Waiting its turn.
     Pending,
     /// Out of rotation while its replacement is installed.
-    InFlight { since_unix: u64 },
+    InFlight {
+        /// Wall-clock second the node left rotation, for budget ageing.
+        since_unix: u64,
+    },
     /// Came back inside the budget.
     Done,
     /// Failed to come back inside [`UPGRADE_BUDGET_SECS`]; removed from the
     /// rotation rather than waited on forever.
-    Drained { noticed_unix: u64 },
+    Drained {
+        /// Wall-clock second the overstay was noticed and acted on.
+        noticed_unix: u64,
+    },
 }
 
 /// How long a node has to come back before it is drained instead.
