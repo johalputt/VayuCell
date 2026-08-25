@@ -733,11 +733,12 @@ Sixteen modules, one crate, one direction of dependency — fifteen above the se
                     │  ON THE OTHER SIDE OF THIS LINE.             │
                     └──────────────────────────────────────────────┘
 
-    NOT BUILT: relay ingress ·
-    the Android shell · the fleet view · the hardware database ·
+    NOT BUILT: the Android shell · the fleet view · the hardware database ·
     any code path that has ever touched a handset. The onion is built as far
     as this machine can build it — supervised, governed, honestly worded — and
-    no further: nothing outside has ever fetched a byte through it.
+    no further: nothing outside has ever fetched a byte through it. The relay
+    is declared with its dependency named in every start, and never claimed
+    reachable.
 ```
 
 `RealHost` exists and implements both traits over `std::fs`; nothing in this

@@ -395,23 +395,22 @@ of it compiles.
 | **P8** | **T3 mainline tier** (postmarketOS-class images) | A maintained kernel — the real fix for B4 | Verified images for the top device families | ⬜ not started |
 | **P9** | Local model inference, household services | Private AI on hardware you own | Runs within the declared thermal envelope | ⬜ not started |
 
-**Two phases have their code, three are part-built, five are untouched — and
-that undercounts what is left.** Everything written so far is the layer
-*underneath* the product: thirteen core modules and twenty gates, serving a directory,
-storing files on your own network, keeping a folder of yours in step with that
-store when you tell it to, holding a replica whose restore has been compared
-byte for byte, declaring ingress modes down to their dependencies, and stating
-— in arithmetic, not adjectives — what a fleet of these things would owe one another The first two have their code, and
-the third's does too — companion-side `replicate`/`drill` leaving dated
-receipts, cell-side quoting that refuses to improve them, and P3's relay
-mode declared with the dependency named in every start (ADR-0013) — none of
-it yet exercised by an outside visitor or a real handset. **Every phase
-whose gate does not demand hardware now has its code.**
+**Six phases have their code; three are untouched; and every gate that is
+still open ends in a sentence about hardware.** P0 is met. P1's governor,
+P2's supervisor loop, P3's ingress in all four modes, P4's site, vault and
+companion, P6's replicator with its verified restore, and P7's fleet
+contract all exist and are mutation-tested — thirteen core modules and
+twenty gates' worth of layer *underneath* the product. What remains
+untouched is exactly what cannot be written here: P5 needs a phone with
+working pKVM, P8 needs maintained mainline images for real device
+families, and P9 needs silicon to run inference on. None of those is a
+coding problem, so none of them got pretend code.
 
-**Four gates cannot be closed by writing code.** P2, P3, P4 and P6 all end in a
-sentence about a device: thirty days unattended, reachable from outside, served
-from a phone, a ladder verified on hardware. No amount of work in this repository
-closes them. Somebody has to put a retired phone on a bench.
+**Five gates cannot be closed by writing code.** P2, P3, P4, P6 and P7 all end
+in a sentence about devices: thirty days unattended, reachable from an outside
+vantage point, served from a phone, receipts aging in the world, a node killed
+mid-write losing nothing on real storage. No amount of work in this repository
+closes them. Somebody has to put retired phones on a bench.
 
 **P1 precedes everything that serves traffic, deliberately.** Shipping a
 convenient server before the safety governor would put hardware in a risky state
@@ -451,7 +450,7 @@ reading it. The permanent red rows are what make the green ones worth believing.
 | 2 | Ship our own mainline images, or defer to an existing distribution | **Defer and contribute upstream.** Maintaining device trees is a decade-long commitment |
 | 3 | Default ingress | **Onion.** It is the only mode with no external dependency |
 | 4 | Guest OS for T2 | Whatever the platform ships by default, plus a declarative option for reproducibility |
-| 5 | Fleet membership trust | Derived key from a shared secret, following ADR-0148 — never the raw secret |
+| 5 | Fleet membership trust | **Decided** ([ADR-0014](docs/adr/ADR-0014-the-fleet-contract.md)): records are sealed with HMAC-SHA-256 under a key derived from a shared secret — never the raw secret |
 | 6 | Batteryless as default recommendation | **No.** Recommend it where the device supports it, but the UPS is a genuine benefit worth governing for |
 
 ---
