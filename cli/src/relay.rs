@@ -7,7 +7,7 @@
 //! A relay path means a machine you rent sits on the public internet,
 //! accepts visitors by a DNS name, and forwards every connection to this
 //! device — dialing **in**, which is the only direction the charter permits
-//! anyone to dial ([charter] Article V). This module has no code for
+//! anyone to dial (charter Article V). This module has no code for
 //! configuring that rented machine: configuring somebody else's server is
 //! that server's job, and a cell that reached out to do it would be a cell
 //! that dials.
@@ -17,7 +17,7 @@
 //! given honestly ([`validate_host`]), and say out loud — before anything
 //! binds, in the words of [`startup_lines`] — who can end this path and
 //! what it costs. The profile those sentences come from lives in
-//! [`crate::ingress::Mode::Relay`], declared like every other mode's.
+//! [`vayucell_core::ingress::Mode::Relay`], declared like every other mode's.
 
 use vayucell_core::ingress::{self, Mode};
 

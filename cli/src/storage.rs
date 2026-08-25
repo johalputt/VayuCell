@@ -19,7 +19,8 @@
 //!
 //! There is no replicator and no backup system in this repository. That is not a
 //! gap in this module; it is the state of the project, and the honest rendering
-//! of it is [`RecoveryPoint::NoReplica`] and [`BackupState::NotConfigured`] —
+//! of it is [`vayucell_core::durability::RecoveryPoint::NoReplica`] and
+//! [`vayucell_core::durability::BackupState::NotConfigured`] —
 //! which the panel already describes as *"this phone is the only copy — which is
 //! the one thing ADR-0004 says a phone must never be"*.
 //!

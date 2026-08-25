@@ -597,7 +597,7 @@ anywhere. If you also want Termux gone, uninstall it like any app.
 **No VayuCell release has been installed on a physical phone by its author.**
 
 Every device-facing behaviour is exercised against a simulated device in the
-test suite — 628 unit tests, and every safety check is deliberately re-broken
+test suite — 629 unit tests, and every safety check is deliberately re-broken
 in CI to prove the tests would notice. That is a real standard and it is not the
 same as a phone on a bench.
 

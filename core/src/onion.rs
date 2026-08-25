@@ -137,7 +137,7 @@ impl Plan {
     /// The path of the daemon log, beside everything else in the plan.
     ///
     /// When nothing outside can reach the cell, the reason is in this file,
-    /// and "look in <path>" is the most a program that cannot read minds can
+    /// and "look in `<path>`" is the most a program that cannot read minds can
     /// honestly offer.
     #[must_use]
     pub fn log_path(&self) -> String {
