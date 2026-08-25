@@ -1871,3 +1871,26 @@ mutate "cli/src/relay.rs" a_name_longer_than_dns_allows_is_refused_with_the_coun
   "a hostname longer than DNS allows is accepted, promising reachability at a name that cannot resolve" \
   "    if host.len() > 253 {" \
   "    if false {"
+
+# --- The fleet contract (ADR-0014) -------------------------------------------
+
+mutate "core/src/fleet.rs" quorum_is_a_majority_and_witnesses_speak_only_on_ties \
+  "a write needs half the members instead of a majority, so a split fleet accepts writes nobody can call decided" \
+  "pub fn quorum_needed(members: usize) -> usize {
+    members / 2 + 1
+}" \
+  "pub fn quorum_needed(members: usize) -> usize {
+    members / 2
+}"
+
+mutate "core/src/fleet.rs" quorum_is_a_majority_and_witnesses_speak_only_on_ties \
+  "willing witnesses promote a minority into a deciding vote, not just a tie into a decision" \
+  "    let split = live_members * 2 == total_members;
+    split && live_members + willing_witnesses.min(1) >= needed" \
+  "    let split = live_members <= total_members;
+    split && live_members + willing_witnesses.min(9) >= needed"
+
+mutate "core/src/fleet.rs" an_upgrade_holds_one_node_in_flight_and_drains_a_stalled_one \
+  "a node is drained exactly at its budget instead of after it, so a slow reboot loses its place in the rotation" \
+  "                if now.saturating_sub(since_unix) > UPGRADE_BUDGET_SECS {" \
+  "                if now.saturating_sub(since_unix) >= UPGRADE_BUDGET_SECS {"

@@ -20,6 +20,15 @@ when the tag is cut.
 
 ### Added
 
+- **The fleet contract** ([ADR-0014](docs/adr/ADR-0014-the-fleet-contract.md)).
+  `core/src/fleet.rs` defines the four roles as declared promises, quorum
+  as a computed majority where witnesses vote only to break exact ties —
+  and can never promote a minority — an upgrade state machine that holds
+  one node in flight and drains one that overstays, and jail verdicts
+  sealed with HMAC-SHA-256 implemented in-tree and pinned against NIST
+  and RFC 4231 vectors. `--fleet-role` on report, status and all renders
+  the declaration, its consequence, and the honest ceiling in the same
+  section.
 - **Relay ingress — declaration without management**
   ([ADR-0013](docs/adr/ADR-0013-relay-ingress-a-rented-dependency.md)).
   `vayucell all --relay-via <HOST>` declares ADR-0003's rented-tunnel mode:

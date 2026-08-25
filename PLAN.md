@@ -391,19 +391,17 @@ of it compiles.
 | **P4** | Catalogue: site + personal cloud | The two headline uses | A real site and real file sync, served from a phone | ◐ **code complete, unproven on hardware.** `vayucell site` serves a directory under the governor's authority (ADR-0008) and `vayucell vault` accepts authenticated files (ADR-0009), now with an authenticated listing so a client can decide what differs. The companion `vayucell-sync` keeps one folder of yours in step — plan/push, prune only on the flag, dials only while it runs (ADR-0011). What remains is the gate: a handset serving both halves, and sync run against it from another machine |
 | **P5** | **T2 virtualised tier** (pKVM guest) | Server-grade on unrooted, updated phones | Guest survives host reboot; escapes Doze | ⬜ not started |
 | **P6** | Replication lag as the stated guarantee, verified-restore reporting, wear observation | Data you can trust | Graceful-shutdown ladder verified; an unrestored backup reads *unverified* | ◐ **both code halves done, device gate open.** The honesty machinery (`core/src/durability.rs`: a lag that goes stale, a drill that expires, no variant meaning *durable*) now has both a renderer (`cli/src/storage.rs`, wear from `core/src/wear.rs`) and a subject: `vayucell-sync replicate` mirrors the vault and `drill` re-downloads every file to compare byte for byte, each leaving a dated receipt (ADR-0012). The cell quotes that receipt through `--replica-evidence` — worded as the replica's claim, aged against this clock, never measured here. **What remains is exactly what code cannot do**: somebody runs this against a real handset and lets the receipts age in the world |
-| **P7** | **Fleet** — roles, replication, rolling upgrade, shared verdicts | Redundancy and scale | One node killed mid-write loses nothing | ⬜ not started |
+| **P7** | **Fleet** — roles, replication, rolling upgrade, shared verdicts | Redundancy and scale | One node killed mid-write loses nothing | ◐ **contract written, unproven at scale.** `core/src/fleet.rs` holds the whole interop contract ([ADR-0014](docs/adr/ADR-0014-the-fleet-contract.md)): the four roles as declared promises, quorum computed as a majority with witnesses restricted to breaking exact ties, an upgrade machine that holds one node in flight and drains one that overstays its budget, and jail verdicts sealed with hand-implemented, RFC-pinned HMAC-SHA-256. Replication between cells rides the existing vault plus ADR-0012 receipts — there is no separate fleet wire format. What remains is the gate itself: real nodes, killed mid-write, on real hardware |
 | **P8** | **T3 mainline tier** (postmarketOS-class images) | A maintained kernel — the real fix for B4 | Verified images for the top device families | ⬜ not started |
 | **P9** | Local model inference, household services | Private AI on hardware you own | Runs within the declared thermal envelope | ⬜ not started |
 
 **Two phases have their code, three are part-built, five are untouched — and
 that undercounts what is left.** Everything written so far is the layer
-*underneath* the product: twelve core modules and twenty gates, serving a directory,
+*underneath* the product: thirteen core modules and twenty gates, serving a directory,
 storing files on your own network, keeping a folder of yours in step with that
-store when you tell it to, and — as of ADR-0012 — holding a replica whose
-restore has been compared byte for byte, on evidence the phone can quote but
-never claims to have measured. The three things that would make this the thing
-the README describes were **an onion service** (P3), **file sync** (P4), and
-**a replicator with verified restore** (P6). The first two have their code, and
+store when you tell it to, holding a replica whose restore has been compared
+byte for byte, declaring ingress modes down to their dependencies, and stating
+— in arithmetic, not adjectives — what a fleet of these things would owe one another The first two have their code, and
 the third's does too — companion-side `replicate`/`drill` leaving dated
 receipts, cell-side quoting that refuses to improve them, and P3's relay
 mode declared with the dependency named in every start (ADR-0013) — none of

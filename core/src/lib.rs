@@ -20,6 +20,7 @@ pub mod battery;
 pub mod capability;
 pub mod csp;
 pub mod durability;
+pub mod fleet;
 pub mod governor;
 pub mod halt;
 pub mod headers;

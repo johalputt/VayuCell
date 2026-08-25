@@ -62,6 +62,16 @@ use vayucell_core::host::Host;
 use vayucell_core::sysfs::{detect_mechanism, NODES, PROBE_ORDER, SUPPLY};
 use vayucell_core::tier::{detect, Verdict, SHELL_ASSERTION_ENV};
 
+/// The lowercase name an operator typed back at them.
+pub(crate) fn role_name(role: vayucell_core::fleet::Role) -> &'static str {
+    match role {
+        vayucell_core::fleet::Role::Edge => "edge",
+        vayucell_core::fleet::Role::Store => "store",
+        vayucell_core::fleet::Role::Compute => "compute",
+        vayucell_core::fleet::Role::Witness => "witness",
+    }
+}
+
 /// Builds the report.
 ///
 /// Returns a `String` rather than printing, so every line of it is reachable in
@@ -74,6 +84,7 @@ pub fn report(
     standing: &Standing,
     now: vayucell_core::durability::Now,
     replica_evidence: Option<&str>,
+    fleet_role: Option<vayucell_core::fleet::Role>,
 ) -> String {
     let mut out = String::new();
 
@@ -110,6 +121,13 @@ pub fn report(
             out,
             "YOURS      you passed --replica-evidence, so the STORAGE section \
              below quotes a file you chose."
+        );
+    }
+    if fleet_role.is_some() {
+        let _ = writeln!(
+            out,
+            "DECLARED   the FLEET section below states a role you chose for \
+             this device; nothing here discovers one."
         );
     }
     if let Some(value) = host.env(SHELL_ASSERTION_ENV) {
@@ -197,6 +215,32 @@ pub fn report(
         let _ = writeln!(out, "{line}");
     }
 
+    // Fleet: only ever what the operator declared. A role is a promise
+    // about what this device will be asked to survive, and discovering one
+    // would be guessing at somebody else's promise.
+    if let Some(role) = fleet_role {
+        let _ = writeln!(out);
+        let _ = writeln!(out, "FLEET");
+        let _ = writeln!(
+            out,
+            "  role       {} — {}",
+            role_name(role),
+            role.describe()
+        );
+        if !role.serves_traffic() {
+            let _ = writeln!(
+                out,
+                "  traffic    this node serves nothing but its tie-breaking vote"
+            );
+        }
+        let _ = writeln!(
+            out,
+            "  ceiling    N phones multiply capacity and availability \
+             linearly; that is real and worth having, and it is not a \
+             datacentre"
+        );
+    }
+
     let _ = writeln!(out);
     let _ = writeln!(out, "PANEL");
     let panel = crate::report::observed(host, supply_dir, Percent::clamped(60), standing);
@@ -245,7 +289,15 @@ mod tests {
         // The single most useful line in the report. `health` is absent on this
         // fixture, and a report that simply left the line out would make "this
         // device has no such node" indistinguishable from "nobody looked".
-        let out = report(&phone(), SUPPLY, "0.0.0", &Standing::Clear, at_noon(), None);
+        let out = report(
+            &phone(),
+            SUPPLY,
+            "0.0.0",
+            &Standing::Clear,
+            at_noon(),
+            None,
+            None,
+        );
         assert!(out.contains("ABSENT   health"), "{out}");
         assert!(out.contains("present  capacity               58"), "{out}");
     }
@@ -254,7 +306,15 @@ mod tests {
     fn every_node_the_reader_consults_appears_in_the_report() {
         // Pinned to the published list rather than to a copy, so a node added to
         // the reader cannot go unreported.
-        let out = report(&phone(), SUPPLY, "0.0.0", &Standing::Clear, at_noon(), None);
+        let out = report(
+            &phone(),
+            SUPPLY,
+            "0.0.0",
+            &Standing::Clear,
+            at_noon(),
+            None,
+            None,
+        );
         for node in NODES {
             assert!(
                 out.contains(node),
@@ -267,7 +327,15 @@ mod tests {
     fn values_are_trimmed_so_a_pasted_report_does_not_show_blank_fields() {
         // The fixture writes each node with a trailing newline, as the kernel
         // does. Untrimmed, every value would land on the following line.
-        let out = report(&phone(), SUPPLY, "0.0.0", &Standing::Clear, at_noon(), None);
+        let out = report(
+            &phone(),
+            SUPPLY,
+            "0.0.0",
+            &Standing::Clear,
+            at_noon(),
+            None,
+            None,
+        );
         assert!(!out.contains("capacity               \n"), "{out}");
     }
 
@@ -275,7 +343,15 @@ mod tests {
     fn all_four_charge_mechanisms_are_reported_including_the_absent_ones() {
         // Which mechanisms a handset does *not* have is the answer to "why does
         // this phone say UNSAFE", and it is the same answer for most of them.
-        let out = report(&phone(), SUPPLY, "0.0.0", &Standing::Clear, at_noon(), None);
+        let out = report(
+            &phone(),
+            SUPPLY,
+            "0.0.0",
+            &Standing::Clear,
+            at_noon(),
+            None,
+            None,
+        );
         assert!(out.contains("charge_control_end_threshold"), "{out}");
         assert!(
             out.contains("no mechanism; no ceiling can be held"),
@@ -294,6 +370,7 @@ mod tests {
             &Standing::Clear,
             at_noon(),
             None,
+            None,
         );
         assert!(out.contains("TIER"), "{out}");
         assert!(out.contains("ABSENT   capacity"), "{out}");
@@ -305,7 +382,15 @@ mod tests {
         // A promise in a document nobody reads is not a control. The claim
         // travels with the text it describes, so whoever is about to paste it
         // can check one against the other.
-        let out = report(&phone(), SUPPLY, "0.0.0", &Standing::Clear, at_noon(), None);
+        let out = report(
+            &phone(),
+            SUPPLY,
+            "0.0.0",
+            &Standing::Clear,
+            at_noon(),
+            None,
+            None,
+        );
         assert!(out.contains("CONTAINS"), "{out}");
         assert!(out.contains("OMITS"), "{out}");
         for absent in ["IMEI", "MAC", "hostname", "username"] {
@@ -337,7 +422,15 @@ mod tests {
         // It also means whatever they typed lands in a report going into a public
         // issue, so the claim above it has to say so.
         let mine = phone().with_env(SHELL_ASSERTION_ENV, "alices-spare-pixel");
-        let out = report(&mine, SUPPLY, "0.0.0", &Standing::Clear, at_noon(), None);
+        let out = report(
+            &mine,
+            SUPPLY,
+            "0.0.0",
+            &Standing::Clear,
+            at_noon(),
+            None,
+            None,
+        );
         assert!(
             out.contains("alices-spare-pixel"),
             "the probe stopped quoting it:\n{out}"
@@ -352,7 +445,15 @@ mod tests {
     fn a_report_with_nothing_operator_set_claims_no_exceptions() {
         // The other direction, so "flag what they chose" cannot be satisfied by
         // a line that is always printed.
-        let out = report(&phone(), SUPPLY, "0.0.0", &Standing::Clear, at_noon(), None);
+        let out = report(
+            &phone(),
+            SUPPLY,
+            "0.0.0",
+            &Standing::Clear,
+            at_noon(),
+            None,
+            None,
+        );
         assert!(!out.contains("YOURS"), "{out}");
     }
 
@@ -367,10 +468,19 @@ mod tests {
             &Standing::Clear,
             at_noon(),
             None,
+            None,
         );
         assert!(mine.contains("path below is one you chose"), "{mine}");
 
-        let standard = report(&phone(), SUPPLY, "0.0.0", &Standing::Clear, at_noon(), None);
+        let standard = report(
+            &phone(),
+            SUPPLY,
+            "0.0.0",
+            &Standing::Clear,
+            at_noon(),
+            None,
+            None,
+        );
         assert!(
             !standard.contains("path below is one you chose"),
             "{standard}"
@@ -382,7 +492,46 @@ mod tests {
         // A report from a halted phone is the most interesting one anybody will
         // ever send, and by the time they send it the cell has cooled.
         let halted = Standing::Halted(Halt::new("pack temperature exceeded 60 °C").expect("ok"));
-        let out = report(&phone(), SUPPLY, "0.0.0", &halted, at_noon(), None);
+        let out = report(&phone(), SUPPLY, "0.0.0", &halted, at_noon(), None, None);
         assert!(out.contains("governor at HALT"), "{out}");
+    }
+
+    #[test]
+    fn a_declared_role_renders_as_declared_with_its_ceiling_said_out_loud() {
+        let out = report(
+            &FakeHost::new(),
+            SUPPLY,
+            "0.0.0",
+            &Standing::Clear,
+            at_noon(),
+            None,
+            Some(vayucell_core::fleet::Role::Witness),
+        );
+        assert!(out.contains("FLEET"), "{out}");
+        assert!(
+            out.contains("witness — exists only to break quorum ties"),
+            "{out}"
+        );
+        assert!(
+            out.contains("serves nothing but its tie-breaking vote"),
+            "{out}"
+        );
+        assert!(out.contains("not a datacentre"), "{out}");
+    }
+
+    #[test]
+    fn no_declared_role_means_no_fleet_section_at_all() {
+        // An undeclared role is not a role called "none": the section is
+        // absent rather than inventing an answer nobody gave.
+        let out = report(
+            &FakeHost::new(),
+            SUPPLY,
+            "0.0.0",
+            &Standing::Clear,
+            at_noon(),
+            None,
+            None,
+        );
+        assert!(!out.contains("FLEET"), "{out}");
     }
 }

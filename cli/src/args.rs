@@ -120,6 +120,10 @@ pub struct Args {
     /// Declaring it changes what the cell may claim: a supplier can end this
     /// path at will, and the banner says so. `all` only.
     pub relay_via: Option<String>,
+    /// This cell's declared role in a fleet. Declared, never discovered:
+    /// a role is a promise about what this device will be asked to
+    /// survive. report, status and all.
+    pub fleet_role: Option<vayucell_core::fleet::Role>,
     /// Where the credential store lives.
     pub store: String,
     /// The device name `enrol` adds. `None` means none was given.
@@ -347,6 +351,7 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
     let mut onion_dir: Option<String> = None;
     let mut replica_evidence: Option<String> = None;
     let mut relay_via: Option<String> = None;
+    let mut fleet_role = None;
     let mut store = default_store();
     let mut device: Option<String> = None;
     let mut quota: u64 = DEFAULT_QUOTA;
@@ -395,6 +400,11 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
                 let raw = value_after(argv, &mut i, "--relay-via")?;
                 let host = crate::relay::validate_host(&raw).map_err(ArgError)?;
                 relay_via = Some(host);
+            }
+            "--fleet-role" => {
+                let raw = value_after(argv, &mut i, "--fleet-role")?;
+                let role = parse_fleet_role(&raw).map_err(ArgError)?;
+                fleet_role = Some(role);
             }
             "--store" => {
                 store = value_after(argv, &mut i, "--store")?;
@@ -566,6 +576,17 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
         ));
     }
 
+    // A role is quoted by the surfaces that render the posture. Elsewhere
+    // it would be an argument doing nothing while looking like a decision.
+    if fleet_role.is_some() && !matches!(command, Command::Report | Command::Status | Command::All)
+    {
+        return Err(ArgError(
+            "--fleet-role belongs to report, status and all — the commands \
+             that show a posture"
+                .to_owned(),
+        ));
+    }
+
     Ok(Args {
         command,
         supply_dir,
@@ -576,6 +597,7 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
         site_dir,
         onion_dir,
         relay_via,
+        fleet_role,
         replica_evidence,
         store,
         device,
@@ -583,6 +605,19 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
         halt_record,
         inspection,
     })
+}
+
+/// Parses a fleet role name, refusing anything else by name.
+fn parse_fleet_role(raw: &str) -> Result<vayucell_core::fleet::Role, String> {
+    match raw {
+        "edge" => Ok(vayucell_core::fleet::Role::Edge),
+        "store" => Ok(vayucell_core::fleet::Role::Store),
+        "compute" => Ok(vayucell_core::fleet::Role::Compute),
+        "witness" => Ok(vayucell_core::fleet::Role::Witness),
+        other => Err(format!(
+            "{other} is not a fleet role — edge, store, compute or witness"
+        )),
+    }
 }
 
 fn set_inspection(slot: &mut Option<Inspection>, seen: Inspection) -> Result<(), ArgError> {
@@ -650,6 +685,7 @@ mod tests {
                 bind: super::DEFAULT_BIND.to_owned(),
                 site_dir: None,
                 vault_dir: None,
+                fleet_role: None,
                 replica_evidence: None,
                 onion_dir: None,
                 relay_via: None,
@@ -1184,6 +1220,26 @@ mod tests {
                 e.0
             );
         }
+    }
+
+    #[test]
+    fn a_fleet_role_is_parsed_by_its_name_and_carried() {
+        let a = parse(&argv(&["report", "--fleet-role", "witness"])).expect("parses");
+        assert_eq!(a.fleet_role, Some(vayucell_core::fleet::Role::Witness));
+        let a = parse(&argv(&["all", "--site-dir", "/s", "--fleet-role", "edge"])).expect("parses");
+        assert_eq!(a.fleet_role, Some(vayucell_core::fleet::Role::Edge));
+    }
+
+    #[test]
+    fn a_fleet_role_is_refused_where_no_posture_is_shown() {
+        let e = parse(&argv(&["vault", "--dir", "/d", "--fleet-role", "store"])).expect_err("x");
+        assert!(e.0.contains("--fleet-role belongs"), "{}", e.0);
+    }
+
+    #[test]
+    fn an_unknown_fleet_role_names_the_four_that_exist() {
+        let e = parse(&argv(&["status", "--fleet-role", "boss"])).expect_err("x");
+        assert!(e.0.contains("edge") && e.0.contains("witness"), "{}", e.0);
     }
 
     #[test]

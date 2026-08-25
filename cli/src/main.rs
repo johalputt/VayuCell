@@ -106,6 +106,7 @@ fn main() -> ExitCode {
                         },
                     },
                     parsed.replica_evidence.as_deref(),
+                    parsed.fleet_role,
                 )
             );
             0
@@ -609,6 +610,13 @@ fn all(a: &Args) -> i32 {
         for line in crate::relay::startup_lines(host, &site_addr, &vault_addr) {
             println!("vayucell: {line}");
         }
+    }
+    if let Some(role) = a.fleet_role {
+        println!(
+            "vayucell: fleet role {} — {}",
+            crate::survey::role_name(role),
+            role.describe()
+        );
     }
 
     println!(
