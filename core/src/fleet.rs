@@ -239,7 +239,14 @@ impl UpgradePlan {
 /// Pinned below against NIST/RFC vectors including the empty message and
 /// the million-`a` case, which is where hand implementations usually
 /// discover their padding is off by one.
+///
+/// The lint allowances are deliberate: `a`–`h` and `w` are FIPS 180-4
+/// §6.2.2's own names for its working variables, and the round constants
+/// are transcribed verbatim from §4.2.3 so this table can be diffed
+/// against the spec character for character.
+#[allow(clippy::many_single_char_names)]
 fn sha256(data: &[u8]) -> [u8; 32] {
+    #[allow(clippy::unreadable_literal)]
     const K: [u32; 64] = [
         0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,
         0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe,
@@ -261,6 +268,9 @@ fn sha256(data: &[u8]) -> [u8; 32] {
     }
     msg.extend_from_slice(&bitlen.to_be_bytes());
 
+    // The initial hash words are §5.3.3's own constants, verbatim for the
+    // same reason the round table stays verbatim.
+    #[allow(clippy::unreadable_literal)]
     let mut h: [u32; 8] = [
         0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab,
         0x5be0cd19,
@@ -347,6 +357,12 @@ pub struct SealedVerdict {
 
 impl SealedVerdict {
     /// Issues and seals a verdict under the fleet's derived key.
+    ///
+    /// # Panics
+    ///
+    /// Only if `char::from_digit` is handed a nibble larger than 15, which
+    /// the two shifts here cannot produce; the expects name that invariant
+    /// rather than silently swallowing an impossible case.
     #[must_use]
     pub fn seal(subject: &str, verdict: &str, issued_unix: u64, key: &[u8]) -> Self {
         let payload = format!("{subject}|{verdict}|{issued_unix}");
