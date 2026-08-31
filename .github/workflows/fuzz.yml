@@ -54,7 +54,7 @@ jobs:
         with:
           workspaces: fuzz
 
-      - uses: taiki-e/install-action@6c6fd71fe4fb72c3697d269963d0e15df8adedad # v2
+      - uses: taiki-e/install-action@37f7c5781271959fb65b6b35224e28652ff2b63d # v2
         with:
           tool: cargo-fuzz
 
