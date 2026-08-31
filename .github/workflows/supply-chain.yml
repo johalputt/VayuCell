@@ -135,7 +135,7 @@ jobs:
           # scan still runs and every other check is still scored. The fallback
           # is the current behaviour, made visible rather than implicit.
           repo_token: ${{ secrets.SCORECARD_TOKEN || github.token }}
-      - uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
+      - uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
           sarif_file: scorecard.sarif
         continue-on-error: true
