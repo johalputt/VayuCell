@@ -397,13 +397,25 @@ fn a_name_that_only_appears_in_a_comment_is_not_a_duplicate() {
 
 #[test]
 fn a_line_that_is_not_two_fields_is_refused_by_number() {
-    for (text, line) in [
+    // The store text holds a secret, so it is never printed — not even in a
+    // failure message. A test that fails on a machine whose log somebody else
+    // reads would put the credential in that log, and this assertion is where
+    // that habit starts. The case number says which input failed; the input
+    // itself is described rather than shown.
+    for (case, (text, line)) in [
         ("laptop\n".to_owned(), 1usize),
         (format!("laptop {} extra\n", secret(1)), 1),
         (format!("laptop {}\nphone\n", secret(1)), 2),
-    ] {
+    ]
+    .into_iter()
+    .enumerate()
+    {
         let e = parse_store(&text).expect_err("not two fields");
-        assert_eq!(e.line, line, "{text:?}");
+        assert_eq!(
+            e.line, line,
+            "case {case}: the refusal must name the line by number, and the text \
+             is not printed because it holds the secret"
+        );
         assert_eq!(e.why, StoreProblem::NotTwoFields);
     }
 }

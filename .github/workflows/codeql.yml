@@ -11,18 +11,33 @@
 # It is also the check a supply-chain scorecard looks for by name, and a project
 # that argues its gates are worth trusting should not be the one refusing an
 # independent analysis because it is confident.
+#
+# # Why the analysis is not run from here on a push
+#
+# It is — but it runs from `ci.yml` now, and this file is the weekly re-scan.
+#
+# The reason is not tidiness. When this was the only place the analysis ran, a
+# finding it reported could not fail the build: the run went red, the alert
+# appeared in the security tab, and the required status check stayed green. A
+# red run is visible; a red *required check* is actionable. One finding sat
+# open here for a month because nothing about it stopped anything.
+#
+# So the analysis is a job of `ci.yml` now, and the security gate enforces the
+# rule that made it move: a scan which runs on a push has to live in the
+# workflow the required check aggregates. This file keeps the weekly run, which
+# exists for a different reason — new queries ship after the code does, so a
+# repository that only scans on push stops learning the day the last commit
+# lands, and a query published on Tuesday finds nothing in a tree last scanned
+# on Monday.
 
 name: CodeQL
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
   schedule:
     # Weekly. New queries ship after the code does, so a repository that only
     # scans on push stops learning the day the last commit lands.
     - cron: "37 5 * * 1"
+  workflow_dispatch:
 
 permissions:
   contents: read

@@ -184,6 +184,21 @@ when the tag is cut.
 
 ### Changed
 
+- **The security scans are inside the required gate now.** The static
+  analysis, the bill of materials, the policy scan and the fuzz harness each
+  ran in a workflow of their own. Their verdicts were visible — a red run, an
+  alert in the security tab — and nothing about them could fail the required
+  status check, so a finding sat open in this repository for a month while
+  every push was green. All four are jobs of `ci.yml` now, and
+  `scripts/security-gate.sh` enforces the rule that made them move: **a
+  workflow that runs on a push to a branch has to be the required gate
+  itself.** `codeql.yml` keeps the weekly re-scan, the OSV scan moves to
+  `scheduled.yml` with the other advisories, and the gate additionally fails
+  while any code-scanning finding is open at all — because the analyser fails
+  its own job when a finding is *new* and says nothing when one is already in
+  its baseline, which is the case where somebody has to act. The scorecard's
+  own findings are policy findings; they are listed with the reason each one
+  is open and they do not fail the build. *(Maintainer-facing.)*
 - The device report no longer takes the version as an argument: it is
   `CARGO_PKG_VERSION`, the same in every call, and the argument that had to
   go was the one that added nothing.
@@ -193,6 +208,13 @@ when the tag is cut.
 
 ### Fixed
 
+- **A test printed a credential store in its failure message.**
+  `core/src/auth_test.rs` asserted the line number of a refused store line
+  with the whole line as the failure message, so a failing test would have
+  written the secret into whatever log the run was captured in — on a project
+  whose entire subject is a credential store. The assertion now names the
+  case rather than the text. This was the open finding in the repository's
+  security tab, and the reason the security gate now exists. *(Maintainer-facing.)*
 - **Six assertions that a newer clippy refuses.** Clippy 1.99 widened
   `assert_is_empty`: it now fires on `assert!(!x.is_empty())` as well as on
   `assert!(x.is_empty())`, and on receivers that are not vectors. The core

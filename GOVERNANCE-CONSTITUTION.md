@@ -749,7 +749,7 @@ The SBOM ships with the release, and CI **fails if it contains a third-party
 runtime component**. An SBOM nobody asserts anything about is a file, not a
 check.
 
-**Enforced by:** `.github/workflows/supply-chain.yml`
+**Enforced by:** `.github/workflows/ci.yml`
 
 ### 10A.5 A tag is never moved **[CI]**
 
@@ -770,6 +770,35 @@ pinned version, not a verified one.
 
 See §8.5. Determinism is what makes "check for yourself" a real offer rather than
 a slogan.
+
+**Enforced by:** `.github/workflows/ci.yml`
+
+### 10A.8 A scan that runs on a push can fail the build, and nothing is left open **[CI]**
+
+The static analysis, the bill of materials, the policy scan and the fuzz harness
+each ran in a workflow of their own. Their verdicts were visible — a red run, an
+alert in the security tab — and nothing about them could fail the required
+status check. A finding sat open in this repository for a month while every push
+was green.
+
+A check that cannot fail the build is a claim, not a control, and this rule says
+which is which. Two things follow, and both are checked:
+
+- **A workflow that runs on a push to a branch must be the required gate
+  itself**, so that its verdict reaches the one check the branch requires. A
+  scan that is genuinely advisory belongs on a schedule, where it is not
+  required and says so by being there.
+- **No code-scanning finding about the code may be left open.** The analyser
+  fails its own job when a finding is *new* and says nothing when a finding is
+  already in its baseline — which is the case where somebody has to act.
+
+The scorecard's own findings are policy findings rather than findings about the
+code. They are listed by the gate, with the reason each one is open, and they
+do not fail the build. Filtering them out of the report would be the
+dishonesty Article 4 forbids; listing them, explaining them, and not pretending
+they are code defects is the honest version of the same thing.
+
+**Enforced by:** `scripts/security-gate.sh`
 
 ---
 
@@ -1003,10 +1032,10 @@ permission.
 
 | Enforcement | Count | What it means |
 | --- | --- | --- |
-| **[CI]** | 52 | A gate fails the build |
+| **[CI]** | 53 | A gate fails the build |
 | **[REVIEW]** | 28 | A person must catch it |
 | **[NORM]** | 30 | Advisory, and labelled as such |
-| **Total** | 110 | |
+| **Total** | 111 | |
 
 **These counts are checked by [`scripts/docs-gate.sh`](scripts/docs-gate.sh).**
 They were wrong in the first draft of this document — off by six — and nothing

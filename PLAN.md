@@ -400,7 +400,7 @@ sentence about hardware.** P0 is met. P1's governor, P2's supervisor loop,
 P3's ingress in all four modes, P4's site, vault and companion, P6's
 replicator with its verified restore, P7's fleet contract, P5's guest
 contract, P8's image manifest and P9's catalogue all exist and are
-mutation-tested — twenty-six core modules and twenty gates' worth of layer
+mutation-tested — twenty-six core modules and twenty-one gates' worth of layer
 *underneath* the product. What remains open is exactly what cannot be
 written here: P5 needs a phone with working pKVM and a host channel that
 speaks, P8 needs maintained mainline images for real device families, and

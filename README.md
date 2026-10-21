@@ -23,16 +23,15 @@
 
 <p align="center">
   <a href="https://github.com/johalputt/VayuCell/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/johalputt/VayuCell/actions/workflows/ci.yml/badge.svg?branch=main"></a>
-  <a href="https://github.com/johalputt/VayuCell/actions/workflows/supply-chain.yml"><img alt="Supply chain" src="https://github.com/johalputt/VayuCell/actions/workflows/supply-chain.yml/badge.svg?branch=main"></a>
   <a href="https://github.com/johalputt/VayuCell/actions/workflows/scheduled.yml"><img alt="Scheduled" src="https://github.com/johalputt/VayuCell/actions/workflows/scheduled.yml/badge.svg?branch=main"></a>
   <a href="LICENSE"><img alt="Code: Apache-2.0" src="https://img.shields.io/badge/code-Apache--2.0-blue.svg"></a>
   <a href="LICENSE-CHARTER"><img alt="Charter: CC0-1.0" src="https://img.shields.io/badge/charter-CC0--1.0-lightgrey.svg"></a>
   <a href="core/src/lib.rs"><img alt="unsafe: forbidden" src="https://img.shields.io/badge/unsafe-forbidden-success.svg"></a>
   <a href="deny.toml"><img alt="runtime deps: zero" src="https://img.shields.io/badge/runtime%20deps-zero-success.svg"></a>
   <a href="docs/CI.md"><img alt="coverage: floor 80" src="https://img.shields.io/badge/coverage-gated_%E2%89%A580%25-success"></a>
-  <a href="GOVERNANCE-CONSTITUTION.md"><img alt="constitution: 110 rules" src="https://img.shields.io/badge/constitution-110%20rules-blueviolet"></a>
+  <a href="GOVERNANCE-CONSTITUTION.md"><img alt="constitution: 111 rules" src="https://img.shields.io/badge/constitution-111%20rules-blueviolet"></a>
   <a href="scripts/mutation-gate.sh"><img alt="mutations killed: 327/327" src="https://img.shields.io/badge/mutations%20killed-327%2F327-success"></a>
-  <a href="scripts/gate-selftest.sh"><img alt="gates self-tested: 57 plants caught" src="https://img.shields.io/badge/gates%20self--tested-57%20plants%20caught-success"></a>
+  <a href="scripts/gate-selftest.sh"><img alt="gates self-tested: 59 plants caught" src="https://img.shields.io/badge/gates%20self--tested-59%20plants%20caught-success"></a>
   <a href="CHARTER.md"><img alt="hardware tested: none yet" src="https://img.shields.io/badge/hardware%20tested-none%20yet-inactive"></a>
 </p>
 
@@ -93,7 +92,7 @@ and no amount of green rows replaces it.
 | --- | --- |
 | Written | The capability registry, tier detection, the CSP and response security headers, **the battery safety governor** — state machine, verification loop, thresholds, recovery — the sysfs layer it drives, the sampling cadence, the mains-loss shed ladder, **the safety panel**, where a row that could not be checked is not allowed to read as one that was, **a published website**: a directory served to your own network, refused the moment the governor says the cell is in trouble, **file storage**: authenticated upload, download and delete, each device holding a credential that can be revoked on its own — and **onion ingress**: `all --onion-dir` publishes the site and the vault through your system's tor daemon, shed first by the governor, never claimed verified until a request arrives from outside — and **relay ingress**: `all --relay-via <HOST>` declares a rented tunnel with the dependency named in every start — and **the fleet contract**: declared roles, computed quorum with witnesses as tie-breakers only, a draining upgrade machine, and HMAC-sealed jail verdicts ([ADR-0014](docs/adr/ADR-0014-the-fleet-contract.md)) — and **the tier-2 guest contract**: what a guest running under an Android host may say about the charge ceiling, the host's Doze policy and its own ingress; a claim that belongs to a boot and dies with it; a standing that has no *verified* variant, because a guest cannot read the cell back ([ADR-0015](docs/adr/ADR-0015-the-tier-two-guest-contract.md)) — and **the tier-3 image manifest**: what a mainline image is, checked against the running system, with absent and unreadable kept apart from different ([ADR-0016](docs/adr/ADR-0016-the-verified-image-manifest.md)) — and **the service catalogue**: every service with its tier floor and its resource envelope, so the picker can grey out what a device cannot run **and say which requirement failed** ([ADR-0017](docs/adr/ADR-0017-the-service-catalogue.md)) |
 | Not written | The fleet view, the hardware database itself, the Android shell, **anything that syncs on its own — storage is a request somebody makes, never a folder that mirrors itself**. The onion has never served an outside visitor either, because no handset has run this binary; what is written is the supervision, the contract and the honest wording, not a proof of reachability. The **tier-2 guest channel** is an environment variable standing in for a pKVM host API, the **tier-3 images** do not exist, and the **resource profiler** that would tell the catalogue what a device can run has never seen a device |
-| Checked | 766 unit tests and 34 doctests, line coverage held above its 80% floor in CI, **327 mutations each re-broken and each required to turn its named test red**, and **57 violations planted in a scratch repository that the gates must catch citing the right rule — a count pinned to itself, like the mutation gate's**. None of that is evidence about hardware; all of it is evidence about the code |
+| Checked | 766 unit tests and 34 doctests, line coverage held above its 80% floor in CI, **327 mutations each re-broken and each required to turn its named test red**, and **59 violations planted in a scratch repository that the gates must catch citing the right rule — a count pinned to itself, like the mutation gate's**. None of that is evidence about hardware; all of it is evidence about the code |
 | Unblocked | [Charter III.1](CHARTER.md) forbids anything serving traffic before the governor. The governor is now **written** — the ordering constraint is met in code, and the gate fails the build if it is ever removed. It is not met on hardware, and nothing serves traffic yet regardless |
 | Never tested on hardware | Everything. Every device-facing behaviour is exercised through a fake host describing handsets nobody here is holding |
 
@@ -748,12 +747,13 @@ scripts/constitution-gate.sh   # every [CI] rule names an enforcer that exists
 scripts/gate-selftest.sh       # ...and proof the gates actually enforce
 scripts/mutation-gate.sh       # proof the tests would catch a regression
 scripts/actions-gate.sh        # every workflow reference resolves
+scripts/security-gate.sh       # the scans are inside the gate, and nothing is left open
 scripts/release-gate.sh        # the version says the same thing everywhere
 cargo test --workspace
 ```
 
 A full run exercises **766 unit tests and 34 doctests** (2 ignored — the two
-snapshot regenerators), kills **327 mutations**, catches **57 planted violations** and two count proofs,
+snapshot regenerators), kills **327 mutations**, catches **59 planted violations** and two count proofs,
 and holds line coverage above a floor of 80. That is a suite that
 has been shown to fail when the code is wrong — the mutation gate is the proof,
 and it asserts its own match count so a mutation that failed to apply cannot be
@@ -1019,12 +1019,12 @@ and has no other symptom.
 
 Gate logic lives in [`scripts/`](scripts/) rather than inline YAML, so the check
 that decides a release is the check you can run on your laptop before you push.
-That directory holds sixteen files: eleven gate scripts, the `local-ci.sh` runner,
+That directory holds eighteen files: thirteen gate scripts, the `local-ci.sh` runner,
 coverage, the doctest count, the SBOM job and the logo generator. Some checks in the
 table above — Rust, Shell, Targets, Supply chain and Reproducible — are invoked
-directly as jobs and commands rather than living in a script of their own. Seven workflows call all of it:
-`ci.yml`, `supply-chain.yml`, `scheduled.yml`, `release.yml`, `codeql.yml`,
-`fuzz.yml` and `dependabot-automerge.yml`. [`docs/CI.md`](docs/CI.md) documents each job and
+directly as jobs and commands rather than living in a script of their own. Five workflows call all of it:
+`ci.yml`, `scheduled.yml`, `release.yml`, `codeql.yml` and
+`dependabot-automerge.yml`. [`docs/CI.md`](docs/CI.md) documents each job and
 each parameter.
 
 **And every gate prints what it cannot check.** The charter gate names four
@@ -1043,8 +1043,8 @@ the gaps.
 entirely independent implementation may take it — and Articles III (safety) and V
 (what VayuCell will never contain) sit beyond ordinary amendment: their SHA-256
 digests are recorded in `.charter-digests`, so an edit stops the build until it is
-re-recorded in the diff where review will see it. Beneath it, a **110-rule
-constitution splits itself 52 `[CI]`, 28 `[REVIEW]`, 30 `[NORM]`**, counts the
+re-recorded in the diff where review will see it. Beneath it, a **111-rule
+constitution splits itself 53 `[CI]`, 28 `[REVIEW]`, 30 `[NORM]`**, counts the
 split in an appendix, and gates that count — a governance document that miscounts
 how much of itself is actually enforced would be committing its own honesty rule's
 error against its reader. Contribution is by DCO sign-off, never a CLA, and the
@@ -1112,7 +1112,7 @@ for.
 | Document | What it is |
 | --- | --- |
 | [`CHARTER.md`](CHARTER.md) | The supreme law. CC0. Read this first |
-| [`GOVERNANCE-CONSTITUTION.md`](GOVERNANCE-CONSTITUTION.md) | How the charter is upheld in practice — 110 rules, 52 `[CI]`, 28 `[REVIEW]`, 30 `[NORM]`, each `[CI]` rule naming the file that enforces it |
+| [`GOVERNANCE-CONSTITUTION.md`](GOVERNANCE-CONSTITUTION.md) | How the charter is upheld in practice — 111 rules, 53 `[CI]`, 28 `[REVIEW]`, 30 `[NORM]`, each `[CI]` rule naming the file that enforces it |
 | [`GOVERNANCE.md`](GOVERNANCE.md) | Who decides what, and how a proposal is made |
 | [`PLAN.md`](PLAN.md) | The full project plan |
 | [`ADR-0001`](docs/adr/ADR-0001-tier-model-and-capability-registry.md) | The tier model and the capability registry |

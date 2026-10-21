@@ -51,6 +51,28 @@ jobs:
       - name: cargo-audit
         run: cargo audit --deny warnings
 
+  # ── A vulnerability nobody has looked at yet ────────────────────────────────
+  #
+  # The second opinion on the lockfile, alongside cargo-deny's advisories
+  # check. They draw on overlapping but not identical data, and two sources
+  # disagreeing is itself information worth having.
+  #
+  # It was on every push until the supply-chain workflow was folded into the
+  # required gate. A newly-published advisory should page a maintainer, not
+  # block an unrelated documentation fix at two in the morning — and the
+  # advisories job above says the same thing about the same class of change.
+  osv:
+    name: "OSV scan"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Scan the lockfile against the OSV database
+        uses: google/osv-scanner-action/osv-scanner-action@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
+        with:
+          scan-args: |-
+            --lockfile=./Cargo.lock
+
   # ── Dependency freshness ────────────────────────────────────────────────────
   freshness:
     name: "Dependencies · Freshness (red = something is behind)"

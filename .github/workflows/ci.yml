@@ -395,6 +395,238 @@ jobs:
         # drifts means CI and a contributor's machine resolved different code.
         run: cargo metadata --locked --format-version 1 > /dev/null
 
+  # ── Static analysis, inside the required gate ───────────────────────────────
+  #
+  # This was a workflow of its own until the finding it reported sat open in
+  # the repository for a month. A red run is visible; a red *required check* is
+  # actionable, and only the second one stops anything. The rule the security
+  # gate enforces is that a scan which runs on a push lives in this file, where
+  # the aggregator can see it.
+  #
+  # The weekly re-scan stays in codeql.yml, because new queries ship after the
+  # code does and a repository that only scans on push stops learning the day
+  # the last commit lands.
+  codeql:
+    name: "Security · Static analysis"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write   # to upload the results
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: github/codeql-action/init@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
+        with:
+          languages: rust
+          # security-extended over the default set. The default trades recall
+          # for noise, and on a crate this size the noise is affordable.
+          queries: security-extended
+
+      - uses: github/codeql-action/autobuild@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
+
+      - uses: github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
+        with:
+          category: "/language:rust"
+
+  # ── The dependency count, from the artefact rather than the manifest ────────
+  #
+  # The charter gate reads the manifests. This reads the built artefact, which
+  # is a second opinion from something that did not take the manifest's word
+  # for anything, and an SBOM nobody asserts anything about is a file.
+  sbom:
+    name: "Security · The SBOM must show no runtime dependency"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - name: Generate
+        run: |
+          cargo install cargo-cyclonedx --locked
+          bash scripts/sbom.sh sbom.cdx.json
+      - name: The dependency count must match the charter's claim
+        # Article V.5 and ADR-0005 §5.1: zero third-party runtime dependencies.
+        run: |
+          python3 - <<'PY'
+          import json, sys
+          doc = json.load(open("sbom.cdx.json"))
+          third_party = [
+              c for c in doc.get("components", [])
+              if not str(c.get("name", "")).startswith("vayucell")
+          ]
+          for c in third_party:
+              print(f"  third-party: {c.get('name')} {c.get('version')}")
+          if third_party:
+              print()
+              print("The core has taken a third-party runtime dependency. That needs an")
+              print("ADR admitting it, and deny.toml reviewed, before this can go green.")
+              sys.exit(1)
+          print("no third-party runtime components — the charter's claim holds")
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sbom.cdx.json
+          path: sbom.cdx.json
+
+  # ── The policy scan ─────────────────────────────────────────────────────────
+  scorecard:
+    name: "Security · OpenSSF Scorecard"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    # The scan grades repository settings, which a pull-request branch cannot
+    # change — so the answer is the same on a branch as on main, and running it
+    # on both is what keeps the required check a single verdict rather than a
+    # verdict that depends on which event started the run.
+    permissions:
+      contents: read
+      id-token: write
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Say which token this scan is using, and what that costs
+        # Branch-Protection is the one check that reads the repository's
+        # settings rather than its files. Scorecard's own rule is that a run
+        # without an administrative token scores the administrator-only
+        # requirements as met — so the number it prints is partly assumed
+        # unless SCORECARD_TOKEN exists.
+        #
+        # The requirements it can read without one are satisfied for real:
+        # `main` refuses force-pushes, refuses deletion, and requires a
+        # status check. Saying so out loud is the point — a check whose
+        # result is partly assumed should not read the same as one that is
+        # wholly measured.
+        env:
+          HAS_TOKEN: ${{ secrets.SCORECARD_TOKEN != '' }}
+        run: |
+          if [ "$HAS_TOKEN" = "true" ]; then
+            echo "SCORECARD_TOKEN is set: the administrator-only requirements are"
+            echo "being evaluated for real as well as the rest."
+          else
+            echo "SCORECARD_TOKEN is NOT set."
+            echo
+            echo "  Branch-Protection is scored as if the administrator-only"
+            echo "  requirements were met, which is Scorecard's own rule for a run"
+            echo "  without an administrative token. The requirements it can read"
+            echo "  are satisfied for real: main refuses force-pushes, refuses"
+            echo "  deletion, and requires a status check."
+            echo
+            echo "  To make the whole number measured rather than partly assumed,"
+            echo "  add a fine-grained personal access token with 'Administration:"
+            echo "  read' on this repository as the secret SCORECARD_TOKEN."
+          fi
+
+      - uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4
+        with:
+          results_file: scorecard.sarif
+          results_format: sarif
+          publish_results: false
+          # Falls back to the job's own token when the secret is absent, so the
+          # scan still runs and every other check is still scored. The fallback
+          # is the current behaviour, made visible rather than implicit.
+          repo_token: ${{ secrets.SCORECARD_TOKEN || github.token }}
+      - uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
+        with:
+          sarif_file: scorecard.sarif
+        continue-on-error: true
+
+  # ── Fuzzing ─────────────────────────────────────────────────────────────────
+  #
+  # A short run on every push. It is not there to find bugs — sixty seconds
+  # finds almost nothing — it is there so the harness cannot rot: a fuzz
+  # target that stopped compiling six months ago is indistinguishable from one
+  # nobody ever wrote. The long run is in scheduled.yml.
+  fuzz:
+    name: "Security · Fuzz ${{ matrix.target }}"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [request_line, battery_reading, nonce]
+    env:
+      # The harness is not part of the workspace, so the workspace's
+      # warnings-are-errors does not apply to it — and a nightly lint in the
+      # harness's own dependencies would fail a build over code that ships
+      # nowhere.
+      RUSTFLAGS: ""
+      SECONDS_PER_TARGET: "60"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      # cargo-fuzz needs nightly for the sanitizer instrumentation. This is the
+      # only place in the project that does, and it builds nothing that ships.
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+        with:
+          toolchain: nightly
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: fuzz
+
+      - uses: taiki-e/install-action@6c6fd71fe4fb72c3697d269963d0e15df8adedad # v2
+        with:
+          tool: cargo-fuzz
+
+      - name: Fuzz ${{ matrix.target }}
+        run: |
+          # --target is explicit and load-bearing. cargo-fuzz infers its default
+          # target from the triple of its own binary, and the installer resolves
+          # to a musl build — so the default becomes x86_64-unknown-linux-musl,
+          # whose statically linked libc AddressSanitizer cannot instrument:
+          # "sanitizer is incompatible with statically linked libc". Naming the
+          # gnu target is what makes the sanitizer usable, and the failure it
+          # avoids is a build error rather than a silently uninstrumented run.
+          cargo fuzz run "${{ matrix.target }}" \
+            --target x86_64-unknown-linux-gnu -- \
+            -max_total_time="$SECONDS_PER_TARGET" -print_final_stats=1
+
+      - name: Keep whatever crashed
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fuzz-artifacts-${{ matrix.target }}
+          path: fuzz/artifacts/
+          if-no-files-found: ignore
+
+  # ── The security gate ───────────────────────────────────────────────────────
+  #
+  # The one job that asks what is open rather than what is new. The analyser
+  # above fails its own job when a finding is new and says nothing when a
+  # finding is already in its baseline — which is the case where somebody has
+  # to act. This asks the API, and fails while anything is open.
+  security:
+    name: "Security · Nothing left open, nothing outside the gate"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # After the analysis, because the analysis is what closes a finding. A push
+    # that fixes a finding is judged against the state before the fix
+    # otherwise, and the commit that closes the alert would be the one commit
+    # that could not be pushed.
+    needs: [codeql]
+    if: always()
+    permissions:
+      contents: read
+      security-events: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Every scan that runs on a push must feed the required check, and no finding may be left open
+        run: bash scripts/security-gate.sh --wait 300
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          # A feed that cannot be read must not read as a feed with nothing in
+          # it. Article IV binds this script the way it binds the rest.
+          VAYUCELL_REQUIRE_SECURITY_FEED: "1"
+
   # ── Cross-compilation for the devices this actually runs on ─────────────────
   targets:
     name: "Target · ${{ matrix.target }}"
@@ -516,6 +748,11 @@ jobs:
       - mutation
       - coverage
       - deps
+      - codeql
+      - sbom
+      - scorecard
+      - fuzz
+      - security
       - targets
       - secrets
       - reproducible

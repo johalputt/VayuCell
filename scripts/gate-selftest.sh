@@ -37,6 +37,14 @@ ACTIONS=scripts/actions-gate.sh
 CONST=scripts/constitution-gate.sh
 ATTRIB=scripts/attribution-gate.sh
 INSTALL=scripts/install-gate.sh
+SECURITY=scripts/security-gate.sh
+
+# The security gate reads the findings feed over the network, and the cases
+# below must not depend on what GitHub happens to be holding at the moment.
+# Without a token it reports UNVERIFIED and stops, which is the honest answer
+# and makes the baseline deterministic.
+unset GITHUB_TOKEN
+unset VAYUCELL_REQUIRE_SECURITY_FEED
 
 # The install gate's end-to-end case builds VayuCell from source, which takes
 # minutes. What is under test here is whether its *static* checks fire, and each
@@ -105,9 +113,44 @@ violation() {
 echo "Gate self-test — each violation planted, the matching gate must catch it"
 echo
 
+# acceptance <gate-script> <description> <expected-substring-of-output> <setup…>
+# The inverse of violation(): the tree is correct, so the gate must pass — and
+# must say the thing it is supposed to say. A check that fails on everything
+# is not a check, and a check that passes silently is how a report that reads
+# as "nothing found" comes to mean "nothing asked".
+acceptance() {
+  local gate="$1" desc="$2" expect="$3"; shift 3
+  local sandbox="$WORK/case"
+
+  rm -rf "$sandbox"
+  mkdir -p "$sandbox"
+  tar -C "$REPO" --exclude=.git --exclude=target -cf - . | tar -C "$sandbox" -xf -
+
+  ( cd "$sandbox" && eval "$*" ) || { echo "  ERROR   setup failed for: $desc"; FAILED=1; return; }
+
+  local -a gate_cmd
+  read -ra gate_cmd <<< "$gate"
+
+  local out rc
+  out="$(cd "$sandbox" && bash "${gate_cmd[@]}" 2>&1)"; rc=$?
+
+  if [ "$rc" -ne 0 ]; then
+    echo "  MISSED  $desc"
+    echo "          the gate failed while the tree was correct."
+    FAILED=1
+  elif ! printf '%s' "$out" | grep -q "$expect"; then
+    echo "  WRONG   $desc"
+    echo "          the gate passed, but did not say what it should have said."
+    echo "          expected output mentioning: $expect"
+    FAILED=1
+  else
+    echo "  ok      $desc"
+  fi
+}
+
 # Both baselines must be green, or every "caught" below could be the baseline
 # failing rather than the planted violation.
-for gate in "$CHARTER" "$HARDWARE" "$DOCS" "$ATTRIB" "$RELEASE" "$CONST" "$INSTALL"; do
+for gate in "$CHARTER" "$HARDWARE" "$DOCS" "$ATTRIB" "$RELEASE" "$CONST" "$INSTALL" "$SECURITY"; do
   if ! bash "$gate" >/dev/null 2>&1; then
     echo "refusing to run: $gate is already failing on a clean tree, so a caught"
     echo "violation would not be evidence that the gate caught anything."
@@ -446,12 +489,39 @@ expect_doctest_failure 999 "a compile-time proof stops being collected" \
 expect_doctest_failure 1 "a proof is added without the count being raised" \
   "keeps meaning something"
 
+# ── The security gate ─────────────────────────────────────────────────────────
+#
+# Two directions, because the gate has two halves and a check that only fires
+# in one direction is half a control.
+#
+# The first is the one that bit: a scan that runs on a push but lives in a
+# workflow of its own reports a verdict nothing can act on. A finding sat open
+# in this repository for a month for exactly that reason.
+violation "$SECURITY" "a scan that runs on a push lives outside the required gate" \
+  "runs on a push to a branch but is not ci.yml" \
+  "mkdir -p .github/workflows && printf 'name: extra-scan\non:\n  push:\n    branches: [main]\njobs:\n  scan:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: echo scanned\n' > .github/workflows/extra-scan.yml"
+
+# The second is the other half: the analyser fails its own job when a finding
+# is NEW, and says nothing when a finding is already in its baseline. This is
+# the case where somebody has to act, so the gate asks the API what is open.
+violation "scripts/security-gate.sh --alerts alerts.json" "a code-scanning finding is left open" \
+  "is open at" \
+  "printf '%s' '[{\"number\":78,\"tool\":{\"name\":\"CodeQL\"},\"rule\":{\"id\":\"rust/cleartext-logging\"},\"most_recent_instance\":{\"location\":{\"path\":\"core/src/auth_test.rs\",\"start_line\":406}}}]' > alerts.json"
+
+# The scorecard's own findings are policy findings, not findings about the
+# code. They are listed rather than filtered out, and they must not fail the
+# build — planting one proves the gate distinguishes the two kinds rather than
+# failing on the word "alert".
+acceptance "scripts/security-gate.sh --alerts alerts.json" "a scorecard policy finding is listed rather than failed" \
+  "Policy findings" \
+  "printf '%s' '[{\"number\":73,\"tool\":{\"name\":\"Scorecard\"},\"rule\":{\"id\":\"CodeReviewID\"},\"most_recent_instance\":{\"location\":{\"path\":\"\",\"start_line\":0}}}]' > alerts.json"
+
 # The plant count is pinned to itself, the way the mutation gate pins its own
 # match count: prose elsewhere quotes a number, and a number nobody checks is
 # a claim. Adding or removing a plant without touching this pin fails the run
 # and puts the recount in the diff where review will see it.
 PLANTS="$(grep -c '^violation ' "$0")"
-EXPECTED_PLANTS=57
+EXPECTED_PLANTS=59
 if [ "$PLANTS" -ne "$EXPECTED_PLANTS" ]; then
   echo "GATE SELF-TEST FAILED — the script now plants $PLANTS violations but"
   echo "pins $EXPECTED_PLANTS. Re-count by hand, then update both this pin"
@@ -464,5 +534,5 @@ if [ "$FAILED" -ne 0 ]; then
   echo "GATE SELF-TEST FAILED — a gate does not catch what it claims to."
   exit 1
 fi
-echo "Gate self-test passed: $PLANTS planted violations plus two count proofs,"
-echo "and every check above is actually enforcing something."
+echo "Gate self-test passed: $PLANTS planted violations, one acceptance case and"
+echo "two count proofs, and every check above is actually enforcing something."

@@ -59,6 +59,7 @@ scripts/constitution-gate.sh     # every [CI] rule names an enforcer that exists
 scripts/hardware-gate.sh         # device database schema and honesty
 scripts/release-gate.sh          # the version says the same thing everywhere
 scripts/actions-gate.sh          # every workflow reference actually resolves
+scripts/security-gate.sh         # the scans are inside the gate, and nothing is left open
 scripts/markdown-gate.sh         # markdown lint, at the one pinned version
 scripts/install-gate.sh          # the first thing a stranger runs still works
 scripts/doctest-count.sh         # exactly the expected number of doctests ran
@@ -80,7 +81,7 @@ python3 -m pip install jsonschema
 ## Workflow: `ci.yml` — the required gate
 
 Runs on every push to `main` and every pull request. Nothing merges without all
-sixteen jobs green.
+twenty-two jobs green.
 
 The `docs` job carries two gates: the documentation gate and the constitution
 gate below.
@@ -448,6 +449,90 @@ relax them: `multiple-versions = "deny"`, `wildcards = "deny"`,
 `build-script = "deny"`, `unknown-git = "deny"`, no advisory exceptions,
 crates.io as the only permitted source.
 
+### `codeql` — static analysis, as a second opinion
+
+CodeQL over `security-extended`, the default set plus the queries that trade
+recall for noise. The crate has no dependencies and forbids `unsafe`, so the
+analyser's own output is small enough to read.
+
+**This job was a workflow of its own until a finding it reported sat open in the
+repository for a month.** A red run is visible; a red *required check* is
+actionable, and only the second one stops anything. The reason it moved is
+`scripts/security-gate.sh`, which requires every workflow that runs on a push to
+be the required gate itself.
+
+The weekly re-scan stays in `codeql.yml`: new queries ship after the code does,
+so a repository that only scans on push stops learning the day the last commit
+lands, and a query published on Tuesday finds nothing in a tree last scanned on
+Monday.
+
+### `sbom` — the dependency count, from the artefact
+
+A CycloneDX bill of materials, and a failure if it contains a third-party
+runtime component. The charter gate reads the manifests; this reads the built
+artefact, which is a second opinion from something that did not take the
+manifest's word for anything. An SBOM nobody asserts anything about is a file,
+not a check.
+
+### `scorecard` — the policy scan
+
+OpenSSF Scorecard, on `main` only: it grades repository settings, which a
+pull-request branch cannot change and should not be judged on.
+
+It runs without an administrative token unless `SCORECARD_TOKEN` is set, and
+Scorecard's own rule is that a run without one scores the administrator-only
+requirements as met. The job says which token it used on every run, because a
+number that is partly assumed should not read the same as one that is wholly
+measured.
+
+The findings it reports are *policy* findings, and the security gate lists them
+rather than failing on them — see "Known gaps" below.
+
+### `fuzz` — the harness cannot rot
+
+Three targets, sixty seconds each: the HTTP request line, a battery reading
+from a vendor kernel, and a CSP nonce — the three places a string this project
+did not write becomes a decision it acts on.
+
+Sixty seconds finds almost nothing. It is there so a fuzz target that stopped
+compiling six months ago is not indistinguishable from one nobody ever wrote.
+The long run is in `scheduled.yml`.
+
+`RUSTFLAGS` is cleared for this job: the harness is not part of the workspace,
+so the workspace's warnings-are-errors does not apply to it, and a nightly lint
+in the harness's own dependencies would fail a build over code that ships
+nowhere.
+
+### `security` — nothing left open, and nothing outside the gate
+
+Runs [`scripts/security-gate.sh`](../scripts/security-gate.sh), and it is the
+job that turns a notification into a control.
+
+Two checks:
+
+1. **Every workflow that runs on a push to a branch is the required gate
+   itself.** A scan in a workflow of its own produces a verdict the required
+   check cannot see, so its failure stops nothing. This is what moved the
+   static analysis, the bill of materials, the policy scan and the fuzz harness
+   into `ci.yml`.
+2. **No code-scanning finding about the code is left open.** The analyser fails
+   its own job when a finding is *new* and says nothing when a finding is
+   already in its baseline — which is the case where somebody has to act. This
+   half asks the API what is open and fails while it is.
+
+The job runs after the analysis, because the analysis is what closes a finding:
+a push that fixes one would otherwise be judged against the state before the
+fix, and the commit that closes the alert would be the one commit that could
+not be pushed. It re-reads the feed for five minutes before saying so, because
+the analyser and the gate are two processes that do not finish at the same
+moment.
+
+The scorecard's findings are policy findings, not findings about the code. The
+gate lists them with the reason each one is open and does not fail on them.
+Filtering them out of the report would be the dishonesty this repository
+exists to refuse; listing them, explaining them, and not pretending they are
+code defects is the honest version of the same thing.
+
 ### `targets` — the devices this actually runs on
 
 | Target | Why it is in the matrix |
@@ -491,7 +576,7 @@ forgotten here would otherwise be required in name and unenforced in fact.
 
 Runs [`scripts/constitution-gate.sh`](../scripts/constitution-gate.sh).
 
-`GOVERNANCE-CONSTITUTION.md` marks 52 rules `[CI]`, and §0.3 says plainly that
+`GOVERNANCE-CONSTITUTION.md` marks 53 rules `[CI]`, and §0.3 says plainly that
 `[CI]` means a gate fails the build. That is the load-bearing claim of the whole
 document — it is what lets a reader tell which rules are real.
 
@@ -598,13 +683,11 @@ private key to steal, and nothing to trust that cannot be checked.
 
 ---
 
-## Workflow: `supply-chain.yml`
+## Workflow: `codeql.yml`
 
-| Job | What it answers |
-| --- | --- |
-| `sbom` | Generates a CycloneDX SBOM and **fails if it contains a third-party runtime component**. An SBOM nobody asserts anything about is a file, not a check |
-| `osv` | Scans `Cargo.lock` against the OSV database — a second opinion alongside cargo-deny, drawing on overlapping but not identical data |
-| `scorecard` | OpenSSF Scorecard, on `main` only: it grades repository settings, which a pull request branch cannot change and should not be judged on |
+The weekly re-scan only. The analysis itself is a job of `ci.yml`, so that its
+verdict can fail the required check — see the `codeql` section above for why it
+moved and what the weekly run is for.
 
 ---
 
@@ -636,10 +719,11 @@ same day.
 | Job | What it answers |
 | --- | --- |
 | `advisories` | `cargo deny check advisories` and `cargo audit --deny warnings` |
+| `osv` | Scans `Cargo.lock` against the OSV database — a second opinion alongside cargo-deny, drawing on overlapping but not identical data. It was on every push until the security scans were folded into the required gate; a newly-published advisory should page a maintainer, not block an unrelated documentation fix at two in the morning |
 | `freshness` | `cargo outdated --root-deps-only --exit-code 1`. Should stay empty by charter; exists to go red the week that stops being true |
 | `beta-and-nightly` | Advisory, `continue-on-error`. A lint added to nightly is information about work coming, not a defect in code that is correct today |
 | `miri` | The crate forbids unsafe, so this should find nothing — which is the point. It is what makes the `forbid` a verified property rather than a comment |
-| `fuzz` | Three targets, on the three places a string this project did not write becomes a decision it acts on: the HTTP request line, a battery reading from a vendor kernel, and a CSP nonce. Sixty seconds per target on a push — not to find bugs, but so a target that stopped compiling cannot sit unnoticed — and five minutes on the weekly run |
+| `fuzz` | The long run of the same three targets the `fuzz` job in `ci.yml` runs briefly — five minutes each, and the run whose logs somebody actually reads |
 | `gate-selftest` | Repeated on a schedule because this is the check with no natural symptom when it rots |
 
 ---
@@ -659,15 +743,30 @@ gates themselves apply.
    claimed as such.
 3. **Four charter articles are human review only** — III.2, III.4, IV.4 and V.4.
    The gate prints them on every run.
-4. **Four supply-chain scorecard findings are not fixable by a commit**, and are
+4. **Three supply-chain scorecard findings are not fixable by a commit**, and are
    recorded here rather than left for a reader to rediscover:
 
    | Finding | Scorecard's exact words | Why it stands, and what would close it |
    | --- | --- | --- |
-   | **Branch-Protection** | `branch protection not enabled for branch 'main'` | **Two separate problems wearing one number.** (1) The scan cannot read repository settings: it runs with the job's `GITHUB_TOKEN`, and GitHub answers a branch-protection read with `403` and `X-Accepted-Github-Permissions: administration=read`. Until a `SCORECARD_TOKEN` secret carrying `Administration: read` exists, this check reports 0 *whatever the repository is configured to do* — the workflow now says so on every run rather than letting a not-checked row read as a checked-and-failing one. (2) The protection itself. Blocking force-pushes and blocking deletion of `main` require no reviewer, cost nothing on a one-maintainer project, and score; requiring a *reviewer* is the part that deadlocks, and it was tried and removed. Both halves need repository-admin rights that no token here holds |
-   | **Code-Review** | `Found 0/30 approved changesets` | Changes are pushed directly to `main` by design. Closing this means adopting pull requests, which is a decision about how the project is run rather than a defect to repair. It is a real limitation and it is the one standing behind every gate here: nothing in this tree has had a second pair of eyes |
-   | **Maintained** | `project was created within the last 90 days` | Only time fixes this. A project claiming otherwise would be claiming a history it does not have |
-   | **CII-Best-Practices** | `no effort to earn an OpenSSF best practices badge detected` | Requires registering the project with an external programme. The check queries that programme's API by repository URL — **adding a badge image to the README would not move it, and would be asserting a certification nobody has awarded.** It is a person signing up, not a change to this tree |
+   | **Code-Review** | `Found 0/30 approved changesets` | Changes are pushed directly to `main` by design. Closing this means adopting pull requests, which is a decision about how the project is run rather than a defect to repair. It is a real limitation and it is the one standing behind every gate here: nothing in this tree has had a second pair of eyes. It was put to the maintainer and the answer was to keep the model and record the cost, which is what this row is |
+   | **Maintained** | `project was created within the last 90 days` | Only time fixes this. The repository was created on **2026-08-06**, so the check clears on **2026-11-04**. A project claiming otherwise would be claiming a history it does not have |
+   | **CII-Best-Practices** | `no effort to earn an OpenSSF best practices badge detected` | Requires registering the project with an external programme, and the check queries that programme's API by repository URL. **Adding a badge image to the README would not move it, and would be asserting a certification nobody has awarded.** It is a person signing up, not a change to this tree. One more thing, checked on 2026-10-21: the endpoint the check queries, `bestpractices.coreinfrastructure.org/api/projects`, now redirects to `www.bestpractices.dev/api/projects` and answers **404 for every query, including for projects that hold the badge today** — so this finding cannot currently be cleared by registering either. The registration is still worth doing, because the API will come back and the check will ask |
+
+   The **Branch-Protection** finding is no longer among them, and the scan's
+   own output says why: its SARIF reports three results and
+   Branch-Protection is not one of them. `main` refuses force-pushes, refuses
+   deletion of the branch, and requires the status check *CI Pass — all
+   required checks*. The one qualification is Scorecard's own rule — a run
+   without an administrative token scores the administrator-only requirements
+   as met — so the number is partly assumed. The requirements the scan could
+   read are satisfied for real, and the job says which token it used on every
+   run.
+
+   The required check is **bypassed by this repository's own owner on every
+   push**, because GitHub does not evaluate the checks of a commit that has
+   never run, and a direct push is exactly that. Turning the bypass off would
+   make pushing to `main` impossible rather than safer, so the enforcement has
+   to live inside CI instead — which is what the `security` job is for.
 
    Code-Review and Maintained are the honest cost of a young single-maintainer
    project, and neither is closed by pretending. They are the reason the mutation
@@ -678,3 +777,16 @@ gates themselves apply.
    would empty the dashboard in an afternoon, and a security page that is clean
    because the findings were removed is exactly the failure mode this repository
    is built against. They stay visible, and this table is why.
+
+5. **A code-scanning finding is a control now, and was not a notification
+   before.** On 2026-10-21 the repository carried an open CodeQL finding:
+   `rust/cleartext-logging` in `core/src/auth_test.rs`, where a test printed the
+   whole credential store in its failure message. The analyser had reported it,
+   the run had gone red, and the alert had sat in the security tab for a month
+   while every push was green — because the analysis ran in a workflow of its
+   own and nothing about it could fail the required check.
+
+   The finding is fixed, and the class of failure is now closed twice over: the
+   analysis is a job of `ci.yml` and so fails the required check when it finds
+   something new, and the `security` job fails while anything is open at all.
+   A finding that nobody has dealt with no longer reads as a green build.
