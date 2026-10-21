@@ -201,8 +201,8 @@ fn choosing_a_relay_discloses_who_can_end_it_and_what_it_can_read() {
 fn the_default_mode_has_nothing_to_disclose() {
     // Which is the argument for it being the default, stated as a property
     // rather than as a preference.
-    assert!(disclosures(Mode::LocalOnly, true).is_empty());
-    assert!(disclosures(Mode::LocalOnly, false).is_empty());
+    assert_eq!(disclosures(Mode::LocalOnly, true), [] as [String; 0]);
+    assert_eq!(disclosures(Mode::LocalOnly, false), [] as [String; 0]);
 }
 
 // ── Verification ──────────────────────────────────────────────────────────────

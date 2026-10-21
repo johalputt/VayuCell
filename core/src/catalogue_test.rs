@@ -234,7 +234,7 @@ fn the_selection_keeps_catalogue_order_and_is_stable_across_runs() {
             .map(|entry| entry.id)
             .collect::<Vec<&str>>()
     );
-    assert!(first.greyed.is_empty());
+    assert_eq!(first.greyed, [] as [Greyed<'_>; 0]);
 
     // The greyed-out list keeps the catalogue order too, so the two lists can
     // be read side by side.
@@ -333,7 +333,7 @@ fn a_higher_tier_satisfies_a_lower_floor() {
     let selection = select(&generous(Tier::T3));
     assert!(selection.fits(VAYU_PANEL.id));
     assert!(selection.fits(VAYU_INFERENCE.id));
-    assert!(selection.greyed.is_empty());
+    assert_eq!(selection.greyed, [] as [Greyed<'_>; 0]);
 }
 
 #[test]
@@ -380,13 +380,13 @@ fn a_caller_can_filter_a_catalogue_of_its_own() {
         &Budget::new(Some(Tier::T0), 64, 32, ThermalClass::Idle),
     );
     assert_eq!(fits.fitting.len(), 1);
-    assert!(fits.greyed.is_empty());
+    assert_eq!(fits.greyed, [] as [Greyed<'_>; 0]);
 
     let refused = select_from(
         &mine,
         &Budget::new(Some(Tier::T0), 16, 32, ThermalClass::Idle),
     );
-    assert!(refused.fitting.is_empty());
+    assert_eq!(refused.fitting, [] as [&Entry; 0]);
     assert_eq!(refused.total(), 1);
 }
 

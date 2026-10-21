@@ -172,6 +172,21 @@ when the tag is cut.
 
 ### Fixed
 
+- **Six assertions that a newer clippy refuses.** Clippy 1.99 widened
+  `assert_is_empty`: it now fires on `assert!(!x.is_empty())` as well as on
+  `assert!(x.is_empty())`, and on receivers that are not vectors. The core
+  crate is built with `#![warn(clippy::pedantic)]` and CI runs clippy with
+  `-D warnings`, so six assertions that had been in the tree for months
+  became errors the day the toolchain moved — on `main` as well as here.
+  Each is rewritten as a comparison that shows the value on failure, because
+  a test that says *the list was not empty* without saying what was in it
+  asks the reader to guess. *(Maintainer-facing.)*
+- **Nine gate mutations whose anchors no longer applied.** Moving the panel's
+  rows into their own functions changed the indentation of the code nine
+  entries were written against, and the gate refuses a mutation that does not
+  apply — the right refusal, and the reason CI found it. The guards did not
+  change: the same lines, four spaces further left. Each entry was re-aimed
+  and re-verified to still turn its named test red. *(Maintainer-facing.)*
 - **The charter gate now refuses to pass when it read nothing.** Its
   outbound-connection scan strips test items with python3 first, and on a
   machine where that interpreter is missing or broken every file stripped to

@@ -467,8 +467,12 @@ pub const VAYU_INFERENCE: Entry = Entry {
 /// so the panel can grey out what this device cannot run and say why. The
 /// order is fixed, because a picker whose rows move between launches is a
 /// picker nobody can screenshot.
+///
+/// Not a `const fn`: reading a static is not a constant expression on the
+/// minimum supported Rust, and a catalogue nobody can read at compile time
+/// is not worth an unstable feature.
 #[must_use]
-pub const fn catalogue() -> &'static [Entry] {
+pub fn catalogue() -> &'static [Entry] {
     &CATALOGUE
 }
 

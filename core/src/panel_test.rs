@@ -74,7 +74,7 @@ fn every_finding_carries_its_evidence_including_the_ones_admitting_ignorance() {
         Finding::Unverified(ev("c")),
     ];
     for f in &findings {
-        assert!(!f.evidence().as_str().is_empty());
+        assert_ne!(f.evidence().as_str(), "");
     }
 }
 

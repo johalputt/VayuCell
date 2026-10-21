@@ -615,17 +615,21 @@ mutate "$P" a_row_cannot_be_built_on_blank_evidence \
 
 mutate "$P" a_device_with_no_charge_control_says_so_rather_than_omitting_the_row \
   "a device with no charge control gets a green mechanism row" \
-  "                None => Finding::Refused(evidence(
-                    \"this device exposes no charge control, so no ceiling can be held\",
-                ))," \
-  "                None => Finding::Verified(evidence(
-                    \"this device exposes no charge control, so no ceiling can be held\",
-                )),"
+  "        None => Finding::Refused(evidence(
+            \"this device exposes no charge control, so no ceiling can be held\",
+        ))," \
+  "        None => Finding::Verified(evidence(
+            \"this device exposes no charge control, so no ceiling can be held\",
+        )),"
 
 mutate "$P" a_governor_that_has_left_normal_is_never_a_verified_row \
   "a derated or halted governor still renders as a verified row" \
-  "                other => Finding::Refused(evidence(&format!(" \
-  "                other => Finding::Verified(evidence(&format!("
+  "        other => Finding::Refused(evidence(&format!(
+            \"governor at {other}; the workload has been reduced or stopped\"
+        )))," \
+  "        other => Finding::Verified(evidence(&format!(
+            \"governor at {other}; the workload has been reduced or stopped\"
+        ))),"
 
 mutate "$P" the_inspection_instruction_appears_at_every_risk_level_including_nominal \
   "the inspection prompt is dropped when the estimate looks nominal" \
@@ -646,8 +650,20 @@ mutate "$P" an_estimate_resting_on_nothing_says_so_rather_than_rendering_an_empt
 
 mutate "$P" a_node_with_no_cell_is_not_credited_with_an_outage_reserve \
   "a node with no cell is credited with an outage reserve" \
-  "                UpsClaim::Unbacked { why } => Finding::Refused(evidence(why))," \
-  "                UpsClaim::Unbacked { why } => Finding::Verified(evidence(why)),"
+  "        UpsClaim::Unbacked { why } => {
+            if guest {
+                Finding::Unverified(evidence(why))
+            } else {
+                Finding::Refused(evidence(why))
+            }
+        }" \
+  "        UpsClaim::Unbacked { why } => {
+            if guest {
+                Finding::Unverified(evidence(why))
+            } else {
+                Finding::Verified(evidence(why))
+            }
+        }"
 
 mutate "$P" the_rendered_panels_match_the_committed_snapshot \
   "the panel's wording is softened without any assertion breaking" \
@@ -722,19 +738,19 @@ mutate "$RP" the_exit_code_distinguishes_unmeasured_from_failed \
 
 mutate "$RP" a_present_ceiling_node_is_not_reported_verified_before_anything_was_written \
   "a detected ceiling node is reported verified before anything was written" \
-  "            Some(k) if k.is_ceiling() => Finding::Unverified(evidence(&format!(
-                \"{} is present and holds a percentage; run \`vayucell run\` to \\
-                 write {}% and read it back\"," \
-  "            Some(k) if k.is_ceiling() => Finding::Verified(evidence(&format!(
-                \"{} is present and holds a percentage; run \`vayucell run\` to \\
-                 write {}% and read it back\","
+  "                Some(k) if k.is_ceiling() => Finding::Unverified(evidence(&format!(
+                    \"{} is present and holds a percentage; run \`vayucell run\` to \\
+                     write {}% and read it back\"," \
+  "                Some(k) if k.is_ceiling() => Finding::Verified(evidence(&format!(
+                    \"{} is present and holds a percentage; run \`vayucell run\` to \\
+                     write {}% and read it back\","
 
 mutate "$RP" a_machine_that_is_not_a_phone_reports_unverified_rather_than_crashing_or_passing \
   "an unreadable cell is credited with an outage reserve anyway" \
-  "        Err(_) => UpsClaim::Unbacked {
-            why: \"the cell could not be read, so nothing is known to be carrying this node\",
-        }," \
-  "        Err(_) => UpsClaim::Backed { reserve: ceiling },"
+  "            Err(_) => UpsClaim::Unbacked {
+                why: \"the cell could not be read, so nothing is known to be carrying this node\",
+            }," \
+  "            Err(_) => UpsClaim::Backed { reserve: ceiling },"
 
 mutate "$DU" an_unreachable_replica_is_not_filtered_out_as_noise \
   "an unreachable replica is filtered out as noise" \
@@ -1532,16 +1548,40 @@ mutate "$B" a_charge_full_near_the_integer_limit_does_not_crash_the_reading \
 mutate "$RP" the_governor_row_comes_from_the_cell_rather_than_from_a_literal \
   "the panel reports a quiet governor without reading the cell" \
   "    let (level, _) = crate::device::observe(host, supply_dir);
-    assemble(host, supply_dir, ceiling, level.max(standing.floor()))" \
+    assemble(
+        host,
+        supply_dir,
+        ceiling,
+        level.max(standing.floor()),
+        guest,
+    )" \
   "    let _ = crate::device::observe(host, supply_dir);
-    assemble(host, supply_dir, ceiling, Level::Normal.max(standing.floor()))"
+    assemble(
+        host,
+        supply_dir,
+        ceiling,
+        Level::Normal.max(standing.floor()),
+        guest,
+    )"
 
 mutate "$RP" a_cool_cell_still_reports_the_governor_as_verified \
   "the panel reports trouble on every cell, quiet or not" \
   "    let (level, _) = crate::device::observe(host, supply_dir);
-    assemble(host, supply_dir, ceiling, level.max(standing.floor()))" \
+    assemble(
+        host,
+        supply_dir,
+        ceiling,
+        level.max(standing.floor()),
+        guest,
+    )" \
   "    let _ = crate::device::observe(host, supply_dir);
-    assemble(host, supply_dir, ceiling, Level::Halt.max(standing.floor()))"
+    assemble(
+        host,
+        supply_dir,
+        ceiling,
+        Level::Halt.max(standing.floor()),
+        guest,
+    )"
 
 mutate "$SY" a_node_this_handset_does_not_have_is_named_rather_than_omitted \
   "an absent node is left out of the report, so nobody can tell it was looked for" \
@@ -1583,13 +1623,21 @@ mutate "$HA" a_standing_halt_floors_any_report_at_halt \
 
 mutate "$RP" the_standing_floors_the_reading_rather_than_replacing_it \
   "the panel reports the recorded halt instead of the cell, hiding a live reading" \
-  "    assemble(host, supply_dir, ceiling, level.max(standing.floor()))" \
-  "    assemble(host, supply_dir, ceiling, standing.floor())"
+  "        ceiling,
+        level.max(standing.floor()),
+        guest," \
+  "        ceiling,
+        standing.floor(),
+        guest,"
 
 mutate "$RP" a_recorded_halt_reaches_the_panel_even_though_the_cell_has_cooled \
   "the panel ignores the halt record entirely and reports only the cell" \
-  "    assemble(host, supply_dir, ceiling, level.max(standing.floor()))" \
-  "    assemble(host, supply_dir, ceiling, level)"
+  "        ceiling,
+        level.max(standing.floor()),
+        guest," \
+  "        ceiling,
+        level,
+        guest,"
 
 mutate "$HA" a_record_nobody_could_read_is_not_treated_as_no_record \
   "a halt record nobody could read lets the device serve" \
