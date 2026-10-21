@@ -74,7 +74,7 @@ fn every_finding_carries_its_evidence_including_the_ones_admitting_ignorance() {
         Finding::Unverified(ev("c")),
     ];
     for f in &findings {
-        assert!(!f.evidence().as_str().is_empty());
+        assert_ne!(f.evidence().as_str(), "");
     }
 }
 
@@ -185,6 +185,99 @@ fn a_device_with_no_charge_control_says_so_rather_than_omitting_the_row() {
         .as_str()
         .contains("no charge control"));
     assert_eq!(p.overall(), Overall::Unsafe);
+}
+
+/// A tier-2 guest: a Linux guest under the Android hypervisor, which cannot
+/// see the phone's cell because the host owns it.
+fn guest_panel(mechanism: Option<Kind>) -> Panel {
+    Panel::build(
+        &Verdict::Established(Tier::T2),
+        Level::Normal,
+        mechanism,
+        &Finding::Unverified(ev("the charge ceiling is the Android host's to hold")),
+        &UpsClaim::Unbacked {
+            why: "the guest cannot read the phone's cell, which the host owns",
+        },
+        nominal_risk(),
+    )
+}
+
+#[test]
+fn a_tier_two_guest_is_not_told_the_device_has_no_charge_control() {
+    // The wording that was wrong at tier 2, and it was the loudest one in the
+    // panel. The guest has no control of its own, but the control exists: the
+    // host owns it, and the guest can ask for a ceiling. Reporting the tier-2
+    // arrangement in tier-0 words would turn a working arrangement into a
+    // failure.
+    let p = guest_panel(None);
+    let mech = p
+        .rows()
+        .iter()
+        .find(|r| r.subject == "charge mechanism")
+        .expect("the row must exist");
+    assert!(!mech
+        .finding
+        .evidence()
+        .as_str()
+        .contains("this device exposes no charge control"));
+    assert!(mech
+        .finding
+        .evidence()
+        .as_str()
+        .contains("the Android host's to hold"));
+    assert!(matches!(mech.finding, Finding::Unverified(_)));
+}
+
+#[test]
+fn a_tier_two_guest_is_told_the_governor_has_no_reading_to_act_on() {
+    // The guest's own governor governs the guest's own hardware, which is not
+    // the phone's cell. The row says so rather than reporting a level derived
+    // from something that is not the cell.
+    let p = guest_panel(None);
+    let governor = p
+        .rows()
+        .iter()
+        .find(|r| r.subject == "battery governor")
+        .expect("the row must exist");
+    assert!(matches!(governor.finding, Finding::Unverified(_)));
+    assert!(governor
+        .finding
+        .evidence()
+        .as_str()
+        .contains("no reading of it to act on"));
+}
+
+#[test]
+fn a_tier_two_guest_is_not_credited_with_an_outage_reserve() {
+    // The guest cannot read the cell, so it cannot know what is carrying the
+    // node. That is an absence of knowledge, and the headline has to say so
+    // rather than calling the cell unsafe.
+    let p = guest_panel(None);
+    let reserve = p
+        .rows()
+        .iter()
+        .find(|r| r.subject == "outage reserve")
+        .expect("the row must exist");
+    assert!(matches!(reserve.finding, Finding::Unverified(_)));
+    assert_eq!(p.overall(), Overall::Unverified);
+}
+
+#[test]
+fn a_tier_two_guest_is_told_when_the_node_inside_it_is_not_the_cells() {
+    // A node visible inside the guest is not demonstrably the same cell the
+    // host charges, and the row must not pretend that it is.
+    let p = guest_panel(Some(Kind::EndThreshold));
+    let mech = p
+        .rows()
+        .iter()
+        .find(|r| r.subject == "charge mechanism")
+        .expect("the row must exist");
+    assert!(matches!(mech.finding, Finding::Unverified(_)));
+    assert!(mech
+        .finding
+        .evidence()
+        .as_str()
+        .contains("belongs to the host"));
 }
 
 #[test]

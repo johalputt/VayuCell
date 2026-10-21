@@ -1056,7 +1056,7 @@ fn head_of_the_root_answers_with_the_length_and_no_body() {
         &io,
     );
     assert_eq!(r.status, 200);
-    assert!(!text(&r).is_empty());
+    assert_ne!(text(&r), "");
     let out = String::from_utf8(r.render(crate::serve::Surface::Site, nonce(), Method::Head))
         .expect("headers are text");
     assert!(

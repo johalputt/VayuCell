@@ -513,5 +513,5 @@ fn assuming_the_flash_lies_is_never_itself_a_concern() {
         graceful_shutdown: GracefulShutdown::Verified,
         backup: drilled(1),
     };
-    assert!(settled.concerns(target(), now()).is_empty());
+    assert_eq!(settled.concerns(target(), now()), [] as [String; 0]);
 }

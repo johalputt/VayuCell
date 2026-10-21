@@ -57,6 +57,8 @@
 use core::fmt::Write as _;
 
 use vayucell_core::battery::Percent;
+use vayucell_core::capability::Tier;
+use vayucell_core::guest::Guest;
 use vayucell_core::halt::Standing;
 use vayucell_core::host::Host;
 use vayucell_core::sysfs::{detect_mechanism, NODES, PROBE_ORDER, SUPPLY};
@@ -76,18 +78,27 @@ pub(crate) fn role_name(role: vayucell_core::fleet::Role) -> &'static str {
 ///
 /// Returns a `String` rather than printing, so every line of it is reachable in
 /// a test against a fake device — which is the only kind this project has.
+///
+/// # The version is not a parameter
+///
+/// It was one, and it was the argument that made this function's ninth
+/// parameter impossible to add. The version of a program is not a thing a
+/// caller chooses: it is `CARGO_PKG_VERSION`, the same in every call site, and
+/// the only reason it was passed in was so a test could pin it to a string that
+/// never changes. The parameter that had to go was the one that added nothing.
 #[must_use]
 pub fn report(
     host: &dyn Host,
     supply_dir: &str,
-    version: &str,
     standing: &Standing,
     now: vayucell_core::durability::Now,
     replica_evidence: Option<&str>,
     fleet_role: Option<vayucell_core::fleet::Role>,
+    guest: &Guest,
 ) -> String {
     let mut out = String::new();
 
+    let version = env!("CARGO_PKG_VERSION");
     let _ = writeln!(out, "VayuCell device report — v{version}");
     let _ = writeln!(out);
     let _ = writeln!(
@@ -241,9 +252,50 @@ pub fn report(
         );
     }
 
+    // The guest section exists only for a tier-2 device. A guest under an
+    // Android host has three controls it does not own — the charge ceiling,
+    // the Doze policy and whether its ingress is published — and this is where
+    // the report says what the host has told it about them, and how much that
+    // is worth.
+    if let Verdict::Established(Tier::T2) = &detection.verdict {
+        let _ = writeln!(out);
+        let _ = writeln!(
+            out,
+            "GUEST  this device is a guest under an Android host, and the host owns\n\
+            \x20      three things this guest cannot check for itself"
+        );
+        match guest.boot() {
+            Some(epoch) => {
+                let _ = writeln!(out, "  host boot      {epoch}");
+            }
+            None => {
+                let _ = writeln!(
+                    out,
+                    "  host boot      unknown — the host has not said which boot of \
+                     itself this is"
+                );
+            }
+        }
+        for (control, standing_of) in guest.standings() {
+            let _ = writeln!(
+                out,
+                "  [{:<9}]  {:<16} {}",
+                standing_of.label(),
+                control.name(),
+                standing_of.evidence()
+            );
+        }
+        if let Some(fault) = guest.host_fault() {
+            let _ = writeln!(out, "  host statement   {fault}");
+        }
+        if let Some(fault) = guest.record_fault() {
+            let _ = writeln!(out, "  guest record    {fault}");
+        }
+    }
+
     let _ = writeln!(out);
     let _ = writeln!(out, "PANEL");
-    let panel = crate::report::observed(host, supply_dir, Percent::clamped(60), standing);
+    let panel = crate::report::observed(host, supply_dir, Percent::clamped(60), standing, guest);
     for line in panel.render().lines() {
         let _ = writeln!(out, "  {line}");
     }
@@ -263,10 +315,20 @@ mod tests {
     }
 
     use super::report;
+    use vayucell_core::guest::Guest;
     use vayucell_core::halt::{Halt, Standing};
     use vayucell_core::host::FakeHost;
     use vayucell_core::sysfs::{NODES, SUPPLY};
     use vayucell_core::tier::SHELL_ASSERTION_ENV;
+
+    /// A guest that has heard nothing from any host.
+    ///
+    /// Most of these tests are about a phone, not a guest, and a guest that
+    /// has heard nothing is the right default for them: it has no claims, and
+    /// therefore cannot quietly add one to a report about something else.
+    fn guest() -> Guest {
+        Guest::empty()
+    }
 
     fn phone() -> FakeHost {
         let mut h = FakeHost::new();
@@ -292,11 +354,11 @@ mod tests {
         let out = report(
             &phone(),
             SUPPLY,
-            "0.0.0",
             &Standing::Clear,
             at_noon(),
             None,
             None,
+            &guest(),
         );
         assert!(out.contains("ABSENT   health"), "{out}");
         assert!(out.contains("present  capacity               58"), "{out}");
@@ -309,11 +371,11 @@ mod tests {
         let out = report(
             &phone(),
             SUPPLY,
-            "0.0.0",
             &Standing::Clear,
             at_noon(),
             None,
             None,
+            &guest(),
         );
         for node in NODES {
             assert!(
@@ -330,11 +392,11 @@ mod tests {
         let out = report(
             &phone(),
             SUPPLY,
-            "0.0.0",
             &Standing::Clear,
             at_noon(),
             None,
             None,
+            &guest(),
         );
         assert!(!out.contains("capacity               \n"), "{out}");
     }
@@ -346,11 +408,11 @@ mod tests {
         let out = report(
             &phone(),
             SUPPLY,
-            "0.0.0",
             &Standing::Clear,
             at_noon(),
             None,
             None,
+            &guest(),
         );
         assert!(out.contains("charge_control_end_threshold"), "{out}");
         assert!(
@@ -366,11 +428,11 @@ mod tests {
         let out = report(
             &FakeHost::new(),
             SUPPLY,
-            "0.0.0",
             &Standing::Clear,
             at_noon(),
             None,
             None,
+            &guest(),
         );
         assert!(out.contains("TIER"), "{out}");
         assert!(out.contains("ABSENT   capacity"), "{out}");
@@ -385,11 +447,11 @@ mod tests {
         let out = report(
             &phone(),
             SUPPLY,
-            "0.0.0",
             &Standing::Clear,
             at_noon(),
             None,
             None,
+            &guest(),
         );
         assert!(out.contains("CONTAINS"), "{out}");
         assert!(out.contains("OMITS"), "{out}");
@@ -425,11 +487,11 @@ mod tests {
         let out = report(
             &mine,
             SUPPLY,
-            "0.0.0",
             &Standing::Clear,
             at_noon(),
             None,
             None,
+            &guest(),
         );
         assert!(
             out.contains("alices-spare-pixel"),
@@ -448,11 +510,11 @@ mod tests {
         let out = report(
             &phone(),
             SUPPLY,
-            "0.0.0",
             &Standing::Clear,
             at_noon(),
             None,
             None,
+            &guest(),
         );
         assert!(!out.contains("YOURS"), "{out}");
     }
@@ -464,22 +526,22 @@ mod tests {
         let mine = report(
             &phone(),
             "/home/somebody/fake",
-            "0.0.0",
             &Standing::Clear,
             at_noon(),
             None,
             None,
+            &guest(),
         );
         assert!(mine.contains("path below is one you chose"), "{mine}");
 
         let standard = report(
             &phone(),
             SUPPLY,
-            "0.0.0",
             &Standing::Clear,
             at_noon(),
             None,
             None,
+            &guest(),
         );
         assert!(
             !standard.contains("path below is one you chose"),
@@ -492,7 +554,7 @@ mod tests {
         // A report from a halted phone is the most interesting one anybody will
         // ever send, and by the time they send it the cell has cooled.
         let halted = Standing::Halted(Halt::new("pack temperature exceeded 60 °C").expect("ok"));
-        let out = report(&phone(), SUPPLY, "0.0.0", &halted, at_noon(), None, None);
+        let out = report(&phone(), SUPPLY, &halted, at_noon(), None, None, &guest());
         assert!(out.contains("governor at HALT"), "{out}");
     }
 
@@ -501,11 +563,11 @@ mod tests {
         let out = report(
             &FakeHost::new(),
             SUPPLY,
-            "0.0.0",
             &Standing::Clear,
             at_noon(),
             None,
             Some(vayucell_core::fleet::Role::Witness),
+            &guest(),
         );
         assert!(out.contains("FLEET"), "{out}");
         assert!(
@@ -526,11 +588,11 @@ mod tests {
         let out = report(
             &FakeHost::new(),
             SUPPLY,
-            "0.0.0",
             &Standing::Clear,
             at_noon(),
             None,
             None,
+            &guest(),
         );
         assert!(!out.contains("FLEET"), "{out}");
     }

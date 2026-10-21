@@ -23,6 +23,7 @@ mod args;
 mod cell;
 mod device;
 mod enrol;
+mod guest;
 mod halted;
 mod listen;
 mod onion;
@@ -39,7 +40,8 @@ use report::EXIT_USAGE;
 
 use vayucell_core::battery::Percent;
 use vayucell_core::governor::{Governor, Level, Thresholds};
-use vayucell_core::host::RealHost;
+use vayucell_core::guest::Guest;
+use vayucell_core::host::{Host, RealHost};
 use vayucell_core::runtime::{Clock, Power, RealClock, Supervisor};
 use vayucell_core::sampler::Sampler;
 use vayucell_core::shed::{Shed, ShedPlan, Stage};
@@ -92,7 +94,6 @@ fn main() -> ExitCode {
                 survey::report(
                     &RealHost,
                     &parsed.supply_dir,
-                    env!("CARGO_PKG_VERSION"),
                     &halted::read(&parsed.halt_record),
                     // A fresh clock. `report` prints once and exits, so nothing
                     // it shows has had time to go stale — but the storage
@@ -107,6 +108,7 @@ fn main() -> ExitCode {
                     },
                     parsed.replica_evidence.as_deref(),
                     parsed.fleet_role,
+                    &guest_view(&RealHost, &parsed.guest_record),
                 )
             );
             0
@@ -132,9 +134,20 @@ fn status(a: &Args) -> i32 {
         &a.supply_dir,
         Percent::clamped(i64::from(a.ceiling)),
         &halted::read(&a.halt_record),
+        &guest_view(&host, &a.guest_record),
     );
     print!("{}", panel.render());
     report::exit_code(panel.overall())
+}
+
+/// What this guest knows about the Android host that owns it.
+///
+/// Rebuilt per call rather than cached, because the guest's record on disk and
+/// the host's statement both change under a running program — and a guest that
+/// kept the answer it read at startup would report a host that has since
+/// rebooted as one that has not.
+fn guest_view(host: &dyn Host, path: &str) -> Guest {
+    Guest::reconcile(host, guest::read(path))
 }
 
 /// Serves the panel, re-assembled per request so it never goes stale.
@@ -151,7 +164,11 @@ fn serve(a: &Args) -> i32 {
     // A panel that read it once at startup would keep reporting a halt after
     // somebody cleared it, and keep reporting health after one arrived.
     let record = a.halt_record.clone();
-    let panel = move || report::observed(&RealHost, &dir, ceiling, &halted::read(&record)).render();
+    let guest_path = a.guest_record.clone();
+    let panel = move || {
+        let guest = guest_view(&RealHost, &guest_path);
+        report::observed(&RealHost, &dir, ceiling, &halted::read(&record), &guest).render()
+    };
     match listen::serve(&a.bind, &panel) {
         Ok(()) => 0,
         Err(e) => {
@@ -655,9 +672,11 @@ fn all(a: &Args) -> i32 {
             // The governed level rather than a fresh one, so the panel agrees
             // with what the other surfaces are enforcing. A panel reporting
             // NORMAL beside a site answering 503 is two answers about one cell.
+            let guest_path = a.guest_record.clone();
             let render = || {
                 let (level, _) = governed.context(&RealHost);
-                report::assemble(&RealHost, &supply, ceiling, level).render()
+                let guest = guest_view(&RealHost, &guest_path);
+                report::assemble(&RealHost, &supply, ceiling, level, &guest).render()
             };
             listen::serve(&panel_addr, &render)
         });
@@ -887,6 +906,16 @@ fn run(a: &Args, ticks: Option<u32>) -> i32 {
     let kind = detect_mechanism(&host, &a.supply_dir);
     announce_mechanism(kind);
 
+    // The guest's record of the host. Written before the loop starts, because
+    // the guest is destroyed by every host reboot and this file is the only
+    // thing that can tell the next guest the world has moved on. Written again
+    // whenever the host says something new.
+    let mut guest = guest_view(&host, &a.guest_record);
+    let mut recorded = guest.ledger().render();
+    if let Err(e) = guest::write(&a.guest_record, guest.ledger()) {
+        eprintln!("vayucell: the guest record could not be written: {e}");
+    }
+
     let mut clock = RealClock::new();
     let mut done = 0u32;
 
@@ -951,6 +980,19 @@ fn run(a: &Args, ticks: Option<u32>) -> i32 {
             return report::EXIT_UNSAFE;
         }
 
+        // The host may have said something new. Re-read it, and write the
+        // record again only when it actually changed — the file is the guest's
+        // memory across a reboot, and rewriting it every pass would put a
+        // write on a path that runs for weeks.
+        let fresh = guest_view(&host, &a.guest_record);
+        if fresh.ledger().render() != recorded {
+            recorded = fresh.ledger().render();
+            if let Err(e) = guest::write(&a.guest_record, fresh.ledger()) {
+                eprintln!("vayucell: the guest record could not be written: {e}");
+            }
+        }
+        guest = fresh;
+
         done += 1;
         if ticks.is_some_and(|n| done >= n) {
             let panel = report::assemble(
@@ -958,6 +1000,7 @@ fn run(a: &Args, ticks: Option<u32>) -> i32 {
                 &a.supply_dir,
                 ceiling,
                 supervisor.governor().level(),
+                &guest,
             );
             print!("{}", panel.render());
             return report::exit_code(panel.overall());

@@ -439,7 +439,7 @@ fn every_transition_names_the_reading_that_caused_it() {
     // it, not after asking someone.
     let mut g = governor();
     let t = g.observe(&at_temp(612)).expect("must escalate");
-    assert!(!t.evidence.is_empty());
+    assert_ne!(t.evidence.as_str(), "");
     assert!(t.evidence.contains("61.2 °C"), "{}", t.evidence);
     let line = t.to_string();
     assert!(line.contains("NORMAL -> HALT"), "{line}");
