@@ -113,6 +113,21 @@ PY
 echo "Mutation gate — each guard broken, matching test must go red"
 echo
 
+# The count is pinned to itself. The README has always claimed that this
+# gate's count is pinned, and it was not: the badge could have drifted away
+# from the number of guards actually re-broken, and nothing would have said
+# so. A claim is not a control. Re-count by hand, then update this pin and
+# the README's badge together.
+EXPECTED_MUTATIONS=328
+ACTUAL_MUTATIONS=$(grep -c '^mutate ' "$0")
+if [ "$ACTUAL_MUTATIONS" -ne "$EXPECTED_MUTATIONS" ]; then
+  echo "this gate holds $ACTUAL_MUTATIONS mutations and pins $EXPECTED_MUTATIONS."
+  echo "Re-count by hand, then update both this pin and the README's badge."
+  exit 1
+fi
+echo "  $ACTUAL_MUTATIONS mutations, each of which must turn a named test red"
+echo
+
 T=core/src/tier.rs
 H=core/src/host.rs
 C=core/src/csp.rs
@@ -2393,27 +2408,33 @@ mutate "$CT" the_reason_names_the_requirements_that_were_never_measured \
 # --- The picker and the image check, as commands -----------------------------
 
 PK=cli/src/picker.rs
+PR=cli/src/profile.rs
 CLI_IM=cli/src/image.rs
 
-mutate "$PK" the_memory_is_read_from_the_kernels_own_accounting \
+mutate "$PR" the_memory_is_read_from_the_kernels_own_accounting \
   "the total is read from the free memory instead, so a busy device is told it is small" \
   "        let Some(rest) = line.strip_prefix(\"MemTotal:\") else {" \
   "        let Some(rest) = line.strip_prefix(\"MemFree:\") else {"
 
-mutate "$PK" the_memory_is_read_from_the_kernels_own_accounting \
+mutate "$PR" the_memory_is_read_from_the_kernels_own_accounting \
   "the kilobytes are reported as megabytes, so every device looks a thousand times too big" \
   "        return u32::try_from(kilobytes / 1024).ok();" \
   "        return u32::try_from(kilobytes).ok();"
 
-mutate "$PK" a_line_that_is_not_a_number_is_not_a_measurement \
+mutate "$PR" a_line_that_is_not_a_number_is_not_a_measurement \
   "a line that is not a number is read as zero, so an unreadable kernel becomes a measurement of nothing" \
   "        let kilobytes: u64 = digits.parse().ok()?;" \
   "        let kilobytes: u64 = digits.parse().unwrap_or(0);"
 
-mutate "$PK" a_machine_that_will_not_say_how_much_memory_it_has_says_nothing \
+mutate "$PR" a_machine_that_will_not_say_how_much_memory_it_has_says_nothing \
   "an unmeasured memory is read as zero, so the picker reports a failure it invented" \
-  "    Budget::new(tier, memory_mb(host), None, None)" \
-  "    Budget::new(tier, memory_mb(host).or(Some(0)), None, None)"
+  "    Budget::new(tier, memory_mb(host), storage_mb, thermal)" \
+  "    Budget::new(tier, memory_mb(host).or(Some(0)), storage_mb, thermal)"
+
+mutate "$PK" a_device_with_too_little_memory_is_told_it_does_not_fit \
+  "a measured failure is reported as an unanswered question, so the reader is sent looking for a measurement nobody took" \
+  "                catalogue::Reason::TooSmall(_) => \"does not fit\"," \
+  "                catalogue::Reason::TooSmall(_) => \"cannot be told\","
 
 mutate "$CLI_IM" a_machine_that_cannot_be_read_says_it_could_not_be_checked \
   "a machine that answers nothing is reported as a machine that matched" \

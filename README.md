@@ -26,11 +26,11 @@
   <a href="https://github.com/johalputt/VayuCell/actions/workflows/scheduled.yml"><img alt="Scheduled" src="https://github.com/johalputt/VayuCell/actions/workflows/scheduled.yml/badge.svg?branch=main"></a>
   <a href="LICENSE"><img alt="Code: Apache-2.0" src="https://img.shields.io/badge/code-Apache--2.0-blue.svg"></a>
   <a href="LICENSE-CHARTER"><img alt="Charter: CC0-1.0" src="https://img.shields.io/badge/charter-CC0--1.0-lightgrey.svg"></a>
-  <a href="core/src/lib.rs"><img alt="unsafe: forbidden" src="https://img.shields.io/badge/unsafe-forbidden-success.svg"></a>
+  <a href="core/src/lib.rs"><img alt="unsafe: one, named and counted" src="https://img.shields.io/badge/unsafe-one%2C%20counted-success.svg"></a>
   <a href="deny.toml"><img alt="runtime deps: zero" src="https://img.shields.io/badge/runtime%20deps-zero-success.svg"></a>
   <a href="docs/CI.md"><img alt="coverage: floor 80" src="https://img.shields.io/badge/coverage-gated_%E2%89%A580%25-success"></a>
-  <a href="GOVERNANCE-CONSTITUTION.md"><img alt="constitution: 111 rules" src="https://img.shields.io/badge/constitution-111%20rules-blueviolet"></a>
-  <a href="scripts/mutation-gate.sh"><img alt="mutations killed: 327/327" src="https://img.shields.io/badge/mutations%20killed-327%2F327-success"></a>
+  <a href="GOVERNANCE-CONSTITUTION.md"><img alt="constitution: 112 rules" src="https://img.shields.io/badge/constitution-112%20rules-blueviolet"></a>
+  <a href="scripts/mutation-gate.sh"><img alt="mutations killed: 328/328" src="https://img.shields.io/badge/mutations%20killed-328%2F328-success"></a>
   <a href="scripts/gate-selftest.sh"><img alt="gates self-tested: 59 plants caught" src="https://img.shields.io/badge/gates%20self--tested-59%20plants%20caught-success"></a>
   <a href="CHARTER.md"><img alt="hardware tested: none yet" src="https://img.shields.io/badge/hardware%20tested-none%20yet-inactive"></a>
 </p>
@@ -90,9 +90,9 @@ and no amount of green rows replaces it.
 
 | | |
 | --- | --- |
-| Written | The capability registry, tier detection, the CSP and response security headers, **the battery safety governor** — state machine, verification loop, thresholds, recovery — the sysfs layer it drives, the sampling cadence, the mains-loss shed ladder, **the safety panel**, where a row that could not be checked is not allowed to read as one that was, **a published website**: a directory served to your own network, refused the moment the governor says the cell is in trouble, **file storage**: authenticated upload, download and delete, each device holding a credential that can be revoked on its own — and **onion ingress**: `all --onion-dir` publishes the site and the vault through your system's tor daemon, shed first by the governor, never claimed verified until a request arrives from outside — and **relay ingress**: `all --relay-via <HOST>` declares a rented tunnel with the dependency named in every start — and **the fleet contract**: declared roles, computed quorum with witnesses as tie-breakers only, a draining upgrade machine, and HMAC-sealed jail verdicts ([ADR-0014](docs/adr/ADR-0014-the-fleet-contract.md)) — and **the tier-2 guest contract**: what a guest running under an Android host may say about the charge ceiling, the host's Doze policy and its own ingress; a claim that belongs to a boot and dies with it; a standing that has no *verified* variant, because a guest cannot read the cell back ([ADR-0015](docs/adr/ADR-0015-the-tier-two-guest-contract.md)) — and **the tier-3 image manifest**: what a mainline image is, checked against the running system, with absent and unreadable kept apart from different ([ADR-0016](docs/adr/ADR-0016-the-verified-image-manifest.md)) — and **the service catalogue**: every service with its tier floor and its resource envelope, so the picker can grey out what a device cannot run **and say which requirement failed** ([ADR-0017](docs/adr/ADR-0017-the-service-catalogue.md)) |
-| Not written | The fleet view, the hardware database itself, the Android shell, **anything that syncs on its own — storage is a request somebody makes, never a folder that mirrors itself**. The onion has never served an outside visitor either, because no handset has run this binary; what is written is the supervision, the contract and the honest wording, not a proof of reachability. The **tier-2 guest channel** is an environment variable standing in for a pKVM host API, the **tier-3 images** do not exist, and the **resource profiler** that would tell the catalogue what a device can run has never seen a device |
-| Checked | 766 unit tests and 34 doctests, line coverage held above its 80% floor in CI, **327 mutations each re-broken and each required to turn its named test red**, and **59 violations planted in a scratch repository that the gates must catch citing the right rule — a count pinned to itself, like the mutation gate's**. None of that is evidence about hardware; all of it is evidence about the code |
+| Written | The capability registry, tier detection, the CSP and response security headers, **the battery safety governor** — state machine, verification loop, thresholds, recovery — the sysfs layer it drives, the sampling cadence, the mains-loss shed ladder, **the safety panel**, where a row that could not be checked is not allowed to read as one that was, **a published website**: a directory served to your own network, refused the moment the governor says the cell is in trouble, **file storage**: authenticated upload, download and delete, each device holding a credential that can be revoked on its own — and **onion ingress**: `all --onion-dir` publishes the site and the vault through your system's tor daemon, shed first by the governor, never claimed verified until a request arrives from outside — and **relay ingress**: `all --relay-via <HOST>` declares a rented tunnel with the dependency named in every start — and **the fleet contract**: declared roles, computed quorum with witnesses as tie-breakers only, a draining upgrade machine, and HMAC-sealed jail verdicts ([ADR-0014](docs/adr/ADR-0014-the-fleet-contract.md)) — and **the tier-2 guest contract**: what a guest running under an Android host may say about the charge ceiling, the host's Doze policy and its own ingress; a claim that belongs to a boot and dies with it; a standing that has no *verified* variant, because a guest cannot read the cell back ([ADR-0015](docs/adr/ADR-0015-the-tier-two-guest-contract.md)) — and **the tier-3 image manifest**: what a mainline image is, checked against the running system, with absent and unreadable kept apart from different ([ADR-0016](docs/adr/ADR-0016-the-verified-image-manifest.md)) — and **the service catalogue**: every service with its tier floor and its resource envelope, so the picker can grey out what a device cannot run **and say which requirement failed** ([ADR-0017](docs/adr/ADR-0017-the-service-catalogue.md)) — and **the resource profiler**: the four figures a device is judged on, each one naming whether it was measured or not, and the one call into libc the project allows itself, named and counted ([ADR-0018](docs/adr/ADR-0018-the-resource-profiler.md)) |
+| Not written | The fleet view, the hardware database itself, the Android shell, **anything that syncs on its own — storage is a request somebody makes, never a folder that mirrors itself**. The onion has never served an outside visitor either, because no handset has run this binary; what is written is the supervision, the contract and the honest wording, not a proof of reachability. The **tier-2 guest channel** is an environment variable standing in for a pKVM host API, the **tier-3 images** do not exist, and the **resource profiler** that tells the catalogue what a device can run has never seen one |
+| Checked | 783 unit tests and 34 doctests, line coverage held above its 80% floor in CI, **328 mutations each re-broken and each required to turn its named test red**, and **59 violations planted in a scratch repository that the gates must catch citing the right rule — a count pinned to itself, like the mutation gate's**. None of that is evidence about hardware; all of it is evidence about the code |
 | Unblocked | [Charter III.1](CHARTER.md) forbids anything serving traffic before the governor. The governor is now **written** — the ordering constraint is met in code, and the gate fails the build if it is ever removed. It is not met on hardware, and nothing serves traffic yet regardless |
 | Never tested on hardware | Everything. Every device-facing behaviour is exercised through a fake host describing handsets nobody here is holding |
 
@@ -103,8 +103,9 @@ phone on a bench, and not before.
 
 ## What is built
 
-Twenty-six modules in [`core/src`](core/src), `#![forbid(unsafe_code)]`,
-`clippy::pedantic` at `-D warnings`, and a `[dependencies]` section that is
+Twenty-seven modules in [`core/src`](core/src), `#![forbid(unsafe_code)]` in the
+core and exactly one counted exception in the command, `clippy::pedantic` at
+`-D warnings`, and a `[dependencies]` section that is
 empty — not small, empty — with a charter gate that fails the build if anything
 is ever added to it. Everything below describes code in this repository and
 nothing else.
@@ -492,11 +493,12 @@ would be invented by the question rather than found in the device.
 
 ---
 
-### 🖥 The two commands that answer for the machine in front of you
+### 🖥 The three commands that answer for the machine in front of you
 
 `vayucell image --manifest <FILE>` checks the running system against a
-manifest, and `vayucell catalogue` says what this cell can offer and what it
-cannot. Both are commands a person runs on a phone and reads.
+manifest, `vayucell profile` says what this device is, and `vayucell catalogue`
+says what this cell can offer and what it cannot. All three are commands a
+person runs on a phone and reads.
 
 The image check reads the running kernel, the running device tree and the
 running charge-voltage node, and compares each against the manifest. Its exit
@@ -507,14 +509,20 @@ been checked and has failed, which is not the same as a machine nobody could
 look at. There is no default manifest, because a default would be this
 program choosing what to verify.
 
-The catalogue measures two things and says which: the tier, which the tier
-detection establishes from evidence, and the memory, which the kernel writes
-down in `/proc/meminfo`. The free space on the filesystem cannot be read
-without a libc call this project does not have, and the thermal class cannot
-be read at all — it is what a cell is willing to be warmed to, and only a
-governor that has watched a cell heat can say. So the honest answer for most
-rows is **cannot be told**, and the honest answer for a row whose memory is
-too small is **does not fit** — a failure that was measured, reported as one.
+The profile reports the four figures a device is judged on and says, for each
+one, whether it was measured: the tier, which the tier detection establishes
+from evidence; the memory, which the kernel writes down in `/proc/meminfo`;
+the free space on the filesystem the command ran from, which the platform's own
+libc is the only thing that can answer; and the thermal class, which is the
+cell's own temperature put through the governor's thresholds. A figure nobody
+could measure is named as such and is never printed as a zero — a report that
+said "0 MB free" would be a claim about a full disk, and a claim nobody took.
+
+The catalogue judges the same four figures, which is the point: the numbers it
+greys a row out on are the numbers the profile printed. A row that was checked
+and failed says **does not fit**, and names the requirement that failed; a row
+that needs a figure nobody took says **cannot be told**, and the two are never
+the same answer.
 
 ---
 
@@ -752,12 +760,13 @@ scripts/release-gate.sh        # the version says the same thing everywhere
 cargo test --workspace
 ```
 
-A full run exercises **766 unit tests and 34 doctests** (2 ignored — the two
-snapshot regenerators), kills **327 mutations**, catches **59 planted violations** and two count proofs,
+A full run exercises **783 unit tests and 34 doctests** (2 more are ignored — the two
+snapshot regenerators), kills **328 mutations**, catches **59 planted violations** and two count proofs,
 and holds line coverage above a floor of 80. That is a suite that
 has been shown to fail when the code is wrong — the mutation gate is the proof,
 and it asserts its own match count so a mutation that failed to apply cannot be
-scored as one the code survived. **What none of it establishes, and none of it
+scored as one the code survived, and it pins its own total so the badge in this
+file cannot drift away from the number of guards it actually re-breaks. **What none of it establishes, and none of it
 can, is that this behaves correctly on a phone.**
 
 ---
@@ -786,7 +795,7 @@ disqualifying failure. The other three options have no cell to be wrong about.
 
 ## How the core fits together
 
-Twenty-six modules, one crate, one direction of dependency — twenty-five above the seam, plus
+Twenty-seven modules, one crate, one direction of dependency — twenty-six above the seam, plus
 `host.rs` below it. The boundary at the bottom is the honest part of the picture:
 
 ```text
@@ -806,6 +815,9 @@ Twenty-six modules, one crate, one direction of dependency — twenty-five above
                     │  sampler.rs    cadence (pure, owns no clock) │
                     │  shed.rs       mains-loss ladder             │
                     │  sysfs.rs      the one writable ceiling node │
+                    │  thermal.rs    the class a cell is in, from    │
+                    │                its own temperature and the    │
+                    │                governor's own thresholds      │
                     │                                              │
                     │  ── durability ───────────────────────────   │
                     │  durability.rs recovery point, backup proof —│
@@ -997,10 +1009,10 @@ and has no other symptom.
 | Gate | What it refuses to let through |
 | --- | --- |
 | **Charter** | A serving capability registered while the governor is gone. `Capability::verify` demoted to an `Option`, so a control with no read-back would compile. A generic success variant that would absorb "not checked". `Absent` and `Unverified` collapsing into one answer. A tier detector that defaults to T0. Telemetry, a treasury, a kill switch, a remote wipe, a dependency on a host this project runs. A `[dependencies]` section with anything in it. An edit to Article III or V whose SHA-256 no longer matches `.charter-digests` |
-| **Gate self-test** | A gate that has only ever been observed passing. **Fifty-seven violations** planted in a scratch copy — the governor deleted, `verify` made optional, telemetry added, an outbound connection opened in the binary crate, a third-party dependency added to the CLI crate, a bot-authored commit, a workflow tag that resolves to nothing — each of which the matching gate must catch **citing the right rule**. A plant that changed nothing is scored `STALE`, not `caught`: the sandbox is fingerprinted before and after |
-| **Mutation** | **Three hundred and fourteen safety and honesty guards, each re-broken in turn, each required to turn its named test red. A green suite proves the code passes its tests; this proves the tests would notice if the code were wrong. Every mutation asserts its own match count, because one that failed to apply would otherwise be reported as one the code survived |
+| **Gate self-test** | A gate that has only ever been observed passing. **Fifty-nine violations** planted in a scratch copy — the governor deleted, `verify` made optional, telemetry added, an outbound connection opened in the binary crate, a third-party dependency added to the CLI crate, a bot-authored commit, a workflow tag that resolves to nothing — each of which the matching gate must catch **citing the right rule**. A plant that changed nothing is scored `STALE`, not `caught`: the sandbox is fingerprinted before and after |
+| **Mutation** | **Three hundred and twenty-eight safety and honesty guards, each re-broken in turn, each required to turn its named test red. A green suite proves the code passes its tests; this proves the tests would notice if the code were wrong. Every mutation asserts its own match count, because one that failed to apply would otherwise be reported as one the code survived |
 | **Doctests** | A `compile_fail` proof that stopped being collected. The count is asserted **exactly, in both directions** — too few means a proof moved onto a private item, where rustdoc runs zero tests and still prints `ok`; too many means somebody added a proof without raising the number |
-| **Rust** | Unformatted code, a `clippy::pedantic` warning at `-D warnings` over all targets, a failed build or test, a broken intra-doc link, and the removal of *either* `#![forbid(unsafe_code)]` or `unsafe_code = "deny"` — either alone can be dropped in a diff that looks unrelated |
+| **Rust** | Unformatted code, a `clippy::pedantic` warning at `-D warnings` over all targets, a failed build or test, a broken intra-doc link, the removal of *either* `#![forbid(unsafe_code)]` or `unsafe_code = "deny"` — either alone can be dropped in a diff that looks unrelated — and a **second** `#[allow(unsafe_code)]` anywhere in the tree, or the one in `cli/src/statvfs.rs` moving |
 | **Coverage** | Production line coverage below **80%**, with test files excluded so the figure is not inflated by the coverage of the tests themselves. A missing coverage tool is a failure, never a pass |
 | **Constitution** | A `[CI]` rule claiming enforcement while naming no enforcer, or naming a file that has been deleted. It explicitly does *not* claim the cited file enforces the sentence attached to it, and prints that limitation on every run |
 | **Docs** | A required document missing **or emptied**, an ADR whose title names a different number than its filename, a gap in the decision log, an ADR nothing links to, a dead relative link anywhere in the repository, **or a constitution whose own totals disagree with the rules in it** |
@@ -1043,8 +1055,8 @@ the gaps.
 entirely independent implementation may take it — and Articles III (safety) and V
 (what VayuCell will never contain) sit beyond ordinary amendment: their SHA-256
 digests are recorded in `.charter-digests`, so an edit stops the build until it is
-re-recorded in the diff where review will see it. Beneath it, a **111-rule
-constitution splits itself 53 `[CI]`, 28 `[REVIEW]`, 30 `[NORM]`**, counts the
+re-recorded in the diff where review will see it. Beneath it, a **112-rule
+constitution splits itself 54 `[CI]`, 28 `[REVIEW]`, 30 `[NORM]`**, counts the
 split in an appendix, and gates that count — a governance document that miscounts
 how much of itself is actually enforced would be committing its own honesty rule's
 error against its reader. Contribution is by DCO sign-off, never a CLA, and the
@@ -1062,9 +1074,14 @@ is version 1.0 and has never been tested by an actual conflict.
 
 ## Security and sovereignty
 
-- **No `unsafe`, and two independent latches saying so.** `#![forbid(unsafe_code)]`
+- **One `unsafe` call, named and counted.** `#![forbid(unsafe_code)]`
   in the crate root and `unsafe_code = "deny"` in the manifest; CI greps for both,
-  because removing one alone reads as tidying.
+  because removing one alone reads as tidying. The one exception the project
+  allows itself — the call into libc that asks the kernel how much room a
+  filesystem has, because the kernel writes that number down nowhere this
+  project can read it — lives in one file, and a gate **counts** the allows in
+  the tree and fails if there is a second, or if the one moves. "There is one,
+  and here it is" is a sentence; the count is the control.
 - **Zero third-party runtime dependencies, asserted rather than asserted-about.**
   The charter gate fails on a non-empty `[dependencies]` section, and the SBOM job
   fails if any component in the published bill of materials carries a name that is
@@ -1112,7 +1129,7 @@ for.
 | Document | What it is |
 | --- | --- |
 | [`CHARTER.md`](CHARTER.md) | The supreme law. CC0. Read this first |
-| [`GOVERNANCE-CONSTITUTION.md`](GOVERNANCE-CONSTITUTION.md) | How the charter is upheld in practice — 111 rules, 53 `[CI]`, 28 `[REVIEW]`, 30 `[NORM]`, each `[CI]` rule naming the file that enforces it |
+| [`GOVERNANCE-CONSTITUTION.md`](GOVERNANCE-CONSTITUTION.md) | How the charter is upheld in practice — 112 rules, 54 `[CI]`, 28 `[REVIEW]`, 30 `[NORM]`, each `[CI]` rule naming the file that enforces it |
 | [`GOVERNANCE.md`](GOVERNANCE.md) | Who decides what, and how a proposal is made |
 | [`PLAN.md`](PLAN.md) | The full project plan |
 | [`ADR-0001`](docs/adr/ADR-0001-tier-model-and-capability-registry.md) | The tier model and the capability registry |
@@ -1129,6 +1146,10 @@ for.
 | [`ADR-0012`](docs/adr/ADR-0012-replication-by-receipt.md) | Replication by receipt: the companion claims, the cell quotes |
 | [`ADR-0013`](docs/adr/ADR-0013-relay-ingress-a-rented-dependency.md) | Relay ingress: a rented dependency, named as one |
 | [`ADR-0014`](docs/adr/ADR-0014-the-fleet-contract.md) | The fleet contract: roles, quorum, upgrades, sealed verdicts |
+| [`ADR-0015`](docs/adr/ADR-0015-the-tier-two-guest-contract.md) | The tier-2 guest contract: what a guest under an Android host may say |
+| [`ADR-0016`](docs/adr/ADR-0016-the-verified-image-manifest.md) | The verified image manifest: what a mainline image is |
+| [`ADR-0017`](docs/adr/ADR-0017-the-service-catalogue.md) | The service catalogue: what this device may be asked to run |
+| [`ADR-0018`](docs/adr/ADR-0018-the-resource-profiler.md) | The resource profiler: four figures, and one counted unsafe call |
 | [`docs/INSTALL.md`](docs/INSTALL.md) | Putting it on a phone, written for somebody who has never opened a terminal |
 | [`docs/CI.md`](docs/CI.md) | Every gate, and every parameter it checks with |
 | [`docs/BRAND.md`](docs/BRAND.md) | The mark: how it is constructed, and the rules for using it |

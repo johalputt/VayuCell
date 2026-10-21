@@ -542,6 +542,23 @@ An abandoned vendor kernel is not secure, and this project will not imply
 otherwise. Charter Article II. Where the platform is the weak point, the
 documentation says the platform is the weak point.
 
+### 6.16 The one unsafe call is named, and counted **[CI]**
+
+The tree holds **exactly one** `#[allow(unsafe_code)]`, and it is in
+`cli/src/statvfs.rs`. The core keeps `#![forbid(unsafe_code)]` and both manifests
+keep `unsafe_code = "deny"`; the one exception is the call into libc that asks
+the kernel how much room a filesystem has, because the kernel writes that
+number down nowhere this project can read it.
+
+A named exception is not a counted one. "There is one, and here it is" is a
+sentence; a sentence in a README is a claim, and a claim is not a control. So
+the count is itself a gate: it counts the allows in the tree, refuses a
+second one, and refuses the one moving to a file that has not earned it. The
+rule is not "the unsafe call is written carefully" — it is "there is one, it is
+here, and adding a second fails the build".
+
+**Enforced by:** `.github/workflows/ci.yml`
+
 ---
 
 ## Article 7 — Privacy and data governance
@@ -1032,10 +1049,10 @@ permission.
 
 | Enforcement | Count | What it means |
 | --- | --- | --- |
-| **[CI]** | 53 | A gate fails the build |
+| **[CI]** | 54 | A gate fails the build |
 | **[REVIEW]** | 28 | A person must catch it |
 | **[NORM]** | 30 | Advisory, and labelled as such |
-| **Total** | 111 | |
+| **Total** | 112 | |
 
 **These counts are checked by [`scripts/docs-gate.sh`](scripts/docs-gate.sh).**
 They were wrong in the first draft of this document — off by six — and nothing

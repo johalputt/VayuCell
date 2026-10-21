@@ -29,8 +29,10 @@ mod image;
 mod listen;
 mod onion;
 mod picker;
+mod profile;
 mod relay;
 mod report;
+mod statvfs;
 mod storage;
 mod survey;
 
@@ -119,7 +121,8 @@ fn main() -> ExitCode {
         Command::Devices => list_devices(&parsed),
         Command::Revoke => revoke_device(&parsed),
         Command::Image => image::run(&RealHost, parsed.manifest.as_deref().unwrap_or_default()),
-        Command::Catalogue => picker::run(&RealHost),
+        Command::Catalogue => picker::run(&RealHost, &parsed.supply_dir),
+        Command::Profile => profile::run(&RealHost, &parsed.supply_dir),
         Command::Run { ticks } => run(&parsed, ticks),
     };
 

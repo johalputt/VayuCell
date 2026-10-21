@@ -63,9 +63,31 @@ when the tag is cut.
   not hold. There is no default manifest — a default would be this program
   choosing what to verify. `vayucell catalogue` prints every service with
   its floor and its envelope, and what this device can be told about itself:
-  the tier and the memory are measured, the storage and the thermal class
-  are not, and every row that needs one of them is answered *cannot be
-  told* rather than *does not fit*.
+  the tier, the memory, the free space on the filesystem and the cell's
+  thermal class are all measured, and every row that needs a figure nobody
+  took is answered *cannot be told* rather than *does not fit*.
+- **The resource profiler**
+  ([ADR-0018](docs/adr/ADR-0018-the-resource-profiler.md)). The profiling
+  pass PLAN §9 asks for is now a module and a command: `vayucell profile`
+  prints the four figures a device is judged on — the tier, the memory, the
+  free space on the filesystem it ran from, and the cell's thermal class —
+  and says, for each one, whether it was measured. A figure nobody could
+  measure is named as such and is never printed as a zero: "0 MB free" would
+  be a claim about a full disk that nobody took. The thermal class is a
+  **ceiling** on the work the cell may do, it follows the governor's own
+  thresholds rather than a second ladder, and it follows the **worst** reading
+  the cell has given rather than the latest — a cell that has been hot stays
+  restricted after it cools, because the governor does not lower its own
+  level without a reading it believes.
+- **The one unsafe call in this project, named and counted.** The free space
+  on a filesystem is not written down anywhere the project can read it: the
+  kernel publishes it only for filesystems that implement `show_stats`, and
+  `f2fs` — what a great many Android phones put their data partition on —
+  does not. So the measurement is a call into libc, and a call into libc is
+  `unsafe`. It lives in `cli/src/statvfs.rs`, it is the only one in the tree,
+  and CI **counts** the `#[allow(unsafe_code)]` attributes: a second one
+  fails the build, and so does the first one moving. The core keeps
+  `#![forbid(unsafe_code)]` and both manifests keep `unsafe_code = "deny"`.
 - **A budget that can say "not measured".** Every figure in a device's
   budget is optional now, because a requirement that was never measured
   cannot fail. A shortfall that was measured still outranks an open

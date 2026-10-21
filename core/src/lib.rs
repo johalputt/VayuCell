@@ -38,6 +38,7 @@ pub mod serve;
 pub mod shed;
 pub mod site;
 pub mod sysfs;
+pub mod thermal;
 pub mod tier;
 pub mod vault;
 pub mod wear;
@@ -80,6 +81,8 @@ mod shed_test;
 mod site_test;
 #[cfg(test)]
 mod sysfs_test;
+#[cfg(test)]
+mod thermal_test;
 #[cfg(test)]
 mod tier_test;
 #[cfg(test)]

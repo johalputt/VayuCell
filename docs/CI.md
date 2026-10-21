@@ -202,7 +202,7 @@ passed.**
 | `cargo test` | `--workspace --all-features` | |
 | doctest count | asserts the **exact** number of doctests ran | The strongest guarantees in this crate are `compile_fail` doctests. Moved onto a private item they run zero tests and still print `test result: ok`. The exit code cannot distinguish that from success; the count can — but only if it is exact. This gate asserted a floor of one until it was pointed out that fifteen of sixteen proofs could vanish beneath it, which made the gate against silent passes a silent pass of its own |
 | `cargo doc` | `--no-deps`, `RUSTDOCFLAGS=-D warnings` | Broken intra-doc links fail the build |
-| unsafe | greps for both `#![forbid(unsafe_code)]` and `unsafe_code = "deny"` | Either alone can be dropped in a diff that looks unrelated |
+| unsafe | greps for both `#![forbid(unsafe_code)]` and `unsafe_code = "deny"`, and **counts the `#[allow(unsafe_code)]` attributes in the tree** | Either latch alone can be dropped in a diff that looks unrelated — and a named exception that is not counted is a promise in a README, which is a claim rather than a control. The count must be exactly one, and it must be in `cli/src/statvfs.rs` |
 
 ### `msrv`
 
@@ -214,7 +214,7 @@ the code compiles there.
 
 ### `mutation`
 
-Runs [`scripts/mutation-gate.sh`](../scripts/mutation-gate.sh). **Three hundred and twenty-seven guards**, each re-broken in turn, each required to turn its matching test red:
+Runs [`scripts/mutation-gate.sh`](../scripts/mutation-gate.sh). **Three hundred and twenty-eight guards**, each re-broken in turn, each required to turn its matching test red:
 
 | Mutation | Test that must fail |
 | --- | --- |
@@ -576,7 +576,7 @@ forgotten here would otherwise be required in name and unenforced in fact.
 
 Runs [`scripts/constitution-gate.sh`](../scripts/constitution-gate.sh).
 
-`GOVERNANCE-CONSTITUTION.md` marks 53 rules `[CI]`, and §0.3 says plainly that
+`GOVERNANCE-CONSTITUTION.md` marks 54 rules `[CI]`, and §0.3 says plainly that
 `[CI]` means a gate fails the build. That is the load-bearing claim of the whole
 document — it is what lets a reader tell which rules are real.
 
@@ -722,7 +722,7 @@ same day.
 | `osv` | Scans `Cargo.lock` against the OSV database — a second opinion alongside cargo-deny, drawing on overlapping but not identical data. It was on every push until the security scans were folded into the required gate; a newly-published advisory should page a maintainer, not block an unrelated documentation fix at two in the morning |
 | `freshness` | `cargo outdated --root-deps-only --exit-code 1`. Should stay empty by charter; exists to go red the week that stops being true |
 | `beta-and-nightly` | Advisory, `continue-on-error`. A lint added to nightly is information about work coming, not a defect in code that is correct today |
-| `miri` | The crate forbids unsafe, so this should find nothing — which is the point. It is what makes the `forbid` a verified property rather than a comment |
+| `miri` | The core crate forbids unsafe, so this should find nothing — which is the point. It is what makes the `forbid` a verified property rather than a comment. The one call into libc in the command is skipped under Miri, which cannot call into libc at all, and the code says so rather than pretending otherwise |
 | `fuzz` | The long run of the same three targets the `fuzz` job in `ci.yml` runs briefly — five minutes each, and the run whose logs somebody actually reads |
 | `gate-selftest` | Repeated on a schedule because this is the check with no natural symptom when it rots |
 

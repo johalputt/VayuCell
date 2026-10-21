@@ -268,15 +268,39 @@ jobs:
       - name: Documentation builds with no broken intra-doc links
         run: cargo doc --workspace --all-features --no-deps
 
-      - name: The crate forbids unsafe code
+      - name: The crate forbids unsafe code, and the one exception is named
         # Both the crate attribute and the manifest lint. Either alone can be
         # removed in a diff that looks unrelated.
+        #
+        # And the one exception the project allows itself — the call into libc
+        # that asks the kernel how much room a filesystem has — is counted, not
+        # trusted. A claim that there is exactly one unsafe call is a control
+        # only if something refuses a second one, so this counts the allows in
+        # the tree, names the file they are in, and fails if either moves.
         run: |
           grep -q '#!\[forbid(unsafe_code)\]' core/src/lib.rs \
             || { echo "core/src/lib.rs no longer forbids unsafe code"; exit 1; }
           grep -q 'unsafe_code = "deny"' core/Cargo.toml \
             || { echo "core/Cargo.toml no longer denies unsafe code"; exit 1; }
-          echo "unsafe code is forbidden at the crate and manifest level"
+          grep -q 'unsafe_code = "deny"' cli/Cargo.toml \
+            || { echo "cli/Cargo.toml no longer denies unsafe code"; exit 1; }
+
+          count=$(grep -r --include='*.rs' -c '#\[allow(unsafe_code)\]' core cli sync \
+            | awk -F: '{ total += $NF } END { print total + 0 }')
+          if [ "$count" -ne 1 ]; then
+            echo "the tree holds $count #[allow(unsafe_code)] attributes; it must hold exactly one."
+            grep -rn --include='*.rs' '#\[allow(unsafe_code)\]' core cli sync
+            exit 1
+          fi
+
+          where=$(grep -rl --include='*.rs' '#\[allow(unsafe_code)\]' core cli sync)
+          if [ "$where" != "cli/src/statvfs.rs" ]; then
+            echo "the one unsafe allow has moved to $where; it belongs in cli/src/statvfs.rs,"
+            echo "which is the only file that may hold one."
+            exit 1
+          fi
+          echo "unsafe code is forbidden at the crate and manifest level, and the one"
+          echo "exception — cli/src/statvfs.rs — is counted and in the file it belongs to"
 
   # ── Minimum supported Rust version ──────────────────────────────────────────
   msrv:

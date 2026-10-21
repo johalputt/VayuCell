@@ -47,6 +47,10 @@
 //! a heavy service without saying so would be a catalogue that got somebody
 //! to run it on a phone in a drawer without ever mentioning the battery.
 //!
+//! The class itself, and the policy that turns an observed cell into one, live
+//! in [`crate::thermal`]: it is a property of the device, and this module is
+//! about the services.
+//!
 //! # What this module does not claim
 //!
 //! Nothing here has been run on a handset. PLAN §11 keeps the P9 gate open —
@@ -57,55 +61,7 @@
 use core::fmt;
 
 use crate::capability::Tier;
-
-/// How hard a workload leans on the cell.
-///
-/// The order is the point: the governor compares what a service wants against
-/// what the device is willing to give, and "worse" means hotter.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ThermalClass {
-    /// The cell does essentially nothing: a report, a wake-up, a ping.
-    Idle,
-    /// Steady background work, such as a sync daemon answering a request a minute.
-    Light,
-    /// Continuous work that will run for hours, such as transcoding.
-    Sustained,
-    /// A flat-out multi-core workload with the accelerator running.
-    Heavy,
-}
-
-impl ThermalClass {
-    /// The class's place in the order, lowest first.
-    const fn rank(self) -> u8 {
-        match self {
-            Self::Idle => 0,
-            Self::Light => 1,
-            Self::Sustained => 2,
-            Self::Heavy => 3,
-        }
-    }
-
-    /// Whether this class is worse — hotter — than `other`.
-    ///
-    /// The comparison the governor wants: a device willing to run only
-    /// [`ThermalClass::Light`] work cannot carry a [`ThermalClass::Heavy`]
-    /// service, and a device willing to run heavy work can carry anything.
-    #[must_use]
-    pub const fn worse_than(self, other: Self) -> bool {
-        self.rank() > other.rank()
-    }
-}
-
-impl fmt::Display for ThermalClass {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::Idle => "idle",
-            Self::Light => "light",
-            Self::Sustained => "sustained",
-            Self::Heavy => "heavy",
-        })
-    }
-}
+use crate::thermal::ThermalClass;
 
 /// The resources a service wants.
 ///

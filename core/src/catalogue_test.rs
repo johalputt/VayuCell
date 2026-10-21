@@ -9,6 +9,9 @@
 
 use super::catalogue::*;
 use crate::capability::Tier;
+// The class is the device's, not the catalogue's: it is computed from an
+// observed cell in `crate::thermal`, and only the comparison lives here.
+use crate::thermal::ThermalClass;
 
 /// A device with plenty of room and the given tier.
 fn generous(tier: Tier) -> Budget {

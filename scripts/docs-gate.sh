@@ -257,9 +257,9 @@ fi
 # rules against Appendix A, the doctests exactly in both directions — and this
 # one had no check at all. Found while adding the twentieth module and writing
 # the wrong number in its place.
-declared="$(grep -oE '^(One|Two|Three|Four|Five|Six|Seven|Eight|Nine|Ten|Eleven|Twelve|Thirteen|Fourteen|Fifteen|Sixteen|Seventeen|Eighteen|Nineteen|Twenty|Twenty-one|Twenty-two|Twenty-three|Twenty-four|Twenty-five|Twenty-six)( modules in)' README.md | head -1 | sed 's/ modules in//')"
+declared="$(grep -oE '^(One|Two|Three|Four|Five|Six|Seven|Eight|Nine|Ten|Eleven|Twelve|Thirteen|Fourteen|Fifteen|Sixteen|Seventeen|Eighteen|Nineteen|Twenty|Twenty-one|Twenty-two|Twenty-three|Twenty-four|Twenty-five|Twenty-six|Twenty-seven)( modules in)' README.md | head -1 | sed 's/ modules in//')"
 actual="$(grep -c '^pub mod ' core/src/lib.rs)"
-words="One Two Three Four Five Six Seven Eight Nine Ten Eleven Twelve Thirteen Fourteen Fifteen Sixteen Seventeen Eighteen Nineteen Twenty Twenty-one Twenty-two Twenty-three Twenty-four Twenty-five Twenty-six"
+words="One Two Three Four Five Six Seven Eight Nine Ten Eleven Twelve Thirteen Fourteen Fifteen Sixteen Seventeen Eighteen Nineteen Twenty Twenty-one Twenty-two Twenty-three Twenty-four Twenty-five Twenty-six Twenty-seven"
 expected="$(echo "$words" | cut -d' ' -f"$actual")"
 if [ -z "$declared" ]; then
   fail "the README no longer states how many modules core/src has"

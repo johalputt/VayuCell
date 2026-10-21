@@ -43,6 +43,8 @@ pub enum Command {
     /// Print the catalogue of services, and what this device can be told
     /// about itself.
     Catalogue,
+    /// Print this device's own figures, and say which of them were measured.
+    Profile,
     /// Enrol a device and print its secret once.
     Enrol,
     /// List the devices enrolled on this cell.
@@ -89,6 +91,7 @@ impl Command {
             | Self::Report
             | Self::Image
             | Self::Catalogue
+            | Self::Profile
             | Self::Enrol
             | Self::Devices
             | Self::Revoke
@@ -287,6 +290,10 @@ COMMANDS:
                         them this device can be told it can run. A requirement
                         nobody measured is reported as unmeasured, never as a
                         failure nobody found
+    profile            Print this device's own figures — the tier, the memory,
+                        the free space on the filesystem, the cell's thermal
+                        class — and say which of them were measured. A figure
+                        nobody could measure is named as such, never as a zero
     enrol               Add a device to the credential store and print its
                         secret. It is shown once and never again
     devices             List the devices enrolled here. Never prints a secret
@@ -418,6 +425,7 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
             "report" => set_command(&mut command, Command::Report, arg)?,
             "image" => set_command(&mut command, Command::Image, arg)?,
             "catalogue" => set_command(&mut command, Command::Catalogue, arg)?,
+            "profile" => set_command(&mut command, Command::Profile, arg)?,
             "enrol" | "enroll" => set_command(&mut command, Command::Enrol, arg)?,
             "devices" => set_command(&mut command, Command::Devices, arg)?,
             "revoke" => set_command(&mut command, Command::Revoke, arg)?,
