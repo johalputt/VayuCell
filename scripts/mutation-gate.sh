@@ -2267,18 +2267,18 @@ mutate "$CT" an_unestablished_tier_cannot_tell_anything_and_never_claims_a_fit \
 
 mutate "$CT" a_budget_short_of_memory_greys_the_entry_out_with_a_memory_shortfall \
   "the memory comparison is inverted, so a device with too little is offered the service" \
-  "        if budget.memory_mb < self.memory_mb {" \
-  "        if budget.memory_mb > self.memory_mb {"
+  "            if have_mb < self.memory_mb {" \
+  "            if have_mb > self.memory_mb {"
 
 mutate "$CT" a_budget_short_of_storage_greys_the_entry_out_with_a_storage_shortfall \
   "the storage comparison is inverted, so a device with no room left is offered the service" \
-  "        } else if budget.storage_mb < self.storage_mb {" \
-  "        } else if budget.storage_mb > self.storage_mb {"
+  "            if have_mb < self.storage_mb {" \
+  "            if have_mb > self.storage_mb {"
 
 mutate "$CT" a_cool_budget_greys_out_the_heavy_service_on_thermal_grounds \
   "the thermal comparison is inverted, so heavy work runs on a cell that was never meant to carry it" \
-  "        } else if self.thermal.worse_than(budget.thermal) {" \
-  "        } else if budget.thermal.worse_than(self.thermal) {"
+  "            if self.thermal.worse_than(allowed) {" \
+  "            if allowed.worse_than(self.thermal) {"
 
 mutate "$CT" the_thermal_classes_are_ordered_from_idle_to_heavy \
   "the thermal order is broken, so light work reads as worse than heavy work" \
@@ -2318,3 +2318,123 @@ mutate "$CT" each_shortfall_names_its_own_requirement \
   "a storage shortage is reported as a memory shortage, so the reader is sent to the wrong number" \
   "                    \"this device has {have_mb} MB of storage and the service wants {wanted_mb} MB\"" \
   "                    \"this device has {have_mb} MB of memory and the service wants {wanted_mb} MB\""
+
+mutate "$CT" a_requirement_that_was_never_measured_is_not_a_failure \
+  "the storage check reads an unmeasured storage as zero, so a device nobody measured is told it is too small" \
+  "        if let Some(have_mb) = budget.storage_mb {
+            if have_mb < self.storage_mb {
+                return Some(Shortfall::Storage {
+                    wanted_mb: self.storage_mb,
+                    have_mb,
+                });
+            }
+        }" \
+  "        let have_mb = match budget.storage_mb {
+            Some(have_mb) => have_mb,
+            None => 0,
+        };
+        if have_mb < self.storage_mb {
+            return Some(Shortfall::Storage {
+                wanted_mb: self.storage_mb,
+                have_mb,
+            });
+        }"
+
+mutate "$CT" a_device_with_nothing_measured_is_never_told_a_service_fits \
+  "the memory check reads an unmeasured memory as zero, so every service looks too big" \
+  "        if let Some(have_mb) = budget.memory_mb {
+            if have_mb < self.memory_mb {
+                return Some(Shortfall::Memory {
+                    wanted_mb: self.memory_mb,
+                    have_mb,
+                });
+            }
+        }" \
+  "        let have_mb = match budget.memory_mb {
+            Some(have_mb) => have_mb,
+            None => 0,
+        };
+        if have_mb < self.memory_mb {
+            return Some(Shortfall::Memory {
+                wanted_mb: self.memory_mb,
+                have_mb,
+            });
+        }"
+
+mutate "$CT" a_device_with_nothing_measured_is_never_told_a_service_fits \
+  "nothing measured is reported as nothing missing, so a device nobody profiled is offered every service" \
+  "            memory: self.memory_mb.is_none(),
+            storage: self.storage_mb.is_none(),
+            thermal: self.thermal.is_none()," \
+  "            memory: false,
+            storage: false,
+            thermal: false,"
+
+mutate "$CT" a_provable_shortfall_survives_an_unmeasured_requirement \
+  "a failure that was measured is swallowed when something else is unmeasured, so the answer becomes a question" \
+  "                if let Some(shortfall) = self.envelope.shortfall(budget) {
+                    return Some(Reason::TooSmall(shortfall));
+                }" \
+  "                if let Some(shortfall) = self.envelope.shortfall(budget) {
+                    if budget.unmeasured().names().is_empty() {
+                        return Some(Reason::TooSmall(shortfall));
+                    }
+                }"
+
+mutate "$CT" the_reason_names_the_requirements_that_were_never_measured \
+  "the storage is called something else, so the reader is sent to the wrong number" \
+  "        if self.storage {
+            out.push(\"storage\");
+        }" \
+  "        if self.storage {
+            out.push(\"room\");
+        }"
+
+# --- The picker and the image check, as commands -----------------------------
+
+PK=cli/src/picker.rs
+CLI_IM=cli/src/image.rs
+
+mutate "$PK" the_memory_is_read_from_the_kernels_own_accounting \
+  "the total is read from the free memory instead, so a busy device is told it is small" \
+  "        let Some(rest) = line.strip_prefix(\"MemTotal:\") else {" \
+  "        let Some(rest) = line.strip_prefix(\"MemFree:\") else {"
+
+mutate "$PK" the_memory_is_read_from_the_kernels_own_accounting \
+  "the kilobytes are reported as megabytes, so every device looks a thousand times too big" \
+  "        return u32::try_from(kilobytes / 1024).ok();" \
+  "        return u32::try_from(kilobytes).ok();"
+
+mutate "$PK" a_line_that_is_not_a_number_is_not_a_measurement \
+  "a line that is not a number is read as zero, so an unreadable kernel becomes a measurement of nothing" \
+  "        let kilobytes: u64 = digits.parse().ok()?;" \
+  "        let kilobytes: u64 = digits.parse().unwrap_or(0);"
+
+mutate "$PK" a_machine_that_will_not_say_how_much_memory_it_has_says_nothing \
+  "an unmeasured memory is read as zero, so the picker reports a failure it invented" \
+  "    Budget::new(tier, memory_mb(host), None, None)" \
+  "    Budget::new(tier, memory_mb(host).or(Some(0)), None, None)"
+
+mutate "$CLI_IM" a_machine_that_cannot_be_read_says_it_could_not_be_checked \
+  "a machine that answers nothing is reported as a machine that matched" \
+  "        Outcome::Unverified => 1," \
+  "        Outcome::Unverified => 0,"
+
+mutate "$CLI_IM" a_machine_running_something_else_is_told_it_does_not_match \
+  "a machine running another kernel is reported as unverified rather than mismatched" \
+  "        Outcome::Mismatched => 2," \
+  "        Outcome::Mismatched => 1,"
+
+mutate "$CLI_IM" a_manifest_that_cannot_be_read_is_refused \
+  "a manifest that cannot be read is reported as a machine that matched" \
+  "            eprintln!(\"vayucell image: the manifest at {path} could not be read: {e}\");
+            return 64;" \
+  "            eprintln!(\"vayucell image: the manifest at {path} could not be read: {e}\");
+            return 0;"
+
+mutate "$CLI_IM" a_manifest_that_is_not_a_manifest_is_refused \
+  "a file that is not a manifest is reported as a machine that matched" \
+  "            eprintln!(\"vayucell image: {path} is not a manifest: {e}\");
+            return 64;" \
+  "            eprintln!(\"vayucell image: {path} is not a manifest: {e}\");
+            return 0;"

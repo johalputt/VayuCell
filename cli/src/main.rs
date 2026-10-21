@@ -25,8 +25,10 @@ mod device;
 mod enrol;
 mod guest;
 mod halted;
+mod image;
 mod listen;
 mod onion;
+mod picker;
 mod relay;
 mod report;
 mod storage;
@@ -116,6 +118,8 @@ fn main() -> ExitCode {
         Command::Enrol => enrol_device(&parsed),
         Command::Devices => list_devices(&parsed),
         Command::Revoke => revoke_device(&parsed),
+        Command::Image => image::run(&RealHost, parsed.manifest.as_deref().unwrap_or_default()),
+        Command::Catalogue => picker::run(&RealHost),
         Command::Run { ticks } => run(&parsed, ticks),
     };
 

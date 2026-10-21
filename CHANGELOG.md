@@ -56,6 +56,27 @@ when the tag is cut.
   gives every service a tier floor and a resource envelope, so a picker can
   grey out what a device cannot run and say **which requirement failed**.
   "Provably does not fit" and "cannot be told" are different answers.
+- **The image check and the catalogue, as commands.** `vayucell image
+  --manifest <FILE>` checks the running kernel, the running device tree and
+  the running charge-voltage node against a manifest, and its exit code is
+  the verdict: `0` matched, `1` could not be checked, `2` checked and did
+  not hold. There is no default manifest — a default would be this program
+  choosing what to verify. `vayucell catalogue` prints every service with
+  its floor and its envelope, and what this device can be told about itself:
+  the tier and the memory are measured, the storage and the thermal class
+  are not, and every row that needs one of them is answered *cannot be
+  told* rather than *does not fit*.
+- **A budget that can say "not measured".** Every figure in a device's
+  budget is optional now, because a requirement that was never measured
+  cannot fail. A shortfall that was measured still outranks an open
+  question — "this phone has 512 MB and the service wants 4 GB" is a fact
+  whatever else nobody measured — and a device nobody has profiled is told
+  *cannot be told* for every entry instead of being offered all of them.
+- **Thirteen more gate mutations**: five over the catalogue's unmeasured
+  requirements and eight over the two new commands, each re-broken and
+  required to turn its named test red. Three existing entries were written
+  against the catalogue's old shape and were re-aimed at the same lines.
+
 - **Fifty-five new gate mutations**: twenty-four over the guest contract, the
   tier-aware panel and report rows and the guest's own record, and thirty-one
   over the image manifest and the catalogue — each re-broken and required to

@@ -12,12 +12,12 @@ use crate::capability::Tier;
 
 /// A device with plenty of room and the given tier.
 fn generous(tier: Tier) -> Budget {
-    Budget::new(Some(tier), 8192, 8192, ThermalClass::Heavy)
+    Budget::measured(Some(tier), 8192, 8192, ThermalClass::Heavy)
 }
 
 /// The same device, with no tier ever established.
 fn unprofiled() -> Budget {
-    Budget::new(None, 8192, 8192, ThermalClass::Heavy)
+    Budget::measured(None, 8192, 8192, ThermalClass::Heavy)
 }
 
 #[test]
@@ -124,7 +124,12 @@ fn a_budget_short_of_memory_greys_the_entry_out_with_a_memory_shortfall() {
     // The defect: a device with too little memory offered a service that
     // wants more, so the failure arrives as thrashing rather than as a
     // refusal.
-    let selection = select(&Budget::new(Some(Tier::T3), 512, 8192, ThermalClass::Heavy));
+    let selection = select(&Budget::measured(
+        Some(Tier::T3),
+        512,
+        8192,
+        ThermalClass::Heavy,
+    ));
     let greyed = selection
         .greyed
         .iter()
@@ -143,7 +148,12 @@ fn a_budget_short_of_memory_greys_the_entry_out_with_a_memory_shortfall() {
 fn a_budget_short_of_storage_greys_the_entry_out_with_a_storage_shortfall() {
     // The defect: a device with no room left offered the service anyway,
     // because a shortage of disk was counted as a shortage of memory.
-    let selection = select(&Budget::new(Some(Tier::T3), 8192, 64, ThermalClass::Heavy));
+    let selection = select(&Budget::measured(
+        Some(Tier::T3),
+        8192,
+        64,
+        ThermalClass::Heavy,
+    ));
     let greyed = selection
         .greyed
         .iter()
@@ -162,7 +172,7 @@ fn a_budget_short_of_storage_greys_the_entry_out_with_a_storage_shortfall() {
 fn a_cool_budget_greys_out_the_heavy_service_on_thermal_grounds() {
     // The defect: a thermal ceiling ignored, so the heavy workload runs on a
     // cell that was never meant to carry it.
-    let selection = select(&Budget::new(
+    let selection = select(&Budget::measured(
         Some(Tier::T3),
         8192,
         8192,
@@ -209,7 +219,12 @@ fn every_catalogue_entry_appears_in_the_selection() {
     // The defect: a service silently dropped from the result, so the picker
     // never says "not on this device" and the reader is left thinking the
     // catalogue is smaller than it is.
-    let selection = select(&Budget::new(Some(Tier::T1), 512, 512, ThermalClass::Idle));
+    let selection = select(&Budget::measured(
+        Some(Tier::T1),
+        512,
+        512,
+        ThermalClass::Idle,
+    ));
     assert_eq!(selection.total(), catalogue().len());
     for entry in catalogue() {
         let offered = selection.fits(entry.id);
@@ -261,10 +276,15 @@ fn a_resource_comparison_names_the_failing_requirement() {
     // The defect: a comparison that answers "too small" without saying which
     // requirement was too small, so the operator cannot act on it.
     let envelope = Envelope::new(512, 1024, ThermalClass::Sustained);
-    let roomy = Budget::new(Some(Tier::T3), 4096, 4096, ThermalClass::Heavy);
+    let roomy = Budget::measured(Some(Tier::T3), 4096, 4096, ThermalClass::Heavy);
     assert!(envelope.shortfall(&roomy).is_none());
 
-    match envelope.shortfall(&Budget::new(Some(Tier::T3), 128, 4096, ThermalClass::Heavy)) {
+    match envelope.shortfall(&Budget::measured(
+        Some(Tier::T3),
+        128,
+        4096,
+        ThermalClass::Heavy,
+    )) {
         Some(Shortfall::Memory { wanted_mb, have_mb }) => {
             assert_eq!(wanted_mb, 512);
             assert_eq!(have_mb, 128);
@@ -272,7 +292,12 @@ fn a_resource_comparison_names_the_failing_requirement() {
         other => panic!("expected a memory shortfall, got {other:?}"),
     }
 
-    match envelope.shortfall(&Budget::new(Some(Tier::T3), 4096, 128, ThermalClass::Heavy)) {
+    match envelope.shortfall(&Budget::measured(
+        Some(Tier::T3),
+        4096,
+        128,
+        ThermalClass::Heavy,
+    )) {
         Some(Shortfall::Storage { wanted_mb, have_mb }) => {
             assert_eq!(wanted_mb, 1024);
             assert_eq!(have_mb, 128);
@@ -280,7 +305,12 @@ fn a_resource_comparison_names_the_failing_requirement() {
         other => panic!("expected a storage shortfall, got {other:?}"),
     }
 
-    match envelope.shortfall(&Budget::new(Some(Tier::T3), 4096, 4096, ThermalClass::Idle)) {
+    match envelope.shortfall(&Budget::measured(
+        Some(Tier::T3),
+        4096,
+        4096,
+        ThermalClass::Idle,
+    )) {
         Some(Shortfall::Thermal { wanted, allowed }) => {
             assert_eq!(wanted, ThermalClass::Sustained);
             assert_eq!(allowed, ThermalClass::Idle);
@@ -351,7 +381,12 @@ fn the_thermal_classes_are_ordered_from_idle_to_heavy() {
 fn meeting_the_floor_does_not_buy_a_service_the_resources_cannot_carry() {
     // The defect: the tier check treated as the last word, so a device at
     // the highest tier was offered everything regardless of its memory.
-    let selection = select(&Budget::new(Some(Tier::T3), 128, 8192, ThermalClass::Heavy));
+    let selection = select(&Budget::measured(
+        Some(Tier::T3),
+        128,
+        8192,
+        ThermalClass::Heavy,
+    ));
     assert!(selection.fits(VAYU_PANEL.id));
     assert!(!selection.fits(VAYU_INFERENCE.id));
     for greyed in &selection.greyed {
@@ -377,14 +412,14 @@ fn a_caller_can_filter_a_catalogue_of_its_own() {
     }];
     let fits = select_from(
         &mine,
-        &Budget::new(Some(Tier::T0), 64, 32, ThermalClass::Idle),
+        &Budget::measured(Some(Tier::T0), 64, 32, ThermalClass::Idle),
     );
     assert_eq!(fits.fitting.len(), 1);
     assert_eq!(fits.greyed, [] as [Greyed<'_>; 0]);
 
     let refused = select_from(
         &mine,
-        &Budget::new(Some(Tier::T0), 16, 32, ThermalClass::Idle),
+        &Budget::measured(Some(Tier::T0), 16, 32, ThermalClass::Idle),
     );
     assert_eq!(refused.fitting, [] as [&Entry; 0]);
     assert_eq!(refused.total(), 1);
@@ -438,4 +473,98 @@ fn the_panel_can_ask_why_a_service_is_greyed_out() {
     let row = selection.greyed[0].to_string();
     assert!(row.starts_with(selection.greyed[0].entry.id), "{row}");
     assert!(row.contains("cannot be told"), "{row}");
+}
+
+#[test]
+fn a_requirement_that_was_never_measured_is_not_a_failure() {
+    // The defect: an unmeasured requirement read as zero, so every service
+    // looked provably too big and the picker reported a failure it had
+    // invented rather than found.
+    let budget = Budget::new(Some(Tier::T3), Some(8192), None, Some(ThermalClass::Heavy));
+    let selection = select(&budget);
+    let greyed = selection
+        .greyed
+        .iter()
+        .find(|greyed| greyed.entry.id == VAYU_PRESS.id)
+        .expect("the press stack is greyed out");
+    match greyed.reason {
+        Reason::ResourcesUnknown { missing, .. } => {
+            assert!(missing.storage, "{missing:?}");
+            assert!(!missing.memory, "{missing:?}");
+            assert!(!missing.thermal, "{missing:?}");
+        }
+        other => panic!("expected an unmeasured reason, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_provable_shortfall_survives_an_unmeasured_requirement() {
+    // The defect: an unmeasured requirement swallowing a failure that was
+    // actually measured, so a phone with 512 MB of memory is told that
+    // whether it fits cannot be told.
+    let budget = Budget::new(Some(Tier::T3), Some(512), None, Some(ThermalClass::Heavy));
+    let selection = select(&budget);
+    let greyed = selection
+        .greyed
+        .iter()
+        .find(|greyed| greyed.entry.id == VAYU_INFERENCE.id)
+        .expect("the heavy service is greyed out");
+    match greyed.reason {
+        Reason::TooSmall(Shortfall::Memory { wanted_mb, have_mb }) => {
+            assert_eq!(wanted_mb, VAYU_INFERENCE.envelope.memory_mb);
+            assert_eq!(have_mb, 512);
+        }
+        other => panic!("expected a memory shortfall, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_device_with_nothing_measured_is_never_told_a_service_fits() {
+    // The defect: "nothing measured" read as "nothing missing", so a device
+    // nobody has profiled was offered every service in the catalogue.
+    let budget = Budget::new(Some(Tier::T3), None, None, None);
+    let selection = select(&budget);
+    assert_eq!(selection.fitting, [] as [&Entry; 0]);
+    assert_eq!(selection.total(), catalogue().len());
+    for greyed in &selection.greyed {
+        let Reason::ResourcesUnknown { missing, .. } = greyed.reason else {
+            panic!("{}: {:?}", greyed.entry.id, greyed.reason);
+        };
+        // Every one of them, by name: a requirement that was never measured
+        // and a requirement that was measured are different, and a reader
+        // sent to the wrong one is sent to nothing.
+        assert!(missing.memory, "{}: {missing:?}", greyed.entry.id);
+        assert!(missing.storage, "{}: {missing:?}", greyed.entry.id);
+        assert!(missing.thermal, "{}: {missing:?}", greyed.entry.id);
+    }
+}
+
+#[test]
+fn the_reason_names_the_requirements_that_were_never_measured() {
+    // The defect: "cannot be told" without saying what could not be told, so
+    // the operator is left looking for a measurement nobody made.
+    let one = Reason::ResourcesUnknown {
+        floor: Tier::T1,
+        missing: Unmeasured {
+            memory: true,
+            storage: false,
+            thermal: false,
+        },
+    };
+    let text = one.to_string();
+    assert!(text.contains("memory"), "{text}");
+    assert!(text.contains("cannot be told"), "{text}");
+
+    let two = Reason::ResourcesUnknown {
+        floor: Tier::T1,
+        missing: Unmeasured {
+            memory: false,
+            storage: true,
+            thermal: true,
+        },
+    };
+    let text = two.to_string();
+    assert!(text.contains("storage"), "{text}");
+    assert!(text.contains("thermal class"), "{text}");
+    assert!(!text.contains("memory"), "{text}");
 }

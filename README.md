@@ -31,7 +31,7 @@
   <a href="deny.toml"><img alt="runtime deps: zero" src="https://img.shields.io/badge/runtime%20deps-zero-success.svg"></a>
   <a href="docs/CI.md"><img alt="coverage: floor 80" src="https://img.shields.io/badge/coverage-gated_%E2%89%A580%25-success"></a>
   <a href="GOVERNANCE-CONSTITUTION.md"><img alt="constitution: 110 rules" src="https://img.shields.io/badge/constitution-110%20rules-blueviolet"></a>
-  <a href="scripts/mutation-gate.sh"><img alt="mutations killed: 314/314" src="https://img.shields.io/badge/mutations%20killed-314%2F314-success"></a>
+  <a href="scripts/mutation-gate.sh"><img alt="mutations killed: 327/327" src="https://img.shields.io/badge/mutations%20killed-327%2F327-success"></a>
   <a href="scripts/gate-selftest.sh"><img alt="gates self-tested: 57 plants caught" src="https://img.shields.io/badge/gates%20self--tested-57%20plants%20caught-success"></a>
   <a href="CHARTER.md"><img alt="hardware tested: none yet" src="https://img.shields.io/badge/hardware%20tested-none%20yet-inactive"></a>
 </p>
@@ -93,7 +93,7 @@ and no amount of green rows replaces it.
 | --- | --- |
 | Written | The capability registry, tier detection, the CSP and response security headers, **the battery safety governor** — state machine, verification loop, thresholds, recovery — the sysfs layer it drives, the sampling cadence, the mains-loss shed ladder, **the safety panel**, where a row that could not be checked is not allowed to read as one that was, **a published website**: a directory served to your own network, refused the moment the governor says the cell is in trouble, **file storage**: authenticated upload, download and delete, each device holding a credential that can be revoked on its own — and **onion ingress**: `all --onion-dir` publishes the site and the vault through your system's tor daemon, shed first by the governor, never claimed verified until a request arrives from outside — and **relay ingress**: `all --relay-via <HOST>` declares a rented tunnel with the dependency named in every start — and **the fleet contract**: declared roles, computed quorum with witnesses as tie-breakers only, a draining upgrade machine, and HMAC-sealed jail verdicts ([ADR-0014](docs/adr/ADR-0014-the-fleet-contract.md)) — and **the tier-2 guest contract**: what a guest running under an Android host may say about the charge ceiling, the host's Doze policy and its own ingress; a claim that belongs to a boot and dies with it; a standing that has no *verified* variant, because a guest cannot read the cell back ([ADR-0015](docs/adr/ADR-0015-the-tier-two-guest-contract.md)) — and **the tier-3 image manifest**: what a mainline image is, checked against the running system, with absent and unreadable kept apart from different ([ADR-0016](docs/adr/ADR-0016-the-verified-image-manifest.md)) — and **the service catalogue**: every service with its tier floor and its resource envelope, so the picker can grey out what a device cannot run **and say which requirement failed** ([ADR-0017](docs/adr/ADR-0017-the-service-catalogue.md)) |
 | Not written | The fleet view, the hardware database itself, the Android shell, **anything that syncs on its own — storage is a request somebody makes, never a folder that mirrors itself**. The onion has never served an outside visitor either, because no handset has run this binary; what is written is the supervision, the contract and the honest wording, not a proof of reachability. The **tier-2 guest channel** is an environment variable standing in for a pKVM host API, the **tier-3 images** do not exist, and the **resource profiler** that would tell the catalogue what a device can run has never seen a device |
-| Checked | 746 unit tests and 34 doctests, line coverage held above its 80% floor in CI, **314 mutations each re-broken and each required to turn its named test red**, and **57 violations planted in a scratch repository that the gates must catch citing the right rule — a count pinned to itself, like the mutation gate's**. None of that is evidence about hardware; all of it is evidence about the code |
+| Checked | 766 unit tests and 34 doctests, line coverage held above its 80% floor in CI, **327 mutations each re-broken and each required to turn its named test red**, and **57 violations planted in a scratch repository that the gates must catch citing the right rule — a count pinned to itself, like the mutation gate's**. None of that is evidence about hardware; all of it is evidence about the code |
 | Unblocked | [Charter III.1](CHARTER.md) forbids anything serving traffic before the governor. The governor is now **written** — the ordering constraint is met in code, and the gate fails the build if it is ever removed. It is not met on hardware, and nothing serves traffic yet regardless |
 | Never tested on hardware | Everything. Every device-facing behaviour is exercised through a fake host describing handsets nobody here is holding |
 
@@ -484,10 +484,38 @@ service wants 512" — because "too small" without the requirement is not an
 answer anybody can argue with.
 
 "Provably does not fit" and "cannot be told" are different answers, and the
-second is not a softer first. The tier and the resource figures come from
-one profiling pass, so a device whose tier was never established has not been
-profiled, and every entry is answered *cannot be told* rather than guessed
-either way.
+second is not a softer first. Every figure in a device's budget is
+**optional**: a requirement that was never measured cannot fail, and a device
+whose tier was never established has not been profiled, so every entry is
+answered *cannot be told* rather than guessed either way. Passing zero for an
+unmeasured resource would make every service look too big, and that failure
+would be invented by the question rather than found in the device.
+
+---
+
+### 🖥 The two commands that answer for the machine in front of you
+
+`vayucell image --manifest <FILE>` checks the running system against a
+manifest, and `vayucell catalogue` says what this cell can offer and what it
+cannot. Both are commands a person runs on a phone and reads.
+
+The image check reads the running kernel, the running device tree and the
+running charge-voltage node, and compares each against the manifest. Its exit
+code is the verdict: `0` when every check matched, `1` when a check could not
+be made, and `2` when a check was made and did not hold. The third is the one
+that matters — a machine running something other than the image it claims has
+been checked and has failed, which is not the same as a machine nobody could
+look at. There is no default manifest, because a default would be this
+program choosing what to verify.
+
+The catalogue measures two things and says which: the tier, which the tier
+detection establishes from evidence, and the memory, which the kernel writes
+down in `/proc/meminfo`. The free space on the filesystem cannot be read
+without a libc call this project does not have, and the thermal class cannot
+be read at all — it is what a cell is willing to be warmed to, and only a
+governor that has watched a cell heat can say. So the honest answer for most
+rows is **cannot be told**, and the honest answer for a row whose memory is
+too small is **does not fit** — a failure that was measured, reported as one.
 
 ---
 
@@ -724,8 +752,8 @@ scripts/release-gate.sh        # the version says the same thing everywhere
 cargo test --workspace
 ```
 
-A full run exercises **746 unit tests and 34 doctests** (2 ignored — the two
-snapshot regenerators), kills **314 mutations**, catches **57 planted violations** and two count proofs,
+A full run exercises **766 unit tests and 34 doctests** (2 ignored — the two
+snapshot regenerators), kills **327 mutations**, catches **57 planted violations** and two count proofs,
 and holds line coverage above a floor of 80. That is a suite that
 has been shown to fail when the code is wrong — the mutation gate is the proof,
 and it asserts its own match count so a mutation that failed to apply cannot be
@@ -758,12 +786,12 @@ disqualifying failure. The other three options have no cell to be wrong about.
 
 ## How the core fits together
 
-Sixteen modules, one crate, one direction of dependency — fifteen above the seam, plus
+Twenty-six modules, one crate, one direction of dependency — twenty-five above the seam, plus
 `host.rs` below it. The boundary at the bottom is the honest part of the picture:
 
 ```text
                     ┌──────────────────────────────────────────────┐
-                    │      vayucell-core (Rust) — above the seam   │
+                    │  vayucell-core (Rust) — above the seam       │
                     │                                              │
                     │  runtime.rs    the supervisor loop — one     │
                     │                tick; the clock is injected   │
@@ -779,37 +807,50 @@ Sixteen modules, one crate, one direction of dependency — fifteen above the se
                     │  shed.rs       mains-loss ladder             │
                     │  sysfs.rs      the one writable ceiling node │
                     │                                              │
-                    │  durability.rs recovery point, wear, backup   │
-                    │                proof — no "durable" variant   │
+                    │  ── durability ───────────────────────────   │
+                    │  durability.rs recovery point, backup proof —│
+                    │                no "durable" variant          │
+                    │  wear.rs       what the flash says about how │
+                    │                much of its life it has used  │
                     │                                              │
-                    │  ingress.rs    four modes, seven declared     │
-                    │                properties; the governor wins  │
-                     │  onion.rs     the contract with the system    │
-                     │                tor daemon; the key is the     │
-                     │                daemon's, never this crate's   │
+                    │  ── ingress ──────────────────────────────   │
+                    │  ingress.rs    four modes, seven declared    │
+                    │                properties; the governor wins │
+                    │  onion.rs      the contract with the system  │
+                    │                tor daemon; the key is the    │
+                    │                daemon's, never this crate's  │
                     │                                              │
                     │  ── identity ─────────────────────────────   │
                     │  tier.rs       T0/T1/T2/T3 from evidence     │
                     │  capability.rs registry; no read-back,       │
                     │                no compile                    │
                     │  guest.rs      what a tier-2 guest may say   │
-                    │                about the host that owns it  │
+                    │                about the host that owns it   │
+                    │  auth.rs       whose file it is — a device   │
+                    │                secret, and no KDF            │
+                    │  halt.rs       whether a person still has to │
+                    │                look at this phone            │
                     │                                              │
                     │  ── supply ───────────────────────────────   │
                     │  image.rs      what a mainline image is,     │
-                    │                checked against this system  │
+                    │                checked against this system   │
                     │  catalogue.rs  every service, its tier floor │
-                    │                and its resource envelope    │
+                    │                and its resource envelope     │
+                    │  fleet.rs      roles, quorum, upgrades, and  │
+                    │                verdicts sealed under a key   │
+                    │                                              │
+                    │  ── storage ──────────────────────────────   │
+                    │  site.rs       a directory served to a LAN   │
+                    │  vault.rs      the files the device is asked │
+                    │                to keep                       │
+                    │  replica.rs    what a replica that dials can │
+                    │                prove to a cell that cannot   │
                     │                                              │
                     │  ── response ─────────────────────────────   │
-                    │  serve.rs      request → response; owns no    │
+                    │  serve.rs      request → response; owns no   │
                     │                socket                        │
                     │  csp.rs        policy as types, not strings  │
                     │  headers.rs    the nine-header posture       │
-                    └──────────────────────┬───────────────────────┘
-                                           │  Host (read) / Writer (write)
-                                           ▼
-                    ┌──────────────────────────────────────────────┐
                     │  core/src/host.rs — same crate, below the    │
                     │  seam — FakeHost                             │
                     │  a machine described by a test rather than   │

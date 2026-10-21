@@ -38,6 +38,11 @@ pub enum Command {
     Inspect,
     /// Print a device report to paste into an issue.
     Report,
+    /// Check the running system against an image manifest.
+    Image,
+    /// Print the catalogue of services, and what this device can be told
+    /// about itself.
+    Catalogue,
     /// Enrol a device and print its secret once.
     Enrol,
     /// List the devices enrolled on this cell.
@@ -82,6 +87,8 @@ impl Command {
             | Self::Status
             | Self::Inspect
             | Self::Report
+            | Self::Image
+            | Self::Catalogue
             | Self::Enrol
             | Self::Devices
             | Self::Revoke
@@ -140,6 +147,12 @@ pub struct Args {
     pub guest_record: String,
     /// What `inspect` was told the person saw. `None` means neither flag.
     pub inspection: Option<Inspection>,
+    /// The image manifest `image` checks the running system against.
+    ///
+    /// `None` means none was given, which `image` refuses: there is no
+    /// default manifest, because a default would check the machine against a
+    /// description nobody chose.
+    pub manifest: Option<String>,
 }
 
 /// Why an invocation was refused.
@@ -266,6 +279,14 @@ COMMANDS:
     report              Print a device report to paste into an issue. Nothing
                         is sent anywhere; it says what it contains and what it
                         leaves out, so you can check before pasting
+    image              Check the running system against an image manifest: the
+                        kernel, the board, and the charge voltage the image
+                        declares. It says what an image is, not who published
+                        it
+    catalogue          Print the services this cell can offer, and which of
+                        them this device can be told it can run. A requirement
+                        nobody measured is reported as unmeasured, never as a
+                        failure nobody found
     enrol               Add a device to the credential store and print its
                         secret. It is shown once and never again
     devices             List the devices enrolled here. Never prints a secret
@@ -325,6 +346,10 @@ OPTIONS:
                         that can tell a restarted guest the host has rebooted
                         underneath it — and a claim the host made before the
                         reboot does not survive it. report, status and all
+    --manifest <FILE>  The image manifest `image` checks this machine
+                        against. There is no default: a default would be this
+                        program choosing what to verify. `image` only: no
+                        other command has an image to check
     --relay-via <HOST>  The public hostname of a rented relay that forwards to
                         this device. A supplier can end that path at will and
                         a relay terminating TLS reads everything passing
@@ -341,6 +366,12 @@ EXIT CODES:
 
     A non-zero exit is not a crash. It is the verdict, in the one form a
     monitor can read without parsing prose.
+
+    `image` exits 0 when every check matched, 1 when a check could not be
+    made, and 2 when a check was made and did not hold. The third is the one
+    that matters: a machine running something other than the image it claims
+    has been checked and has failed, which is not the same as a machine
+    nobody could look at.
 
 This binary has never been run against a phone. Every device-facing path in
 this project is exercised through a fake host.
@@ -371,6 +402,7 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
     let mut halt_record = crate::halted::default_path();
     let mut guest_record: Option<String> = None;
     let mut inspection: Option<Inspection> = None;
+    let mut manifest: Option<String> = None;
 
     let mut i = 0;
     while i < argv.len() {
@@ -384,6 +416,8 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
             "all" => set_command(&mut command, Command::All, arg)?,
             "inspect" => set_command(&mut command, Command::Inspect, arg)?,
             "report" => set_command(&mut command, Command::Report, arg)?,
+            "image" => set_command(&mut command, Command::Image, arg)?,
+            "catalogue" => set_command(&mut command, Command::Catalogue, arg)?,
             "enrol" | "enroll" => set_command(&mut command, Command::Enrol, arg)?,
             "devices" => set_command(&mut command, Command::Devices, arg)?,
             "revoke" => set_command(&mut command, Command::Revoke, arg)?,
@@ -428,6 +462,9 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
             }
             "--guest-record" => {
                 guest_record = Some(value_after(argv, &mut i, "--guest-record")?);
+            }
+            "--manifest" => {
+                manifest = Some(value_after(argv, &mut i, "--manifest")?);
             }
             // Two flags rather than `--inspection <WORD>`, because the two
             // answers are not interchangeable values of one thing: one resumes
@@ -621,6 +658,29 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
         ));
     }
 
+    // A manifest describes an image, and only the image command has an image
+    // to check. Elsewhere it would be a path the operator could point at
+    // something else and watch nothing change.
+    if manifest.is_some() && command != Command::Image {
+        return Err(ArgError(
+            "--manifest belongs to `image` — the command that checks a running \
+             system against a description of an image"
+                .to_owned(),
+        ));
+    }
+
+    // No default manifest. A default would check the machine against a
+    // description nobody chose, and a check against the wrong description is
+    // worse than no check: it answers.
+    if command == Command::Image && manifest.is_none() {
+        return Err(ArgError(
+            "image needs --manifest <FILE>, the description of the image to \
+             check this machine against; there is no default, because a default \
+             would be this program choosing what to verify"
+                .to_owned(),
+        ));
+    }
+
     Ok(Args {
         command,
         supply_dir,
@@ -639,6 +699,7 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
         halt_record,
         guest_record: guest_record.unwrap_or_else(crate::guest::default_path),
         inspection,
+        manifest,
     })
 }
 
@@ -730,6 +791,7 @@ mod tests {
                 halt_record: crate::halted::default_path(),
                 guest_record: crate::guest::default_path(),
                 inspection: None,
+                manifest: None,
             }
         );
         assert_eq!(DEFAULT_CEILING, 60, "ADR-0002's recommended long-term hold");
@@ -1306,5 +1368,43 @@ mod tests {
             let e = parse(&argv(&cmd)).expect_err(&format!("{cmd:?} must be refused"));
             assert!(e.0.contains("only `all`"), "{cmd:?}: {e}");
         }
+    }
+
+    #[test]
+    fn image_needs_a_manifest_and_refuses_to_choose_one() {
+        // The defect: a default manifest, so the machine would be checked
+        // against a description nobody chose — and a check against the wrong
+        // description answers.
+        let e = parse(&argv(&["image"])).expect_err("image needs a manifest");
+        assert!(e.0.contains("--manifest"), "{}", e.0);
+    }
+
+    #[test]
+    fn a_manifest_is_refused_where_there_is_no_image_to_check() {
+        for cmd in ["status", "report", "catalogue", "serve"] {
+            let e = parse(&argv(&[cmd, "--manifest", "/m.txt"])).expect_err(cmd);
+            assert!(
+                e.0.contains("--manifest belongs to `image`"),
+                "{cmd}: {}",
+                e.0
+            );
+        }
+    }
+
+    #[test]
+    fn an_image_command_carries_the_manifest_it_was_given() {
+        let a = parse(&argv(&["image", "--manifest", "/m.txt"])).expect("parses");
+        assert_eq!(a.command, Command::Image);
+        assert_eq!(a.manifest.as_deref(), Some("/m.txt"));
+    }
+
+    #[test]
+    fn the_catalogue_command_takes_no_arguments_at_all() {
+        // The defect: a flag on the catalogue that would change what it
+        // reports, so two runs of the same command would show two different
+        // catalogues.
+        let a = parse(&argv(&["catalogue"])).expect("parses");
+        assert_eq!(a.command, Command::Catalogue);
+        assert_eq!(a.manifest, None);
     }
 }

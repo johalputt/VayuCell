@@ -17,11 +17,17 @@
 //!
 //! Three answers, kept apart on purpose (CHARTER Article IV):
 //!
-//! - **it fits** — every requirement holds;
+//! - **it fits** — every requirement holds, and every requirement was
+//!   measured;
 //! - **it provably does not fit** — a named requirement failed, and the
 //!   shortfall says which one;
-//! - **it cannot be told** — the device's tier was never established, so the
-//!   floor cannot be checked. Never "it fits", and never a guess.
+//! - **it cannot be told** — the device's tier was never established, or a
+//!   requirement was never measured. Never "it fits", and never a guess.
+//!
+//! The third answer is the one a picker is tempted to skip, and it is the
+//! one that matters most here: a device whose storage nobody has measured
+//! is not a device with no storage, and a catalogue that answered "provably
+//! too big" would be inventing the failure.
 //!
 //! # The floor is a tier, and the tier is established
 //!
@@ -132,26 +138,38 @@ impl Envelope {
     /// Named rather than summarised: "too little memory" and "below the tier
     /// floor" are different answers, and an operator told only that
     /// something was too small has nothing to act on.
+    ///
+    /// A requirement that was never measured cannot fail. `None` here means
+    /// "nothing measured failed", not "it fits" — the difference between the
+    /// two is [`Reason::ResourcesUnknown`], and the caller is the only place
+    /// that knows which one it is looking at.
     #[must_use]
     pub const fn shortfall(&self, budget: &Budget) -> Option<Shortfall> {
-        if budget.memory_mb < self.memory_mb {
-            Some(Shortfall::Memory {
-                wanted_mb: self.memory_mb,
-                have_mb: budget.memory_mb,
-            })
-        } else if budget.storage_mb < self.storage_mb {
-            Some(Shortfall::Storage {
-                wanted_mb: self.storage_mb,
-                have_mb: budget.storage_mb,
-            })
-        } else if self.thermal.worse_than(budget.thermal) {
-            Some(Shortfall::Thermal {
-                wanted: self.thermal,
-                allowed: budget.thermal,
-            })
-        } else {
-            None
+        if let Some(have_mb) = budget.memory_mb {
+            if have_mb < self.memory_mb {
+                return Some(Shortfall::Memory {
+                    wanted_mb: self.memory_mb,
+                    have_mb,
+                });
+            }
         }
+        if let Some(have_mb) = budget.storage_mb {
+            if have_mb < self.storage_mb {
+                return Some(Shortfall::Storage {
+                    wanted_mb: self.storage_mb,
+                    have_mb,
+                });
+            }
+        }
+        if let Some(allowed) = budget.thermal {
+            if self.thermal.worse_than(allowed) {
+                return Some(Shortfall::Thermal {
+                    wanted: self.thermal,
+                    allowed,
+                });
+            }
+        }
+        None
     }
 }
 
@@ -205,6 +223,52 @@ impl Shortfall {
     }
 }
 
+/// What was never measured.
+///
+/// Three booleans rather than a list, because a list would allocate for a
+/// thing that is almost always one of two or three answers, and because the
+/// point of the type is to be printed: "storage and the thermal class" is
+/// an answer an operator can act on, and "some resources" is not.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Unmeasured {
+    /// The device's memory was never measured.
+    pub memory: bool,
+    /// The device's storage was never measured.
+    pub storage: bool,
+    /// The device's thermal class was never established.
+    pub thermal: bool,
+}
+
+impl Unmeasured {
+    /// What is missing, in the order the requirements are checked.
+    #[must_use]
+    pub fn names(self) -> Vec<&'static str> {
+        let mut out = Vec::new();
+        if self.memory {
+            out.push("memory");
+        }
+        if self.storage {
+            out.push("storage");
+        }
+        if self.thermal {
+            out.push("the thermal class");
+        }
+        out
+    }
+}
+
+impl fmt::Display for Unmeasured {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let names = self.names();
+        match names.len() {
+            0 => f.write_str("nothing"),
+            1 => f.write_str(names[0]),
+            2 => write!(f, "{} and {}", names[0], names[1]),
+            _ => write!(f, "{}, {} and {}", names[0], names[1], names[2]),
+        }
+    }
+}
+
 /// Why an entry is greyed out.
 ///
 /// Two shapes, and the difference between them is the difference between
@@ -217,6 +281,20 @@ pub enum Reason {
     TierUnknown {
         /// The lowest tier that can provide the service.
         floor: Tier,
+    },
+    /// The device's resources were never measured.
+    ///
+    /// The floor was met and nothing measured failed, but a requirement was
+    /// never measured either — so whether the service fits is not a question
+    /// anybody can answer. This is the answer a picker must give rather than
+    /// the one it would prefer: passing zero for an unmeasured resource would
+    /// make every service look too big, and that failure is invented by the
+    /// question rather than found in the device.
+    ResourcesUnknown {
+        /// The lowest tier that can provide the service.
+        floor: Tier,
+        /// The requirements that were never measured.
+        missing: Unmeasured,
     },
 }
 
@@ -252,11 +330,22 @@ impl fmt::Display for Reason {
                 "this device's tier was never established, so whether it meets the {floor} floor \
                  cannot be told"
             ),
+            Self::ResourcesUnknown { missing, .. } => write!(
+                f,
+                "no measurement of this device's {missing} exists, so whether this service fits \
+                 cannot be told"
+            ),
         }
     }
 }
 
 /// What the device has to give.
+///
+/// Every figure is optional, because none of them is a fact until somebody
+/// measures it. `None` is **not** zero: a device whose storage was never
+/// measured is not a device with no storage, and a picker that passed zero
+/// would report every service as provably too big — a failure invented by
+/// the question rather than found in the device.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Budget {
     /// The tier established on this device, if one ever was.
@@ -266,18 +355,39 @@ pub struct Budget {
     /// it low, and it is answered with "cannot be told" rather than with a
     /// failure.
     pub tier: Option<Tier>,
-    /// Megabytes of memory the device can give a service.
-    pub memory_mb: u32,
-    /// Megabytes of storage the device can give a service.
-    pub storage_mb: u64,
-    /// The hottest class of work this device is willing to run.
-    pub thermal: ThermalClass,
+    /// Megabytes of memory the device can give a service, if it was measured.
+    pub memory_mb: Option<u32>,
+    /// Megabytes of storage the device can give a service, if it was measured.
+    pub storage_mb: Option<u64>,
+    /// The hottest class of work this device is willing to run, if it was
+    /// established.
+    pub thermal: Option<ThermalClass>,
 }
 
 impl Budget {
-    /// What the device has, as the profiler found it.
+    /// What the device has, as far as anybody has measured.
+    ///
+    /// Every figure is `None` where nobody has measured it. The convenience
+    /// constructor [`Budget::measured`] is for a device that has been profiled
+    /// completely.
     #[must_use]
     pub const fn new(
+        tier: Option<Tier>,
+        memory_mb: Option<u32>,
+        storage_mb: Option<u64>,
+        thermal: Option<ThermalClass>,
+    ) -> Self {
+        Self {
+            tier,
+            memory_mb,
+            storage_mb,
+            thermal,
+        }
+    }
+
+    /// A device that has been profiled all the way through.
+    #[must_use]
+    pub const fn measured(
         tier: Option<Tier>,
         memory_mb: u32,
         storage_mb: u64,
@@ -285,9 +395,19 @@ impl Budget {
     ) -> Self {
         Self {
             tier,
-            memory_mb,
-            storage_mb,
-            thermal,
+            memory_mb: Some(memory_mb),
+            storage_mb: Some(storage_mb),
+            thermal: Some(thermal),
+        }
+    }
+
+    /// What was never measured.
+    #[must_use]
+    pub const fn unmeasured(&self) -> Unmeasured {
+        Unmeasured {
+            memory: self.memory_mb.is_none(),
+            storage: self.storage_mb.is_none(),
+            thermal: self.thermal.is_none(),
         }
     }
 }
@@ -311,10 +431,17 @@ impl Entry {
     /// Why this entry would be greyed out on this device, if it would be.
     ///
     /// `None` means it fits. The tier is checked first and the comparison
-    /// stops there if the tier was never established: the tier and the
-    /// resource figures come from the same profiling pass (PLAN §9.2), so a
-    /// device whose tier is unknown has not been profiled, and half an
-    /// answer about memory would be no more trustworthy than the tier.
+    /// stops there if the tier was never established: the tier says what
+    /// kind of device this is, and a device whose kind is unknown is not a
+    /// device whose resources can be judged either.
+    ///
+    /// Then the measured requirements, and then the ones that were never
+    /// measured. A requirement that was measured and did not hold is a
+    /// definite answer even when the others are unknown — "this phone has
+    /// 2 GB and the service wants 4" is a fact whatever else nobody measured.
+    /// But nothing failing is not the same as everything holding: if a
+    /// requirement was never measured, the answer is that this service
+    /// cannot be told to fit.
     #[must_use]
     pub fn judge(&self, budget: &Budget) -> Option<Reason> {
         match budget.tier {
@@ -325,7 +452,20 @@ impl Entry {
                     detected,
                 }))
             }
-            Some(_) => self.envelope.shortfall(budget).map(Reason::TooSmall),
+            Some(_) => {
+                if let Some(shortfall) = self.envelope.shortfall(budget) {
+                    return Some(Reason::TooSmall(shortfall));
+                }
+                let missing = budget.unmeasured();
+                if missing.names().is_empty() {
+                    None
+                } else {
+                    Some(Reason::ResourcesUnknown {
+                        floor: self.floor,
+                        missing,
+                    })
+                }
+            }
         }
     }
 }

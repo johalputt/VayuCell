@@ -26,7 +26,9 @@ saying *which* requirement failed is a picker that cannot be argued with.
 The harder question is what to do when the device's own figures are
 unknown. PLAN §9 §2 gets the tier and the resource figures from one
 profiling pass, so a device whose tier was never established has not been
-profiled, and its numbers are no more trustworthy than its tier.
+profiled, and its numbers are no more trustworthy than its tier. A profiler
+that has seen no device at all is not a profiler that failed: it is a
+profiler that has not run, and the two must not look the same in a picker.
 
 ## Decision
 
@@ -44,16 +46,26 @@ profiled, and its numbers are no more trustworthy than its tier.
    answer; "this device has 256 MB and the service wants 512" is.
 
 3. **"Provably does not fit" and "cannot be told" are different answers.**
-   A `Reason` is either `TooSmall` — a requirement was checked and failed —
-   or `TierUnknown` — the device's tier was never established, so nothing
-   about what it can run is known. The second is not a softer first: it
-   says the question was not answered.
+   A `Reason` is one of three: `TooSmall` — a requirement was checked and
+   failed — `TierUnknown` — the device's tier was never established, so
+   nothing about what it can run is known — or `ResourcesUnknown` — the
+   floor was met and nothing measured failed, but a requirement was never
+   measured either. The second and the third are not softer firsts: they
+   say the question was not answered.
 
 4. **An unestablished tier short-circuits the whole comparison.** The tier
    and the resource figures come from one profiling pass, so a device
    whose tier is unknown has not been profiled, and half an answer about
    memory would be no more trustworthy than the tier. Every entry is
    answered *cannot be told*, and nothing is claimed either way.
+
+   A requirement that was never measured cannot fail either. Every figure
+   in a device's budget is optional for that reason, and passing zero for
+   an unmeasured resource would report every service as too big — a
+   failure invented by the question rather than found in the device. A
+   shortfall that *was* measured still outranks an open question: "this
+   phone has 512 MB of memory and the service wants 4 GB" is a fact
+   whatever else nobody measured.
 
 5. **Nothing is ever silently dropped.** Every catalogue entry appears in
    the result — fitting, or greyed out with its reason. `Selection::total`
@@ -77,7 +89,10 @@ profiled, and its numbers are no more trustworthy than its tier.
 PLAN §9's catalogue and its filter exist: the services, their floors, their
 envelopes, and the reason each one is or is not offered on a given device.
 The picker can now say *why* — and the answer distinguishes a device that
-cannot run a thing from a device nobody has measured.
+cannot run a thing from a device nobody has measured. `vayucell catalogue`
+is that picker as a command: it measures the tier and the memory, says
+which, and answers *cannot be told* for every row that needs a figure
+nobody has taken.
 
 What remains is the profiling pass and the silicon. The tier and the
 resource figures have to come from a real device, the thermal envelope has
