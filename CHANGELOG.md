@@ -20,6 +20,50 @@ when the tag is cut.
 
 ### Added
 
+- **The tier-2 guest contract**
+  ([ADR-0015](docs/adr/ADR-0015-the-tier-two-guest-contract.md),
+  [VCIP-0006](docs/vcip/VCIP-0006-the-host-attestation-and-the-guest-record.md)).
+  `core/src/guest.rs` says what a Linux guest running under an Android host
+  may say about the three controls it does not own — the charge ceiling, the
+  host's Doze policy, its own ingress. Every claim belongs to a boot and
+  dies with it: a host reboot **voids** the claims of the boot before it
+  rather than forgetting them, a statement from a boot the guest has left
+  is refused, and the standing of a control has no *verified* variant —
+  a `compile_fail` doctest holds it that way, because a guest reporting a
+  cell as held at 60% is reporting what it was told. The guest keeps a
+  record on disk (`--guest-record`), written durably, and a record that
+  exists and will not parse is **corrupt**, never read as empty.
+- **The tier-2 panel and report.** At tier 2 the charge-mechanism row no
+  longer says *this device exposes no charge control* — which was false,
+  and was the loudest sentence in the panel. It says the ceiling is the
+  Android host's to hold and the guest can only ask for it; the governor
+  row says the guest has no reading of the cell to act on; the
+  outage-reserve row is *unverified* rather than *failed*, because a cell
+  the guest cannot read is not a cell that is unsafe. The device report
+  gains a GUEST section at tier 2, listing the boot and each control's
+  standing.
+- **The tier-3 image manifest**
+  ([ADR-0016](docs/adr/ADR-0016-the-verified-image-manifest.md),
+  [VCIP-0007](docs/vcip/VCIP-0007-the-image-manifest.md)). `core/src/image.rs`
+  defines what a mainline image *is* — name, version, the kernel release it
+  was built against, the board it targets, the maximum charge voltage its
+  device tree declares — and checks the **running system** against it. The
+  kernel is compared exactly, the board by membership in the device tree's
+  `compatible` list, the voltage within a stated tolerance. Absent and
+  unreadable stay apart from different.
+- **The service catalogue**
+  ([ADR-0017](docs/adr/ADR-0017-the-service-catalogue.md)). `core/src/catalogue.rs`
+  gives every service a tier floor and a resource envelope, so a picker can
+  grey out what a device cannot run and say **which requirement failed**.
+  "Provably does not fit" and "cannot be told" are different answers.
+- **Fifty-five new gate mutations**: twenty-four over the guest contract, the
+  tier-aware panel and report rows and the guest's own record, and thirty-one
+  over the image manifest and the catalogue — each re-broken and required to
+  turn its named test red. Two of them found gaps in the tests rather than in
+  the code: a kernel that merely *starts with* the manifest's kernel was
+  never tested for, and two shortfalls could have been rendered in the same
+  words without anything noticing.
+
 - **The fleet contract** ([ADR-0014](docs/adr/ADR-0014-the-fleet-contract.md)).
   `core/src/fleet.rs` defines the four roles as declared promises, quorum
   as a computed majority where witnesses vote only to break exact ties —
@@ -116,6 +160,15 @@ when the tag is cut.
   address is honestly *not* verified: doing so needs crypto code ADR-0005 §5.1
   forbids, so validation claims shape and nothing more. Eight new mutations pin
   the guards, each re-broken against its named test.
+
+### Changed
+
+- The device report no longer takes the version as an argument: it is
+  `CARGO_PKG_VERSION`, the same in every call, and the argument that had to
+  go was the one that added nothing.
+- The README's counts are true again: **746 unit tests, 34 doctests, 314
+  mutations, twenty-six core modules**. The previous test count had been
+  stale since the README was rewritten.
 
 ### Fixed
 

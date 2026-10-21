@@ -17,7 +17,9 @@
 //! distinction Charter Article IV exists to preserve.
 
 use vayucell_core::battery::Percent;
+use vayucell_core::capability::Tier;
 use vayucell_core::governor::Level;
+use vayucell_core::guest::{Fault, Guest, Mediated};
 use vayucell_core::halt::Standing;
 use vayucell_core::host::Host;
 use vayucell_core::panel::{
@@ -25,7 +27,7 @@ use vayucell_core::panel::{
 };
 use vayucell_core::shed::UpsClaim;
 use vayucell_core::sysfs::{detect_mechanism, read_battery, Kind};
-use vayucell_core::tier::detect;
+use vayucell_core::tier::{detect, Verdict};
 
 /// Every row was checked and holds.
 pub const EXIT_PROTECTED: i32 = 0;
@@ -71,9 +73,21 @@ pub const fn exit_code(overall: Overall) -> i32 {
 /// whether the battery is safe is the last thing to take away from somebody
 /// whose battery is not. So it stays, and tells the truth.
 #[must_use]
-pub fn observed(host: &dyn Host, supply_dir: &str, ceiling: Percent, standing: &Standing) -> Panel {
+pub fn observed(
+    host: &dyn Host,
+    supply_dir: &str,
+    ceiling: Percent,
+    standing: &Standing,
+    guest: &Guest,
+) -> Panel {
     let (level, _) = crate::device::observe(host, supply_dir);
-    assemble(host, supply_dir, ceiling, level.max(standing.floor()))
+    assemble(
+        host,
+        supply_dir,
+        ceiling,
+        level.max(standing.floor()),
+        guest,
+    )
 }
 
 /// Builds the panel for a device as it is right now.
@@ -81,42 +95,76 @@ pub fn observed(host: &dyn Host, supply_dir: &str, ceiling: Percent, standing: &
 /// Nothing here defaults. A battery that could not be read produces an
 /// `Unverified` ceiling row naming the node that refused, not a ceiling row that
 /// quietly says nothing — and the headline moves off `PROTECTED` as a result.
+///
+/// # A tier-2 guest is a different arrangement, not a worse one
+///
+/// At tier 2 the phone's cell belongs to the Android host. The guest cannot
+/// read the charge node, so the row that says *"no mechanism exists to hold a
+/// ceiling on this device"* would be false — the mechanism exists, the host
+/// owns it, and the guest can ask for a ceiling and be told what the host
+/// holds. The row says that instead, and quotes the host's own statement
+/// where there is one.
 #[must_use]
-pub fn assemble(host: &dyn Host, supply_dir: &str, ceiling: Percent, level: Level) -> Panel {
+pub fn assemble(
+    host: &dyn Host,
+    supply_dir: &str,
+    ceiling: Percent,
+    level: Level,
+    guest: &Guest,
+) -> Panel {
     let tier = detect(host);
     let mechanism: Option<Kind> = detect_mechanism(host, supply_dir);
+    let hosted = matches!(tier.verdict, Verdict::Established(Tier::T2));
 
-    let ceiling_row = match read_battery(host, supply_dir) {
-        Err(e) => Finding::Unverified(evidence(&format!(
-            "the cell could not be read, so no ceiling can be confirmed: {e}"
-        ))),
-        Ok(_) => match mechanism {
-            // A mechanism exists and the cell reads, but this process has not
-            // written and re-read the node in this pass. Saying "verified" here
-            // would be the panel reporting an intention.
-            Some(k) if k.is_ceiling() => Finding::Unverified(evidence(&format!(
-                "{} is present and holds a percentage; run `vayucell run` to \
-                 write {}% and read it back",
-                k.node(),
-                ceiling.get()
+    let ceiling_row = if hosted {
+        // The ceiling is the host's to hold. What the guest can add is the
+        // host's own statement about it, which is a word about the cell and
+        // not a reading of it.
+        Finding::Unverified(evidence(&hosted_ceiling(guest)))
+    } else {
+        match read_battery(host, supply_dir) {
+            Err(e) => Finding::Unverified(evidence(&format!(
+                "the cell could not be read, so no ceiling can be confirmed: {e}"
             ))),
-            Some(k) => Finding::Unverified(evidence(&format!(
-                "{} influences charging but exposes no percentage to read back",
-                k.node()
-            ))),
-            None => Finding::Unverified(evidence(
-                "no mechanism exists to hold a ceiling on this device",
-            )),
-        },
+            Ok(_) => match mechanism {
+                // A mechanism exists and the cell reads, but this process has not
+                // written and re-read the node in this pass. Saying "verified" here
+                // would be the panel reporting an intention.
+                Some(k) if k.is_ceiling() => Finding::Unverified(evidence(&format!(
+                    "{} is present and holds a percentage; run `vayucell run` to \
+                     write {}% and read it back",
+                    k.node(),
+                    ceiling.get()
+                ))),
+                Some(k) => Finding::Unverified(evidence(&format!(
+                    "{} influences charging but exposes no percentage to read back",
+                    k.node()
+                ))),
+                None => Finding::Unverified(evidence(
+                    "no mechanism exists to hold a ceiling on this device",
+                )),
+            },
+        }
     };
 
     // The cell either carries this node or it does not, and this process cannot
     // tell without a reading. An unreadable cell is not credited with a reserve.
-    let ups = match read_battery(host, supply_dir) {
-        Ok(_) => UpsClaim::Backed { reserve: ceiling },
-        Err(_) => UpsClaim::Unbacked {
-            why: "the cell could not be read, so nothing is known to be carrying this node",
-        },
+    let ups = if hosted {
+        // The guest cannot read the phone's cell at all — the host owns it —
+        // so it cannot know what is carrying the node. That is an absence of
+        // knowledge rather than a failure, and the row is built from that
+        // wording.
+        UpsClaim::Unbacked {
+            why: "the guest cannot read the phone's cell, which the host owns, so \
+                  nothing is known to be carrying this node",
+        }
+    } else {
+        match read_battery(host, supply_dir) {
+            Ok(_) => UpsClaim::Backed { reserve: ceiling },
+            Err(_) => UpsClaim::Unbacked {
+                why: "the cell could not be read, so nothing is known to be carrying this node",
+            },
+        }
     };
 
     Panel::build(
@@ -137,6 +185,33 @@ pub fn assemble(host: &dyn Host, supply_dir: &str, ceiling: Percent, level: Leve
     )
 }
 
+/// The charge-ceiling evidence for a guest under an Android host.
+///
+/// Quotes the host's statement where there is one, and says what is wrong with
+/// it where there is not. The two failures are kept apart because they call for
+/// different responses: a host that said nothing is a host that has not spoken
+/// yet, and a statement that could not be read is a fault in the arrangement.
+fn hosted_ceiling(guest: &Guest) -> String {
+    let mut text = format!(
+        "the charge ceiling is the Android host's to hold and this guest can only \
+         ask for it; {}",
+        guest.standing(Mediated::Ceiling).evidence()
+    );
+    if let Some(fault) = guest.host_fault() {
+        if !matches!(fault, Fault::Absent) {
+            text.push_str(&format!(
+                "; the host's statement could not be used: {fault}"
+            ));
+        }
+    }
+    if let Some(fault) = guest.record_fault() {
+        text.push_str(&format!(
+            "; the guest's own record could not be read: {fault}"
+        ));
+    }
+    text
+}
+
 fn evidence(what: &str) -> Evidence {
     Evidence::new(what).unwrap_or_else(|| {
         Evidence::new("a check reported no detail, which is a defect in this software")
@@ -150,6 +225,7 @@ mod tests {
     use super::{assemble, exit_code, EXIT_PROTECTED, EXIT_UNSAFE, EXIT_UNVERIFIED};
     use vayucell_core::battery::Percent;
     use vayucell_core::governor::Level;
+    use vayucell_core::guest::Guest;
     use vayucell_core::halt::{Halt, Standing};
     use vayucell_core::host::FakeHost;
     use vayucell_core::panel::Overall;
@@ -182,6 +258,7 @@ mod tests {
             SUPPLY,
             Percent::clamped(60),
             &Standing::Clear,
+            &Guest::empty(),
         )
         .render();
         assert!(
@@ -203,6 +280,7 @@ mod tests {
             SUPPLY,
             Percent::clamped(60),
             &Standing::Clear,
+            &Guest::empty(),
         )
         .render();
         assert!(
@@ -219,6 +297,7 @@ mod tests {
             SUPPLY,
             Percent::clamped(60),
             &Standing::Clear,
+            &Guest::empty(),
         )
         .render();
         assert!(
@@ -243,6 +322,7 @@ mod tests {
             SUPPLY,
             Percent::clamped(60),
             &standing_halt(),
+            &Guest::empty(),
         )
         .render();
         assert!(out.contains("governor at HALT"), "{out}");
@@ -256,6 +336,7 @@ mod tests {
             SUPPLY,
             Percent::clamped(60),
             &Standing::Unreadable("permission denied".to_owned()),
+            &Guest::empty(),
         )
         .render();
         assert!(out.contains("governor at HALT"), "{out}");
@@ -271,6 +352,7 @@ mod tests {
             SUPPLY,
             Percent::clamped(60),
             &standing_halt(),
+            &Guest::empty(),
         )
         .render();
         assert!(hot.contains("governor at HALT"), "{hot}");
@@ -285,6 +367,7 @@ mod tests {
             SUPPLY,
             Percent::clamped(60),
             &Standing::Clear,
+            &Guest::empty(),
         )
         .render();
         assert!(
@@ -299,6 +382,7 @@ mod tests {
             SUPPLY,
             Percent::clamped(60),
             &Standing::Clear,
+            &Guest::empty(),
         )
         .render();
         assert!(fine.contains("no threshold crossed"), "{fine}");
@@ -327,6 +411,7 @@ mod tests {
             SUPPLY,
             Percent::clamped(60),
             Level::Normal,
+            &Guest::empty(),
         );
         assert_ne!(panel.overall(), Overall::Protected);
         let out = panel.render();
@@ -363,6 +448,7 @@ mod tests {
             SUPPLY,
             Percent::clamped(60),
             Level::Normal,
+            &Guest::empty(),
         );
         assert_eq!(panel.overall(), Overall::Unsafe);
         assert!(panel.rows().iter().any(|r| r.subject == "charge ceiling"
@@ -380,7 +466,13 @@ mod tests {
         // announcing an intention.
         let host =
             readable_device().with_file(&format!("{SUPPLY}/charge_control_end_threshold"), "100\n");
-        let panel = assemble(&host, SUPPLY, Percent::clamped(60), Level::Normal);
+        let panel = assemble(
+            &host,
+            SUPPLY,
+            Percent::clamped(60),
+            Level::Normal,
+            &Guest::empty(),
+        );
 
         let row = panel
             .rows()
@@ -405,6 +497,7 @@ mod tests {
             SUPPLY,
             Percent::clamped(60),
             Level::Normal,
+            &Guest::empty(),
         );
         assert!(
             panel.render().contains("no proxies at all"),
@@ -420,8 +513,110 @@ mod tests {
             SUPPLY,
             Percent::clamped(60),
             Level::Halt,
+            &Guest::empty(),
         );
         assert_eq!(panel.overall(), Overall::Unsafe);
         assert_eq!(exit_code(panel.overall()), EXIT_UNSAFE);
+    }
+
+    /// A host that is a tier-2 guest on a handset: a hypervisor underneath, and
+    /// the Android shell's assertion that the host is a phone. The shell has the
+    /// platform APIs to know this; the guest does not.
+    fn guest_device() -> FakeHost {
+        FakeHost::new()
+            .with_file("/sys/hypervisor/type", "kvm")
+            .with_env(vayucell_core::tier::SHELL_ASSERTION_ENV, "android-guest")
+    }
+
+    /// A guest that has heard the host say something.
+    fn guest_that_heard(text: &str) -> Guest {
+        Guest::reconcile(
+            &FakeHost::new().with_env(vayucell_core::guest::HOST_ATTESTATION_ENV, text),
+            vayucell_core::guest::Record::Absent,
+        )
+    }
+
+    #[test]
+    fn a_tier_two_guest_is_told_the_ceiling_is_the_hosts_to_hold() {
+        // The tier-0 wording — "no mechanism exists to hold a ceiling on this
+        // device" — is false at tier 2. The mechanism exists, the host owns it,
+        // and the guest can ask for a ceiling. Saying otherwise would report a
+        // working arrangement as a missing one.
+        let panel = assemble(
+            &guest_device(),
+            SUPPLY,
+            Percent::clamped(60),
+            Level::Protect,
+            &Guest::empty(),
+        );
+        let row = panel
+            .rows()
+            .iter()
+            .find(|r| r.subject == "charge ceiling")
+            .expect("the row exists");
+        assert!(
+            matches!(row.finding, vayucell_core::panel::Finding::Unverified(_)),
+            "{row}"
+        );
+        assert!(
+            row.finding
+                .evidence()
+                .as_str()
+                .contains("the Android host's to hold"),
+            "{row}"
+        );
+        assert!(
+            !row.finding
+                .evidence()
+                .as_str()
+                .contains("no mechanism exists"),
+            "{row}"
+        );
+    }
+
+    #[test]
+    fn a_tier_two_guest_quotes_the_hosts_own_statement_about_the_ceiling() {
+        // What the host said, quoted as the host's word. The guest cannot read
+        // the cell, so the ceiling it reports is the host's statement and never
+        // a measurement this program made.
+        let panel = assemble(
+            &guest_device(),
+            SUPPLY,
+            Percent::clamped(60),
+            Level::Protect,
+            &guest_that_heard("epoch=8;ceiling=60"),
+        );
+        let row = panel
+            .rows()
+            .iter()
+            .find(|r| r.subject == "charge ceiling")
+            .expect("the row exists");
+        let evidence = row.finding.evidence().as_str();
+        assert!(evidence.contains("60%"), "{row}");
+        assert!(evidence.contains("host boot 8"), "{row}");
+        // And the caveat travels with it.
+        assert!(evidence.contains("cannot read it back"), "{row}");
+    }
+
+    #[test]
+    fn a_tier_two_guest_with_no_statement_says_the_host_was_silent() {
+        // A host that has said nothing has not promised anything, and the row
+        // must not read as though it had.
+        let panel = assemble(
+            &guest_device(),
+            SUPPLY,
+            Percent::clamped(60),
+            Level::Protect,
+            &guest_that_heard("epoch=8"),
+        );
+        let row = panel
+            .rows()
+            .iter()
+            .find(|r| r.subject == "charge ceiling")
+            .expect("the row exists");
+        assert!(
+            row.finding.evidence().as_str().contains("has said nothing"),
+            "{row}"
+        );
     }
 }

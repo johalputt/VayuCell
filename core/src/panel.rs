@@ -32,6 +32,7 @@
 //! renders it as an estimate and then asks the only instrument that can settle
 //! it, which is a person with a flat table.
 
+use crate::capability::Tier;
 use crate::governor::Level;
 use crate::shed::UpsClaim;
 use crate::sysfs::Kind;
@@ -248,6 +249,23 @@ impl Panel {
     /// row — quietly turning "this device cannot hold a charge ceiling", which
     /// is the T0 case and the most common device, into a panel that simply does
     /// not mention charge ceilings.
+    ///
+    /// # A tier-2 guest gets different rows, and has to
+    ///
+    /// A guest under the Android hypervisor cannot see the phone's cell: the
+    /// charge node lives in the *host's* kernel, and the guest has no power
+    /// supply of its own to read. Every row below that would otherwise
+    /// describe the phone's cell therefore says something different at tier 2 —
+    /// not a quieter version of the same thing, but a different thing, because
+    /// the question has changed from "what does this device expose?" to "what
+    /// does the host own, and what has the guest been told?".
+    ///
+    /// The wording that was wrong here was the loudest one in the panel:
+    /// *"this device exposes no charge control, so no ceiling can be held"*.
+    /// At tier 2 that is false. The charge control exists; it belongs to the
+    /// host; and the guest can ask for a ceiling and be told what the host
+    /// holds. Reporting the tier-2 arrangement in tier-0 words would have
+    /// turned a working arrangement into a failure.
     #[must_use]
     pub fn build(
         tier: &Verdict,
@@ -258,6 +276,7 @@ impl Panel {
         risk: SwellingRisk,
     ) -> Self {
         let mut rows = Vec::new();
+        let guest = under_a_host(tier);
 
         rows.push(Row {
             subject: "device tier",
@@ -274,24 +293,7 @@ impl Panel {
 
         rows.push(Row {
             subject: "charge mechanism",
-            finding: match mechanism {
-                Some(k) => Finding::Verified(evidence(&format!(
-                    "{} answered at {}",
-                    k.node(),
-                    if k.is_ceiling() {
-                        "a readable ceiling"
-                    } else {
-                        "a control that is not a readable ceiling"
-                    }
-                ))),
-                // Not a failure of this software, and not something to soften.
-                // On an unrooted stock phone there is no supported way to stop
-                // the charger, and a row that went quiet about it would leave
-                // the user believing a ceiling is being held.
-                None => Finding::Refused(evidence(
-                    "this device exposes no charge control, so no ceiling can be held",
-                )),
-            },
+            finding: mechanism_row(guest, mechanism),
         });
 
         rows.push(Row {
@@ -301,24 +303,12 @@ impl Panel {
 
         rows.push(Row {
             subject: "battery governor",
-            finding: match level {
-                Level::Normal => {
-                    Finding::Verified(evidence("governor at NORMAL; no threshold crossed"))
-                }
-                other => Finding::Refused(evidence(&format!(
-                    "governor at {other}; the workload has been reduced or stopped"
-                ))),
-            },
+            finding: governor_row(guest, level),
         });
 
         rows.push(Row {
             subject: "outage reserve",
-            finding: match ups {
-                UpsClaim::Backed { reserve } => Finding::Verified(evidence(&format!(
-                    "a cell carries this node and it shuts down holding {reserve}"
-                ))),
-                UpsClaim::Unbacked { why } => Finding::Refused(evidence(why)),
-            },
+            finding: reserve_row(guest, ups),
         });
 
         Self { rows, risk }
@@ -396,4 +386,92 @@ fn evidence(what: &str) -> Evidence {
                 .to_owned(),
         )
     })
+}
+
+/// Whether this panel is about a guest running on a handset.
+///
+/// A tier-2 device is a Linux guest under the Android hypervisor. It cannot
+/// see the phone's cell, so the rows that describe the phone's cell have to
+/// describe the *arrangement* instead.
+fn under_a_host(tier: &Verdict) -> bool {
+    matches!(tier, Verdict::Established(Tier::T2))
+}
+
+/// The charge-mechanism row.
+///
+/// At tier 2 the question is not what the guest exposes but who owns the
+/// control. The node the guest can see, if it can see one, is not
+/// demonstrably the same cell the host charges.
+fn mechanism_row(guest: bool, mechanism: Option<Kind>) -> Finding {
+    if guest {
+        return match mechanism {
+            Some(k) => Finding::Unverified(evidence(&format!(
+                "{} is visible inside the guest, but the cell it would have to \
+                 control belongs to the host, and the guest cannot check that the \
+                 two are the same cell",
+                k.node()
+            ))),
+            None => Finding::Unverified(evidence(
+                "this guest has no charge control of its own; the ceiling is the \
+                 Android host's to hold, and the guest can only ask for it",
+            )),
+        };
+    }
+    match mechanism {
+        Some(k) => Finding::Verified(evidence(&format!(
+            "{} answered at {}",
+            k.node(),
+            if k.is_ceiling() {
+                "a readable ceiling"
+            } else {
+                "a control that is not a readable ceiling"
+            }
+        ))),
+        // Not a failure of this software, and not something to soften.
+        // On an unrooted stock phone there is no supported way to stop
+        // the charger, and a row that went quiet about it would leave
+        // the user believing a ceiling is being held.
+        None => Finding::Refused(evidence(
+            "this device exposes no charge control, so no ceiling can be held",
+        )),
+    }
+}
+
+/// The governor row.
+///
+/// At tier 2 the guest's governor has nothing to govern: the phone's cell is
+/// the host's to read, and the guest has no reading of it. The row says that
+/// rather than reporting a level derived from the guest's own hardware.
+fn governor_row(guest: bool, level: Level) -> Finding {
+    if guest {
+        return Finding::Unverified(evidence(
+            "this guest cannot read the phone's cell, which the host owns, so the \
+             governor here has no reading of it to act on",
+        ));
+    }
+    match level {
+        Level::Normal => Finding::Verified(evidence("governor at NORMAL; no threshold crossed")),
+        other => Finding::Refused(evidence(&format!(
+            "governor at {other}; the workload has been reduced or stopped"
+        ))),
+    }
+}
+
+/// The outage-reserve row.
+///
+/// At tier 2 the guest cannot read the cell, so it cannot know what is
+/// carrying the node — which is an absence of knowledge and not a failure.
+fn reserve_row(guest: bool, ups: &UpsClaim) -> Finding {
+    match ups {
+        UpsClaim::Backed { reserve } => Finding::Verified(evidence(&format!(
+            "a cell carries this node and it shuts down holding {reserve}"
+        ))),
+        UpsClaim::Unbacked { why } => {
+            if guest {
+                Finding::Unverified(evidence(why))
+            } else {
+                Finding::Refused(evidence(why))
+            }
+        }
+    }
 }

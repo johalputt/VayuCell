@@ -389,27 +389,30 @@ of it compiles.
 | **P2** | T0/T1 runtime, service supervisor, one-click installer | A phone that serves something | Survives 30 days unattended with Doze active | ◐ **needs a device.** The supervisor loop is in `core/src/runtime.rs`, the binary runs it, and thirty *simulated* days is a test. A service supervisor and Doze survival cannot be simulated |
 | **P3** | **Sovereign Ingress** — onion, relay, local | A reachable server with no public IP | Reachable from outside with no port forward | ◐ **all modes written, device gate open.** The modes, their seven declared properties and the governor's authority over them are in `core/src/ingress.rs`; local-only is served; `all --onion-dir` supervises your system's tor daemon ([VCIP-0001](docs/vcip/VCIP-0001-onion-ingress-via-system-tor.md)); and `all --relay-via <HOST>` now declares the rented-tunnel mode — hostname validated at typing time, profile-derived disclosures and the forwarding instruction printed before anything binds, panel never announced through it ([ADR-0013](docs/adr/ADR-0013-relay-ingress-a-rented-dependency.md)). What remains is the gate: a handset reachable from an outside vantage point, which no code here can substitute for |
 | **P4** | Catalogue: site + personal cloud | The two headline uses | A real site and real file sync, served from a phone | ◐ **code complete, unproven on hardware.** `vayucell site` serves a directory under the governor's authority (ADR-0008) and `vayucell vault` accepts authenticated files (ADR-0009), now with an authenticated listing so a client can decide what differs. The companion `vayucell-sync` keeps one folder of yours in step — plan/push, prune only on the flag, dials only while it runs (ADR-0011). What remains is the gate: a handset serving both halves, and sync run against it from another machine |
-| **P5** | **T2 virtualised tier** (pKVM guest) | Server-grade on unrooted, updated phones | Guest survives host reboot; escapes Doze | ⬜ not started |
+| **P5** | **T2 virtualised tier** (pKVM guest) | Server-grade on unrooted, updated phones | Guest survives host reboot; escapes Doze | ◐ **contract written, host channel open.** `core/src/guest.rs` holds what a guest running under an Android host may say about the three controls it does not own — the charge ceiling, the host's Doze policy, its own ingress ([ADR-0015](docs/adr/ADR-0015-the-tier-two-guest-contract.md)). Every claim belongs to a **boot** and dies with it: a host reboot voids the claims of the boot before it, a statement from a boot the guest has left is refused, and the standing of a control has no *verified* variant, because a guest cannot read the cell back. The panel and the report follow — at tier 2 the ceiling is the host's to hold, the governor has no reading to act on, and the cell it cannot read is not a cell that is unsafe. The guest's own record is a file, written durably, and a corrupt record is never read as an empty one. **The channel is the open part**: the host's statement arrives in an environment variable standing in for a pKVM host API, so the contract can be exercised but a real host has not spoken it, and no handset has rebooted underneath a running guest |
 | **P6** | Replication lag as the stated guarantee, verified-restore reporting, wear observation | Data you can trust | Graceful-shutdown ladder verified; an unrestored backup reads *unverified* | ◐ **both code halves done, device gate open.** The honesty machinery (`core/src/durability.rs`: a lag that goes stale, a drill that expires, no variant meaning *durable*) now has both a renderer (`cli/src/storage.rs`, wear from `core/src/wear.rs`) and a subject: `vayucell-sync replicate` mirrors the vault and `drill` re-downloads every file to compare byte for byte, each leaving a dated receipt (ADR-0012). The cell quotes that receipt through `--replica-evidence` — worded as the replica's claim, aged against this clock, never measured here. **What remains is exactly what code cannot do**: somebody runs this against a real handset and lets the receipts age in the world |
 | **P7** | **Fleet** — roles, replication, rolling upgrade, shared verdicts | Redundancy and scale | One node killed mid-write loses nothing | ◐ **contract written, unproven at scale.** `core/src/fleet.rs` holds the whole interop contract ([ADR-0014](docs/adr/ADR-0014-the-fleet-contract.md)): the four roles as declared promises, quorum computed as a majority with witnesses restricted to breaking exact ties, an upgrade machine that holds one node in flight and drains one that overstays its budget, and jail verdicts sealed with hand-implemented, RFC-pinned HMAC-SHA-256. Replication between cells rides the existing vault plus ADR-0012 receipts — there is no separate fleet wire format. What remains is the gate itself: real nodes, killed mid-write, on real hardware |
-| **P8** | **T3 mainline tier** (postmarketOS-class images) | A maintained kernel — the real fix for B4 | Verified images for the top device families | ⬜ not started |
-| **P9** | Local model inference, household services | Private AI on hardware you own | Runs within the declared thermal envelope | ⬜ not started |
+| **P8** | **T3 mainline tier** (postmarketOS-class images) | A maintained kernel — the real fix for B4 | Verified images for the top device families | ◐ **manifest and check written, no image exists.** `core/src/image.rs` says what a mainline image *is* — name, version, the kernel release it was built against, the board it targets, the maximum charge voltage its device tree declares — and checks the **running system** against it ([ADR-0016](docs/adr/ADR-0016-the-verified-image-manifest.md)). The kernel is compared exactly, the board by membership in the device tree's `compatible` list, the voltage within a stated tolerance. Absent and unreadable stay apart from different, because we could not look is not the same as it is different. **What remains is the supply chain**: the images themselves, the device families they cover, and the signing of a manifest — the check says what an image is, not who published it |
+| **P9** | Local model inference, household services | Private AI on hardware you own | Runs within the declared thermal envelope | ◐ **catalogue written, nothing has been profiled or run.** `core/src/catalogue.rs` gives every service a **tier floor** and a **resource envelope**, so a picker can grey out what a device cannot run and say *which requirement failed* ([ADR-0017](docs/adr/ADR-0017-the-service-catalogue.md)). "Provably does not fit" and "cannot be told" are different answers, and a device whose tier was never established is answered *cannot be told* for every entry rather than guessed either way. **What remains is the profiler and the silicon**: the tier and the resource figures have to come from a real device, the thermal envelope has to be enforced by a governor that has watched a cell heat, and private model inference has to run inside it on a phone |
 
-**Six phases have their code; three are untouched; and every gate that is
-still open ends in a sentence about hardware.** P0 is met. P1's governor,
-P2's supervisor loop, P3's ingress in all four modes, P4's site, vault and
-companion, P6's replicator with its verified restore, and P7's fleet
-contract all exist and are mutation-tested — thirteen core modules and
-twenty gates' worth of layer *underneath* the product. What remains
-untouched is exactly what cannot be written here: P5 needs a phone with
-working pKVM, P8 needs maintained mainline images for real device
-families, and P9 needs silicon to run inference on. None of those is a
-coding problem, so none of them got pretend code.
+**Every phase now has its code; every gate that is still open ends in a
+sentence about hardware.** P0 is met. P1's governor, P2's supervisor loop,
+P3's ingress in all four modes, P4's site, vault and companion, P6's
+replicator with its verified restore, P7's fleet contract, P5's guest
+contract, P8's image manifest and P9's catalogue all exist and are
+mutation-tested — twenty-six core modules and twenty gates' worth of layer
+*underneath* the product. What remains open is exactly what cannot be
+written here: P5 needs a phone with working pKVM and a host channel that
+speaks, P8 needs maintained mainline images for real device families, and
+P9 needs silicon to run inference on. None of those is a coding problem, so
+none of them got pretend code.
 
-**Five gates cannot be closed by writing code.** P2, P3, P4, P6 and P7 all end
-in a sentence about devices: thirty days unattended, reachable from an outside
-vantage point, served from a phone, receipts aging in the world, a node killed
-mid-write losing nothing on real storage. No amount of work in this repository
+**Eight gates cannot be closed by writing code.** P2, P3, P4, P5, P6, P7, P8
+and P9 all end in a sentence about devices: thirty days unattended, reachable
+from an outside vantage point, served from a phone, a guest surviving a host
+reboot, receipts aging in the world, a node killed mid-write losing nothing
+on real storage, an image a device family can be told to trust, and a model
+running inside a thermal envelope. No amount of work in this repository
 closes them. Somebody has to put retired phones on a bench.
 
 **P1 precedes everything that serves traffic, deliberately.** Shipping a

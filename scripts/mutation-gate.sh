@@ -1892,3 +1892,381 @@ mutate "core/src/fleet.rs" an_upgrade_holds_one_node_in_flight_and_drains_a_stal
   "a node is drained exactly at its budget instead of after it, so a slow reboot loses its place in the rotation" \
   "                if now.saturating_sub(since_unix) > UPGRADE_BUDGET_SECS {" \
   "                if now.saturating_sub(since_unix) >= UPGRADE_BUDGET_SECS {"
+# --- The tier-2 guest contract (ADR-0015) ---------------------------------------
+#
+# Every mutation in this block breaks one of the guards that make a guest
+# honest about the host it runs under. They are the guards most likely to be
+# broken by a well-meaning change, because each of them looks like an
+# over-strictness rather than a rule: refusing an old statement, voiding a
+# claim, refusing a key this build does not know.
+
+GU=core/src/guest.rs
+CG=cli/src/guest.rs
+
+mutate "$GU" a_boot_counter_that_goes_backwards_is_refused \
+  "a counter that moves backwards is read as the same boot, so a replayed statement is believed" \
+  "            Some(known) if epoch < known => Observation::Replayed," \
+  "            Some(known) if epoch < known => Observation::SameBoot,"
+
+mutate "$GU" a_reboot_is_noticed_even_when_the_host_says_nothing_at_all \
+  "a reboot is not noticed, so the guest carries the claims of the boot before it" \
+  "            Some(_) => {
+                self.observed = Some(epoch);
+                Observation::Rebooted
+            }" \
+  "            Some(_) => {
+                self.observed = Some(epoch);
+                Observation::SameBoot
+            }"
+
+mutate "$GU" a_host_reboot_voids_the_claims_made_in_the_earlier_boot \
+  "a claim made before the host rebooted is carried forward, reporting a control that no longer exists" \
+  "        if let Some(now) = self.observed.filter(|now| *epoch < *now) {" \
+  "        if let Some(now) = self.observed.filter(|now| *epoch > *now) {"
+
+mutate "$GU" a_statement_from_an_earlier_boot_is_refused \
+  "a statement from a boot the guest has already left is believed" \
+  "        if let Some(known) = self.observed.filter(|known| attestation.epoch < *known) {" \
+  "        if let Some(known) = self.observed.filter(|known| attestation.epoch >= *known) {"
+
+mutate "$GU" a_statement_with_no_boot_counter_is_refused \
+  "a statement with no boot counter is accepted, so its claim can never be invalidated" \
+  "        let Some(epoch) = epoch else {
+            return Err(Fault::Malformed(
+                \"the host did not say which boot of itself this is\".to_owned(),
+            ));
+        };" \
+  "        let Some(epoch) = epoch else {
+            return Ok(Self {
+                epoch: HostEpoch::FIRST,
+                claims,
+            });
+        };"
+
+mutate "$GU" a_statement_with_an_unknown_key_is_refused_rather_than_partly_believed \
+  "a key this build does not know is ignored, so anything at all can be smuggled past a rule" \
+  "                other => {
+                    return Err(Fault::Malformed(format!(
+                        \"{other:?} is not a statement this build knows\"
+                    )))
+                }" \
+  "                other => {
+                    let _ = other;
+                }"
+
+mutate "$GU" a_statement_that_claims_two_things_about_one_control_is_refused \
+  "a host that says two things about one control has one of them picked for it" \
+  "    if claims.iter().any(|held| held.control() == claim.control()) {" \
+  "    if false {"
+
+mutate "$GU" a_ceiling_above_a_hundred_is_refused_rather_than_clamped \
+  "a ceiling of 150 is clamped to 100, shipping a limit on somebody's cell that nobody chose" \
+  "                        if percent > 100 {
+                            return Err(Fault::Malformed(format!(
+                                \"ceiling {percent} is not a percentage\"
+                            )));
+                        }" \
+  "                        if percent > 100 {
+                            let _ = percent;
+                        }"
+
+mutate "$GU" a_boot_counter_of_zero_is_refused \
+  "a boot counter of zero is accepted, and a zero epoch compares as older than every real boot" \
+  "        match NonZeroU64::new(counter) {
+            Some(value) => Some(Self(value)),
+            None => None,
+        }" \
+  "        match NonZeroU64::new(counter) {
+            Some(value) => Some(Self(value)),
+            None => Some(Self(NonZeroU64::MIN)),
+        }"
+
+mutate "$GU" the_host_saying_it_holds_no_ceiling_is_not_the_same_as_saying_nothing \
+  "a host that says it holds no ceiling is refused, so a definite negative reads as silence" \
+  "                    let claim = if value == \"none\" {" \
+  "                    let claim = if value.is_empty() {"
+
+mutate "$GU" a_claim_about_one_control_cannot_be_read_as_another \
+  "a reachability claim is filed under the Doze control" \
+  "            Self::Published | Self::Withheld => Mediated::Reachability," \
+  "            Self::Published | Self::Withheld => Mediated::Doze,"
+
+mutate "$GU" a_claim_survives_the_wire_it_is_written_on \
+  "a claim does not survive the text it is written on, so the record loses it" \
+  "            \"holding nothing\" => Ok(Self::HoldingNothing)," \
+  "            \"holding nothing\" => Ok(Self::DozeExempt),"
+
+mutate "$GU" the_doze_claim_carries_the_caveat_that_it_cannot_be_checked_from_inside \
+  "a claim loses the words that say it is the host's promise and not a measurement" \
+  "                \"{} (host boot {epoch}); {}\",
+                claim.describe(),
+                claim.control().caveat()" \
+  "                \"{} (host boot {epoch}); {}\",
+                claim.describe(),
+                \"\""
+
+mutate "$GU" a_record_holding_two_facts_about_one_control_is_refused \
+  "a record holding two facts about one control is believed, so the guest picks one" \
+  "                    if ledger
+                        .facts
+                        .iter()
+                        .any(|(held, _)| held.control() == claim.control())
+                    {" \
+  "                    if false {"
+
+mutate "$GU" a_record_holding_a_fact_from_a_boot_it_never_observed_is_refused \
+  "a fact from a boot the guest never observed is believed" \
+  "            if let Some((claim, _)) = ledger.facts.iter().find(|(_, epoch)| *epoch > now) {" \
+  "            if let Some((claim, _)) = ledger.facts.iter().find(|(_, epoch)| *epoch < now) {"
+
+mutate "$GU" a_guest_folds_the_hosts_statement_into_its_own_record \
+  "the record the guest read is thrown away, so a reboot is never noticed" \
+  "            Record::Read(ledger) => (ledger, None)," \
+  "            Record::Read(_ledger) => (Ledger::new(), None),"
+
+mutate "$GU" a_guest_with_no_host_statement_says_the_host_was_silent \
+  "a host that said nothing is reported as though it had spoken" \
+  "            None => Some(Fault::Absent)," \
+  "            None => None,"
+
+mutate "$GU" a_statement_this_build_cannot_read_is_reported_as_such_and_claims_nothing \
+  "a statement this build cannot read is reported as silence rather than as a fault" \
+  "                Err(fault) => Some(fault)," \
+  "                Err(_fault) => Some(Fault::Absent),"
+
+# The tier-2 panel and report: a guest is not a phone with fewer features, it
+# is a different arrangement, and the words have to say which.
+
+mutate "$P" a_tier_two_guest_is_not_told_the_device_has_no_charge_control \
+  "a tier-2 guest is given the tier-0 wording, which says the device has no charge control at all" \
+  "    matches!(tier, Verdict::Established(Tier::T2))" \
+  "    matches!(tier, Verdict::Established(Tier::T3))"
+
+mutate "$P" a_tier_two_guest_is_told_the_governor_has_no_reading_to_act_on \
+  "the tier-2 governor row is reported as a verified row" \
+  "    if guest {
+        return Finding::Unverified(evidence(" \
+  "    if guest {
+        return Finding::Verified(evidence("
+
+mutate "$P" a_tier_two_guest_is_not_credited_with_an_outage_reserve \
+  "a tier-2 guest whose cell it cannot read is reported as having no reserve" \
+  "                Finding::Unverified(evidence(why))" \
+  "                Finding::Refused(evidence(why))"
+
+mutate "$RP" a_tier_two_guest_is_told_the_ceiling_is_the_hosts_to_hold \
+  "the tier-2 ceiling row falls back to the tier-0 wording, which says no mechanism exists" \
+  "    let hosted = matches!(tier.verdict, Verdict::Established(Tier::T2));" \
+  "    let hosted = matches!(tier.verdict, Verdict::Established(Tier::T3));"
+
+mutate "$CG" a_record_that_exists_and_will_not_parse_is_corrupt_rather_than_empty \
+  "a record that exists and will not parse is read as no record at all" \
+  "            Err(e) => Record::Corrupt(format!(\"{path}: {e}\"))," \
+  "            Err(_e) => Record::Absent,"
+
+mutate "$CG" a_recorded_claim_is_still_there_for_the_next_process \
+  "the record is written without being renamed into place, so nothing readable is left behind" \
+  "    std::fs::rename(&temporary, path).map_err(|e| format!(\"{path}: {e}\"))?;" \
+  "    let _ = std::fs::remove_file(&temporary);"
+
+# --- The tier-3 image: what a manifest is, and what a check may conclude ---
+
+IM=core/src/image.rs
+
+mutate "$IM" a_kernel_that_merely_starts_with_the_manifest_kernel_is_not_that_kernel \
+  "the running kernel is compared by prefix, so a kernel this image was never built against passes" \
+  "            if running == manifest.kernel() {" \
+  "            if running.starts_with(manifest.kernel()) {"
+
+mutate "$IM" an_absent_kernel_node_is_unverified_rather_than_a_mismatch \
+  "a machine that does not publish its kernel is accused of running the wrong image" \
+  "                    Subject::Kernel,
+                    Status::Absent," \
+  "                    Subject::Kernel,
+                    Status::Differed,"
+
+mutate "$IM" an_absent_device_tree_is_unverified_rather_than_a_mismatch \
+  "a machine with no device tree is reported as running a different image" \
+  "            Subject::DeviceTree,
+            Status::Absent," \
+  "            Subject::DeviceTree,
+            Status::Differed,"
+
+mutate "$IM" an_unreadable_device_tree_is_unverified_and_says_so_differently_from_absent \
+  "a device tree this process may not open is reported as one that is not there" \
+  "            Subject::DeviceTree,
+            Status::Unreadable," \
+  "            Subject::DeviceTree,
+            Status::Absent,"
+
+mutate "$IM" a_charge_voltage_node_that_is_not_a_number_is_unreadable_and_not_a_mismatch \
+  "a charge voltage that is not a number is reported as a disagreement with the manifest" \
+  "            Err(_) => Finding::new(
+                Subject::ChargeVoltage,
+                Status::Unreadable," \
+  "            Err(_) => Finding::new(
+                Subject::ChargeVoltage,
+                Status::Differed,"
+
+mutate "$IM" the_tolerance_is_exactly_the_named_one_and_nothing_wider \
+  "the charge voltage tolerance is doubled, so a ceiling well above the declared one passes" \
+  "                if found.abs_diff(expected) <= CHARGE_TOLERANCE_MV {" \
+  "                if found.abs_diff(expected) <= CHARGE_TOLERANCE_MV * 2 {"
+
+mutate "$IM" a_charge_voltage_inside_the_tolerance_matches \
+  "the charge voltage tolerance is removed, so the rounding the kernel does is reported as a disagreement" \
+  "                if found.abs_diff(expected) <= CHARGE_TOLERANCE_MV {" \
+  "                if found.abs_diff(expected) == 0 {"
+
+mutate "$IM" the_nul_separated_compatible_property_is_read_as_a_list \
+  "only the first string of the compatible list is read, so an image built for a less specific board is missed" \
+  "            if listed.contains(&manifest.compatible()) {" \
+  "            if listed.first() == Some(&manifest.compatible()) {"
+
+mutate "$IM" a_device_tree_that_names_the_manifest_board_matches \
+  "the whole compatible file is compared against one string, so no real device tree ever matches" \
+  "            if listed.contains(&manifest.compatible()) {" \
+  "            if value.trim() == manifest.compatible() {"
+
+mutate "$IM" a_device_tree_published_only_under_the_sysfs_root_is_still_read \
+  "the second device-tree root is never tried, so a machine that publishes the tree in the other place is missed" \
+  "    for root in DEVICE_TREE_ROOTS {" \
+  "    for root in DEVICE_TREE_ROOTS.iter().take(1) {"
+
+mutate "$IM" an_unreadable_first_root_does_not_stop_the_second_from_answering \
+  "an unreadable first root stops the second from being read, so a machine that publishes the tree twice is called silent" \
+  "        if unreadable.is_none() {
+            unreadable = Some(path);
+        }" \
+  "        if unreadable.is_none() {
+            unreadable = Some(path);
+        }
+        break;"
+
+mutate "$IM" a_manifest_with_a_zero_maximum_charge_voltage_is_refused \
+  "a manifest with a zero charge ceiling is accepted, and it says the image holds the cell at nothing" \
+  "        if max_charge_mv == 0 {
+            return Err(ImageError::NoCeiling);
+        }" \
+  "        if max_charge_mv == 0 {
+            return Ok(Self {
+                name: field(name, \"name\")?,
+                version: field(version, \"version\")?,
+                kernel: field(kernel, \"kernel\")?,
+                compatible: field(compatible, \"compatible\")?,
+                max_charge_mv,
+            });
+        }"
+
+mutate "$IM" an_unknown_key_is_refused_rather_than_ignored \
+  "a key this build does not know is read as one it does, so anything can be smuggled past a rule that was never taught" \
+  "            \"max-charge-mv\" => Some(Self::MaxChargeMv),
+            _ => None," \
+  "            \"max-charge-mv\" => Some(Self::MaxChargeMv),
+            _ => Some(Self::Name),"
+
+mutate "$IM" a_key_given_twice_is_refused \
+  "a key given twice is resolved by taking the second, so this program decides which the author meant" \
+  "fn set_once(slot: &mut Option<String>, value: &str, key: &'static str) -> Result<(), ImageError> {
+    if slot.is_some() {" \
+  "fn set_once(slot: &mut Option<String>, value: &str, key: &'static str) -> Result<(), ImageError> {
+    if slot.is_some() && value.is_empty() {"
+
+mutate "$IM" a_manifest_missing_a_required_key_is_refused \
+  "a manifest that names no board is read as one that targets no board" \
+  "        let compatible = compatible.ok_or(ImageError::MissingKey { key: \"compatible\" })?;" \
+  "        let compatible = compatible.unwrap_or_default();"
+
+mutate "$IM" a_manifest_with_no_name_is_refused \
+  "a manifest with a blank name is accepted, and it names no image at all" \
+  "    if trimmed.is_empty() {
+        return Err(ImageError::Blank { key });
+    }" \
+  "    if false {
+        return Err(ImageError::Blank { key });
+    }"
+
+mutate "$IM" a_file_that_is_not_a_manifest_is_an_error_and_not_an_empty_manifest \
+  "a file that is not a manifest is read as one that declares nothing" \
+  "        if header != MANIFEST_HEADER {" \
+  "        if false {"
+
+mutate "$IM" a_mismatch_outranks_an_unanswered_question_in_the_headline \
+  "the best finding wins the headline, so a known disagreement is softened into an unanswered question" \
+  "            .max()
+            .unwrap_or(Outcome::Unverified)" \
+  "            .min()
+            .unwrap_or(Outcome::Unverified)"
+
+mutate "$IM" an_absent_kernel_node_is_unverified_rather_than_a_mismatch \
+  "a check that could not be performed is reported as a check that passed" \
+  "            Self::Absent | Self::Unreadable => Outcome::Unverified," \
+  "            Self::Absent | Self::Unreadable => Outcome::Verified,"
+
+# --- The catalogue: what this device may be asked to run ---
+
+CT=core/src/catalogue.rs
+
+mutate "$CT" a_budget_below_the_floor_greys_the_entry_out_with_a_tier_shortfall \
+  "a device below the floor is offered the service anyway" \
+  "            Some(detected) if !detected.at_least(self.floor) => {" \
+  "            Some(detected) if detected.at_least(self.floor) => {"
+
+mutate "$CT" an_unestablished_tier_cannot_tell_anything_and_never_claims_a_fit \
+  "a device whose tier was never established is told it fits everything" \
+  "            None => Some(Reason::TierUnknown { floor: self.floor })," \
+  "            None => None,"
+
+mutate "$CT" a_budget_short_of_memory_greys_the_entry_out_with_a_memory_shortfall \
+  "the memory comparison is inverted, so a device with too little is offered the service" \
+  "        if budget.memory_mb < self.memory_mb {" \
+  "        if budget.memory_mb > self.memory_mb {"
+
+mutate "$CT" a_budget_short_of_storage_greys_the_entry_out_with_a_storage_shortfall \
+  "the storage comparison is inverted, so a device with no room left is offered the service" \
+  "        } else if budget.storage_mb < self.storage_mb {" \
+  "        } else if budget.storage_mb > self.storage_mb {"
+
+mutate "$CT" a_cool_budget_greys_out_the_heavy_service_on_thermal_grounds \
+  "the thermal comparison is inverted, so heavy work runs on a cell that was never meant to carry it" \
+  "        } else if self.thermal.worse_than(budget.thermal) {" \
+  "        } else if budget.thermal.worse_than(self.thermal) {"
+
+mutate "$CT" the_thermal_classes_are_ordered_from_idle_to_heavy \
+  "the thermal order is broken, so light work reads as worse than heavy work" \
+  "            Self::Idle => 0,
+            Self::Light => 1," \
+  "            Self::Idle => 2,
+            Self::Light => 1,"
+
+mutate "$CT" the_selection_keeps_catalogue_order_and_is_stable_across_runs \
+  "the two lists are swapped, so a service that cannot run is offered and one that fits is greyed out" \
+  "            Some(reason) => greyed.push(Greyed { entry, reason })," \
+  "            Some(_reason) => fitting.push(entry)," \
+  "            None => fitting.push(entry)," \
+  "            None => greyed.push(Greyed { entry, reason: Reason::TierUnknown { floor: entry.floor } }),"
+
+mutate "$CT" every_catalogue_entry_appears_in_the_selection \
+  "the result counts only the services that fit, so the picker looks smaller than the catalogue" \
+  "        self.fitting.len() + self.greyed.len()" \
+  "        self.fitting.len()"
+
+mutate "$CT" a_budget_below_the_floor_greys_the_entry_out_with_a_tier_shortfall \
+  "the safety report's floor is raised, so a device that cannot hold a ceiling is not told what it is" \
+  "    floor: Tier::T0," \
+  "    floor: Tier::T1,"
+
+mutate "$CT" the_heavy_thermal_class_belongs_to_model_inference_and_to_nothing_else \
+  "the heavy class is given to another service, so two workloads of that class run on one cell" \
+  "    envelope: Envelope::new(4096, 8192, ThermalClass::Heavy)," \
+  "    envelope: Envelope::new(4096, 8192, ThermalClass::Sustained),"
+
+mutate "$CT" meeting_the_floor_does_not_buy_a_service_the_resources_cannot_carry \
+  "the heavy service's memory requirement is cut, so a device that cannot carry it is offered it" \
+  "    envelope: Envelope::new(4096, 8192, ThermalClass::Heavy)," \
+  "    envelope: Envelope::new(64, 8192, ThermalClass::Heavy),"
+
+mutate "$CT" each_shortfall_names_its_own_requirement \
+  "a storage shortage is reported as a memory shortage, so the reader is sent to the wrong number" \
+  "                    \"this device has {have_mb} MB of storage and the service wants {wanted_mb} MB\"" \
+  "                    \"this device has {have_mb} MB of memory and the service wants {wanted_mb} MB\""

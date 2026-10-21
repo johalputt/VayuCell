@@ -18,13 +18,16 @@
 pub mod auth;
 pub mod battery;
 pub mod capability;
+pub mod catalogue;
 pub mod csp;
 pub mod durability;
 pub mod fleet;
 pub mod governor;
+pub mod guest;
 pub mod halt;
 pub mod headers;
 pub mod host;
+pub mod image;
 pub mod ingress;
 pub mod onion;
 pub mod panel;
@@ -44,15 +47,21 @@ mod auth_test;
 #[cfg(test)]
 mod capability_test;
 #[cfg(test)]
+mod catalogue_test;
+#[cfg(test)]
 mod csp_test;
 #[cfg(test)]
 mod durability_test;
 #[cfg(test)]
 mod governor_test;
 #[cfg(test)]
+mod guest_test;
+#[cfg(test)]
 mod halt_test;
 #[cfg(test)]
 mod headers_test;
+#[cfg(test)]
+mod image_test;
 #[cfg(test)]
 mod ingress_test;
 #[cfg(test)]

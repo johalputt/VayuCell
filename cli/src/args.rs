@@ -132,6 +132,12 @@ pub struct Args {
     pub quota: u64,
     /// Where the halt record lives.
     pub halt_record: String,
+    /// Where the guest's own record of the host's statements lives.
+    ///
+    /// A guest under an Android hypervisor is destroyed by every host reboot,
+    /// so this file is the only thing that can tell a restarted guest that the
+    /// host has rebooted underneath it.
+    pub guest_record: String,
     /// What `inspect` was told the person saw. `None` means neither flag.
     pub inspection: Option<Inspection>,
 }
@@ -312,6 +318,13 @@ OPTIONS:
                         it as exactly that — a claim, aged against this
                         cell's clock, never presented as something this
                         device measured. vault, all, report and status
+    --guest-record <FILE>
+                        Where a tier-2 guest keeps its record of what the
+                        Android host has told it. A guest is destroyed by
+                        every host reboot, so this file is the only thing
+                        that can tell a restarted guest the host has rebooted
+                        underneath it — and a claim the host made before the
+                        reboot does not survive it. report, status and all
     --relay-via <HOST>  The public hostname of a rented relay that forwards to
                         this device. A supplier can end that path at will and
                         a relay terminating TLS reads everything passing
@@ -356,6 +369,7 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
     let mut device: Option<String> = None;
     let mut quota: u64 = DEFAULT_QUOTA;
     let mut halt_record = crate::halted::default_path();
+    let mut guest_record: Option<String> = None;
     let mut inspection: Option<Inspection> = None;
 
     let mut i = 0;
@@ -411,6 +425,9 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
             }
             "--halt-record" => {
                 halt_record = value_after(argv, &mut i, "--halt-record")?;
+            }
+            "--guest-record" => {
+                guest_record = Some(value_after(argv, &mut i, "--guest-record")?);
             }
             // Two flags rather than `--inspection <WORD>`, because the two
             // answers are not interchangeable values of one thing: one resumes
@@ -587,6 +604,23 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
         ));
     }
 
+    // A guest record is read by the commands that show a posture and written
+    // by the one that keeps the supervisor running. Elsewhere it would be a
+    // path the operator could point at something else and watch nothing
+    // change.
+    if guest_record.is_some()
+        && !matches!(
+            command,
+            Command::Report | Command::Status | Command::Serve | Command::All | Command::Run { .. }
+        )
+    {
+        return Err(ArgError(
+            "--guest-record belongs to report, status, serve, all and run — the \
+             commands that read or keep a guest's record of the host"
+                .to_owned(),
+        ));
+    }
+
     Ok(Args {
         command,
         supply_dir,
@@ -603,6 +637,7 @@ pub fn parse(argv: &[String]) -> Result<Args, ArgError> {
         device,
         quota,
         halt_record,
+        guest_record: guest_record.unwrap_or_else(crate::guest::default_path),
         inspection,
     })
 }
@@ -693,6 +728,7 @@ mod tests {
                 device: None,
                 quota: super::DEFAULT_QUOTA,
                 halt_record: crate::halted::default_path(),
+                guest_record: crate::guest::default_path(),
                 inspection: None,
             }
         );
